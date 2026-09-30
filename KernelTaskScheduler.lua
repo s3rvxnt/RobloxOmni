@@ -181,6 +181,19 @@ local function resolveCFrame(target)
     if not target then return nil end
     if typeof(target) == "CFrame" then return target end
     if typeof(target) == "Vector3" then return CFrame.new(target) end
+    if typeof(target) == "Instance" then
+        if target:IsA("Player") and target.Character then
+            local hrp = target.Character:FindFirstChild("HumanoidRootPart")
+            return hrp and hrp.CFrame or target.Character:GetPivot()
+        elseif target:IsA("Model") then
+            local hrp = target:FindFirstChild("HumanoidRootPart")
+            return hrp and hrp.CFrame or target:GetPivot()
+        elseif target:IsA("BasePart") then
+            return target.CFrame
+        elseif target:IsA("Attachment") then
+            return target.WorldCFrame
+        end
+    end
     if type(target) == "table" and target.x and target.y and target.z then
         return CFrame.new(tonumber(target.x) or 0, tonumber(target.y) or 0, tonumber(target.z) or 0)
     end
@@ -582,6 +595,95 @@ executeSingleAction = function(act, ctx)
                         hrp.AssemblyLinearVelocity = Vector3.zero
                         hrp.AssemblyAngularVelocity = Vector3.zero
                     end)
+                end
+            end
+        elseif act.type == "FindNearest" then
+            local myChar = LocalPlayer.Character
+            local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+            if myHrp then
+                local maxDist = tonumber(evalValue(act.maxDistance, ctx)) or math.huge
+                local sourceVal = evalValue(act.source or "Players", ctx)
+                local varName = (act.varName and act.varName ~= "") and act.varName or "nearest"
+                local candidates = {}
+                if tostring(sourceVal):lower() == "players" or sourceVal == Players then
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                            table.insert(candidates, { obj = p, pos = p.Character.HumanoidRootPart.Position })
+                        end
+                    end
+                else
+                    local parentObj = typeof(sourceVal) == "Instance" and sourceVal or resolveInstance(sourceVal)
+                    if parentObj then
+                        for _, ch in ipairs(parentObj:GetChildren()) do
+                            if ch:IsA("BasePart") then
+                                table.insert(candidates, { obj = ch, pos = ch.Position })
+                            elseif ch:IsA("Model") then
+                                local piv = ch:GetPivot()
+                                table.insert(candidates, { obj = ch, pos = piv.Position })
+                            end
+                        end
+                    end
+                end
+                local closestObj = nil
+                local bestDist = maxDist
+                for _, cand in ipairs(candidates) do
+                    local d = (myHrp.Position - cand.pos).Magnitude
+                    if d < bestDist then
+                        bestDist = d
+                        closestObj = cand.obj
+                    end
+                end
+                ctx.vars[varName] = closestObj
+                ctx.vars["nearest"] = closestObj
+                ctx.vars["nearestDistance"] = (closestObj and bestDist or nil)
+            end
+        elseif act.type == "PathfindTo" then
+            local myChar = LocalPlayer.Character
+            local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+            local hum = myChar and myChar:FindFirstChildOfClass("Humanoid")
+            if myChar and myHrp and hum and act.target then
+                local rawTarget = evalValue(act.target, ctx)
+                local targetCF = resolveCFrame(rawTarget)
+                if targetCF then
+                    local targetPos = targetCF.Position
+                    local stopDist = tonumber(evalValue(act.stopDistance, ctx)) or 4
+                    local timeout = tonumber(evalValue(act.timeout, ctx)) or 30
+                    local PathfindingService = game:GetService("PathfindingService")
+                    local path = PathfindingService:CreatePath({
+                        AgentRadius = 2,
+                        AgentHeight = 5,
+                        AgentCanJump = true
+                    })
+                    local compOk = pcall(function() path:ComputeAsync(myHrp.Position, targetPos) end)
+                    if compOk and path.Status == Enum.PathStatus.Success then
+                        local startTime = tick()
+                        for _, wp in ipairs(path:GetWaypoints()) do
+                            if (tick() - startTime) > timeout then break end
+                            if not (myChar and myChar.Parent and hum.Health > 0) then break end
+                            if (myHrp.Position - targetPos).Magnitude <= stopDist then break end
+                            if wp.Action == Enum.PathWaypointAction.Jump then
+                                hum.Jump = true
+                            end
+                            hum:MoveTo(wp.Position)
+                            hum.MoveToFinished:Wait()
+                        end
+                    else
+                        hum:MoveTo(targetPos)
+                        local startTime = tick()
+                        while myChar and myChar.Parent and hum.Health > 0 and (myHrp.Position - targetPos).Magnitude > stopDist and (tick() - startTime) < timeout do
+                            task.wait(0.1)
+                        end
+                    end
+                end
+            end
+        elseif act.type == "ResetCharacter" then
+            local myChar = LocalPlayer.Character
+            if myChar then
+                local hum = myChar:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum.Health = 0
+                else
+                    myChar:BreakJoints()
                 end
             end
         elseif act.type == "ActivatePrompt" then
@@ -2379,6 +2481,9 @@ local ACTION_PRIMITIVES = {
     { type = "Toast", name = "Toast Alert", icon = "🔔", cat = "Flow", def = { title = "Alert", message = "Notice: $MyVar" } },
     { type = "TweenTo", name = "Tween To (CFrame)", icon = "📍", cat = "Navigation", def = { target = "0, 10, 0", duration = 2.0 } },
     { type = "InstantTeleport", name = "Instant Teleport", icon = "⚡", cat = "Navigation", def = { target = "0, 10, 0" } },
+    { type = "PathfindTo", name = "Pathfind To", icon = "🗺️", cat = "Navigation", def = { target = "$nearest", stopDistance = 4 } },
+    { type = "FindNearest", name = "Find Nearest", icon = "🧭", cat = "World", def = { source = "Players", varName = "nearest", maxDistance = 500 } },
+    { type = "ResetCharacter", name = "Reset Character", icon = "💀", cat = "Player", def = {} },
     { type = "FollowRoute", name = "Follow Route", icon = "🚶", cat = "Navigation", def = { targetNode = "Yard", route = "road_network.json" } },
     { type = "StopRoute", name = "Stop Route", icon = "🛑", cat = "Navigation", def = {} },
     { type = "ActivatePrompt", name = "Activate Prompt", icon = "🎯", cat = "Interaction", def = { target = "nearest", maxDistance = 35 } },
@@ -2697,6 +2802,38 @@ renderActionStack = function()
             p1.Position = UDim2.new(0, 180, 0, 8)
             p1.Text = tostring(act.target or "0, 10, 0")
             p1:GetPropertyChangedSignal("Text"):Connect(function() act.target = p1.Text end)
+        elseif act.type == "PathfindTo" then
+            local p1 = createBuilderInput("P1", "Target ($nearest / Pos / Part)", UDim2.new(0.42, -10, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.target or "$nearest")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.target = p1.Text end)
+
+            local p2 = createBuilderInput("P2", "Stop Dist", UDim2.new(0.23, 0, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.42, 175, 0, 8)
+            p2.Text = tostring(act.stopDistance or 4)
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.stopDistance = tonumber(p2.Text) or 4 end)
+        elseif act.type == "FindNearest" then
+            local p1 = createBuilderInput("P1", "Source (e.g. Players, folder)", UDim2.new(0.38, -10, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.source or "Players")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.source = p1.Text end)
+
+            local p2 = createBuilderInput("P2", "Save to Var", UDim2.new(0.27, 0, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.38, 175, 0, 8)
+            p2.Text = tostring(act.varName or "nearest")
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.varName = p2.Text end)
+        elseif act.type == "ResetCharacter" then
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(0.65, 0, 0, 22)
+            lbl.Position = UDim2.new(0, 180, 0, 8)
+            lbl.BackgroundTransparency = 1
+            lbl.Font = Enum.Font.Gotham
+            lbl.TextSize = 11
+            lbl.TextColor3 = Color3.fromRGB(150, 165, 190)
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.Text = "Resets character (respawns at spawn point)"
+            lbl.ZIndex = 203
+            lbl.Parent = block
         elseif act.type == "FollowRoute" then
             local p1 = createBuilderInput("P1", "Target Node (e.g. Yard)", UDim2.new(0.35, -10, 0, 22), UDim2.new(0, 22), block)
             p1.Position = UDim2.new(0, 180, 0, 8)
