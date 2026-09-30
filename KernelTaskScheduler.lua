@@ -232,368 +232,461 @@ local function substituteArg(arg)
     return arg
 end
 
-local function formatTemplate(str, triggerArgs)
-    if type(str) ~= "string" then return tostring(str or "") end
-    local arg1 = triggerArgs and triggerArgs[1]
+local function evalValue(expr, ctx)
+    if type(expr) ~= "string" then return expr end
+    if expr == "" then return "" end
 
-    local car = nil
-    if typeof(arg1) == "Instance" then
-        if (arg1.Parent and arg1.Parent.Name == "SpawnedCars") or arg1:FindFirstChild("VehicleSeat") or arg1:FindFirstChild("Chassis") then
-            car = arg1
+    ctx = ctx or { vars = {}, inputs = {} }
+    ctx.vars = ctx.vars or {}
+
+    -- Direct token matches (preserves object reference)
+    if expr == "$input" or expr == "$1" or expr == "$arg1" then
+        return ctx.input
+    elseif expr == "$inputs" then
+        return ctx.inputs
+    elseif expr == "$player" or expr == "$localplayer" then
+        return LocalPlayer.Name
+    elseif expr == "$character" or expr == "$char" then
+        return LocalPlayer.Character
+    elseif expr == "$userId" or expr == "$userid" then
+        return LocalPlayer.UserId
+    elseif expr == "$placeId" or expr == "$placeid" then
+        return game.PlaceId
+    end
+
+    -- Direct variable match: "$Owner"
+    local singleVar = expr:match("^%$([%w_]+)$")
+    if singleVar and ctx.vars[singleVar] ~= nil then
+        return ctx.vars[singleVar]
+    end
+
+    -- Direct property match: "$input.Name" or "$Car.Position"
+    local objVar, prop = expr:match("^%$([%w_]+)%.([%w_]+)$")
+    if objVar and prop then
+        local obj = (objVar == "input") and ctx.input or ctx.vars[objVar]
+        if typeof(obj) == "Instance" then
+            local ok, val = pcall(function() return obj[prop] end)
+            if ok then return val end
+        elseif type(obj) == "table" then
+            return obj[prop]
         end
     end
-    if not car and getgenv().WashiezGetVehicle then
-        car = getgenv().WashiezGetVehicle()
-    end
 
-    local owner = "Unknown"
-    local carModel = "Vehicle"
-    if car then
-        if getgenv().GetVehicleOwner then
-            local okO, resO = pcall(getgenv().GetVehicleOwner, car)
-            if okO and resO then owner = tostring(resO) end
-        end
-        if owner == "Unknown" then
-            local parts = string.split(car.Name, "-")
-            if parts and parts[1] then owner = parts[1] end
-        end
+    -- Check if it contains code operators or parentheses
+    local isCodeExpr = expr:find("%(") or expr:find("%[") or expr:find("%+") or expr:find("%-") or expr:find("%*") or expr:find("/") or expr:find("%.") or expr:find(":")
+    if isCodeExpr then
+        local codeExpr = expr:gsub("%$([%w_]+)", "%1")
+        local env = setmetatable({
+            input = ctx.input,
+            inputs = ctx.inputs,
+            workspace = workspace,
+            Workspace = workspace,
+            game = game,
+            Players = Players,
+            LocalPlayer = LocalPlayer,
+            string = string,
+            math = math,
+            table = table,
+            tostring = tostring,
+            tonumber = tonumber,
+            print = print,
+            typeof = typeof,
+            type = type,
+        }, {
+            __index = function(_, k)
+                if ctx.vars[k] ~= nil then return ctx.vars[k] end
+                return getgenv()[k]
+            end
+        })
 
-        if getgenv().GetVehicleName then
-            local okN, resN = pcall(getgenv().GetVehicleName, car)
-            if okN and resN then carModel = tostring(resN) end
-        end
-        if carModel == "Vehicle" then
-            local parts = string.split(car.Name, "-")
-            if parts and #parts >= 3 then
-                carModel = parts[3]
-            elseif parts and #parts >= 2 then
-                carModel = parts[2]
-            else
-                carModel = car.Name
+        local fn = loadstring("return " .. codeExpr)
+        if fn then
+            setfenv(fn, env)
+            local ok, res = pcall(fn)
+            if ok and res ~= nil then
+                return res
             end
         end
     end
 
-    local rep = {
-        ["%$vehicleOwner"] = owner,
-        ["%$carOwner"] = owner,
-        ["%$owner"] = owner,
-        ["%$vehicleName"] = carModel,
-        ["%$carModel"] = carModel,
-        ["%$carName"] = carModel,
-        ["%$car"] = car and car.Name or "Vehicle",
-        ["%$player"] = LocalPlayer.Name,
-        ["%$username"] = LocalPlayer.Name,
-        ["%$name"] = LocalPlayer.Name,
-        ["%$userId"] = tostring(LocalPlayer.UserId),
-        ["%$placeId"] = tostring(game.PlaceId),
-        ["%$arg1"] = tostring(arg1 or ""),
-        ["%$triggerArg"] = tostring(arg1 or "")
-    }
+    -- Fallback: String template interpolation (e.g. "Car $Car owned by $Owner")
+    local substituted = expr:gsub("%$([%w_]+)%.?([%w_]*)", function(varName, propName)
+        local val = nil
+        if varName == "input" then
+            val = ctx.input
+        elseif varName == "player" then
+            val = LocalPlayer.Name
+        elseif varName == "userId" then
+            val = LocalPlayer.UserId
+        elseif ctx.vars[varName] ~= nil then
+            val = ctx.vars[varName]
+        elseif getgenv()[varName] ~= nil then
+            val = getgenv()[varName]
+        end
 
-    for token, val in pairs(rep) do
-        str = str:gsub(token, val)
-    end
-
-    str = str:gsub("%$leaderstat:([%w_]+)", function(statName)
-        local ls = LocalPlayer:FindFirstChild("leaderstats")
-        local st = ls and ls:FindFirstChild(statName)
-        return st and tostring(st.Value) or "0"
+        if val ~= nil then
+            if propName and propName ~= "" then
+                if typeof(val) == "Instance" then
+                    local ok, pVal = pcall(function() return val[propName] end)
+                    if ok then return tostring(pVal) end
+                elseif type(val) == "table" then
+                    return tostring(val[propName] or "")
+                end
+            end
+            if typeof(val) == "Instance" then
+                return val.Name
+            end
+            return tostring(val)
+        end
+        return "$" .. varName .. (propName ~= "" and ("." .. propName) or "")
     end)
 
-    return str
+    return substituted
 end
 
-local function evaluateCondition(taskObj, triggerArgs)
-    local cond = taskObj.condition or { type = "Always" }
-    if cond.type == "Always" then
-        return true
-    elseif cond.type == "InVehicle" then
-        local char = LocalPlayer.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if hum and hum.SeatPart and hum.SeatPart:IsA("VehicleSeat") then
-            return true
-        end
-        return false
-    elseif cond.type == "StaffRank" then
-        local player = triggerArgs and triggerArgs[1]
-        if player and player:IsA("Player") then
-            local grp = tonumber(cond.groupId) or 0
-            local minR = tonumber(cond.minRank) or 100
-            if grp > 0 then
-                local ok, r = pcall(function() return player:GetRankInGroup(grp) end)
-                if ok and r >= minR then return true end
-            else
-                local gi = player:FindFirstChild("GroupInfo")
-                local rank = gi and gi:FindFirstChild("Rank")
-                if rank and rank.Value >= minR then return true end
-            end
-        end
-        return false
-    elseif cond.type == "LowHealth" then
-        local char = LocalPlayer.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        local threshold = tonumber(cond.threshold) or 25
-        return hum and hum.Health <= threshold
-    elseif cond.type == "ClockElapsed" then
-        local threshold = tonumber(cond.threshold) or 0
-        return os.clock() >= threshold
-    elseif cond.type == "StatThreshold" then
-        local statName = cond.stat or "Cash"
-        local op = cond.operator or ">="
-        local targetVal = tonumber(cond.value) or 0
-        local curVal = 0
-        local ls = LocalPlayer:FindFirstChild("leaderstats")
-        local st = ls and ls:FindFirstChild(statName)
-        if st and type(st.Value) == "number" then
-            curVal = st.Value
-        else
-            local attr = LocalPlayer:GetAttribute(statName)
-            if type(attr) == "number" then curVal = attr end
-        end
-        if op == ">=" then return curVal >= targetVal
-        elseif op == "<=" then return curVal <= targetVal
-        elseif op == ">" then return curVal > targetVal
-        elseif op == "<" then return curVal < targetVal
-        elseif op == "==" then return curVal == targetVal
-        elseif op == "!=" then return curVal ~= targetVal end
-        return false
-    elseif cond.type == "ObjectProximity" then
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return false end
-        local targetCF = resolveCFrame(cond.target)
-        if not targetCF then return false end
-        local dist = (hrp.Position - targetCF.Position).Magnitude
-        local threshold = tonumber(cond.distance) or 30
-        local mode = cond.mode or "within"
-        if mode == "within" then
-            return dist <= threshold
-        else
-            return dist > threshold
-        end
-    elseif cond.type == "CustomLua" then
-        if cond.code and cond.code ~= "" then
-            local fn, err = loadstring("return function(args) " .. cond.code .. " end")
-            if fn then
-                local ok, res = pcall(fn(), triggerArgs)
-                return ok and (res == true)
-            end
-        end
-        return false
+local executeSingleAction -- forward declaration
+
+local function evaluateIfCondition(act, ctx)
+    local left = evalValue(act.left or "", ctx)
+    local right = evalValue(act.right or "", ctx)
+    local op = act.op or "=="
+
+    local nLeft, nRight = tonumber(left), tonumber(right)
+    if nLeft and nRight then
+        left, right = nLeft, nRight
     end
-    return true
+
+    if op == "==" then return left == right
+    elseif op == "!=" then return left ~= right
+    elseif op == ">" then return left > right
+    elseif op == "<" then return left < right
+    elseif op == ">=" then return left >= right
+    elseif op == "<=" then return left <= right
+    elseif op == "contains" then
+        return tostring(left):find(tostring(right), 1, true) ~= nil
+    end
+    return false
 end
 
-local showToastNotification -- forward declaration
+local function executeBlock(actionList, ctx)
+    local i = 1
+    local maxSteps = 5000
+    local stepCount = 0
+
+    while i <= #actionList and stepCount < maxSteps do
+        stepCount = stepCount + 1
+        local act = actionList[i]
+        local actType = act.type
+
+        if actType == "SetVariable" then
+            local vName = act.varName or "var"
+            local vVal = evalValue(act.value, ctx)
+            ctx.vars[vName] = vVal
+            i = i + 1
+        elseif actType == "Wait" or actType == "Delay" then
+            local dur = tonumber(evalValue(act.duration, ctx)) or 1.0
+            task.wait(math.max(0.01, dur))
+            i = i + 1
+        elseif actType == "Print" then
+            local msg = evalValue(act.message or "", ctx)
+            print("[Shortcut]: " .. tostring(msg))
+            i = i + 1
+        elseif actType == "Toast" then
+            if showToastNotification then
+                local tTitle = tostring(evalValue(act.title or "Shortcut Alert", ctx))
+                local tMsg = tostring(evalValue(act.message or "Triggered", ctx))
+                showToastNotification(tTitle, tMsg, 3.5)
+            end
+            i = i + 1
+        elseif actType == "Repeat" then
+            local count = tonumber(evalValue(act.count, ctx)) or 1
+            count = math.clamp(count, 1, 500)
+            local depth = 1
+            local j = i + 1
+            while j <= #actionList do
+                if actionList[j].type == "Repeat" or actionList[j].type == "ForEach" or actionList[j].type == "If" then
+                    depth = depth + 1
+                elseif actionList[j].type == "EndBlock" or actionList[j].type == "EndRepeat" or actionList[j].type == "EndIf" then
+                    depth = depth - 1
+                    if depth == 0 then break end
+                end
+                j = j + 1
+            end
+            local subActions = {}
+            for k = i + 1, j - 1 do table.insert(subActions, actionList[k]) end
+            for iter = 1, count do
+                ctx.vars["index"] = iter
+                ctx.vars["repeatIndex"] = iter
+                executeBlock(subActions, ctx)
+            end
+            i = j + 1
+        elseif actType == "ForEach" then
+            local targetObj = evalValue(act.target or "", ctx)
+            local items = {}
+            if typeof(targetObj) == "Instance" then
+                items = targetObj:GetChildren()
+            elseif type(targetObj) == "string" then
+                local inst = resolveInstance(targetObj)
+                if inst then items = inst:GetChildren() end
+            elseif type(targetObj) == "table" then
+                items = targetObj
+            end
+            local depth = 1
+            local j = i + 1
+            while j <= #actionList do
+                if actionList[j].type == "Repeat" or actionList[j].type == "ForEach" or actionList[j].type == "If" then
+                    depth = depth + 1
+                elseif actionList[j].type == "EndBlock" or actionList[j].type == "EndRepeat" or actionList[j].type == "EndIf" then
+                    depth = depth - 1
+                    if depth == 0 then break end
+                end
+                j = j + 1
+            end
+            local subActions = {}
+            for k = i + 1, j - 1 do table.insert(subActions, actionList[k]) end
+            local varName = (act.varName and act.varName ~= "") and act.varName or "item"
+            for idx, item in ipairs(items) do
+                ctx.vars[varName] = item
+                ctx.vars["item"] = item
+                ctx.vars["index"] = idx
+                executeBlock(subActions, ctx)
+            end
+            i = j + 1
+        elseif actType == "If" then
+            local condPass = evaluateIfCondition(act, ctx)
+            local depth = 1
+            local j = i + 1
+            while j <= #actionList do
+                if actionList[j].type == "Repeat" or actionList[j].type == "ForEach" or actionList[j].type == "If" then
+                    depth = depth + 1
+                elseif actionList[j].type == "EndBlock" or actionList[j].type == "EndRepeat" or actionList[j].type == "EndIf" then
+                    depth = depth - 1
+                    if depth == 0 then break end
+                end
+                j = j + 1
+            end
+            if condPass then
+                local subActions = {}
+                for k = i + 1, j - 1 do table.insert(subActions, actionList[k]) end
+                executeBlock(subActions, ctx)
+            end
+            i = j + 1
+        elseif actType == "EndBlock" or actType == "EndRepeat" or actType == "EndIf" then
+            i = i + 1
+        else
+            executeSingleAction(act, ctx)
+            i = i + 1
+        end
+    end
+end
+
+executeSingleAction = function(act, ctx)
+    local ok, err = pcall(function()
+        if act.type == "PauseAllLoops" then
+            if getgenv().PauseAllLoops then getgenv().PauseAllLoops(true) end
+        elseif act.type == "ResumeAllLoops" then
+            if getgenv().ResumeAllLoops then getgenv().ResumeAllLoops() end
+        elseif act.type == "SetTaskPriority" then
+            if getgenv().SetSchedulerTaskPriority and act.target then
+                getgenv().SetSchedulerTaskPriority(act.target, tonumber(evalValue(act.priority, ctx)) or 80)
+            end
+        elseif act.type == "SetTaskHz" then
+            if getgenv().SetSchedulerTaskHz and act.target then
+                getgenv().SetSchedulerTaskHz(act.target, tonumber(evalValue(act.hz, ctx)) or 60)
+            end
+        elseif act.type == "RunLuau" then
+            if act.code and act.code ~= "" then
+                local env = setmetatable({
+                    input = ctx.input,
+                    inputs = ctx.inputs,
+                    vars = ctx.vars,
+                    workspace = workspace,
+                    game = game,
+                    Players = Players,
+                    LocalPlayer = LocalPlayer,
+                }, { __index = function(_, k) return ctx.vars[k] or getgenv()[k] end })
+                local fn, compileErr = loadstring(act.code)
+                if fn then
+                    setfenv(fn, env)
+                    task.spawn(fn, ctx.input, ctx.vars)
+                else
+                    warn("[TaskScheduler] Luau compilation failed:", compileErr)
+                end
+            end
+        elseif act.type == "VirtualPoke" then
+            pcall(function()
+                local VirtualUser = game:GetService("VirtualUser")
+                if VirtualUser then
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton2(Vector2.new(10, 10))
+                end
+            end)
+        elseif act.type == "VirtualInput" then
+            local VIM = game:GetService("VirtualInputManager")
+            local kcName = tostring(evalValue(act.key or "E", ctx))
+            local kc = Enum.KeyCode[kcName]
+            if VIM and kc then
+                VIM:SendKeyEvent(true, kc, false, game)
+                task.wait(math.max(0.05, tonumber(evalValue(act.duration, ctx)) or 0.1))
+                VIM:SendKeyEvent(false, kc, false, game)
+            end
+        elseif act.type == "FollowRoute" then
+            local targetNode = tostring(evalValue(act.targetNode or act.node or "Yard", ctx))
+            local routeFile = tostring(evalValue(act.route or act.fileName or "road_network.json", ctx))
+            if not _G.RunBot then
+                if isfile and isfile("prison_follower.lua") then
+                    pcall(function() loadstring(readfile("prison_follower.lua"))() end)
+                end
+            end
+            if _G.RunBot and targetNode then
+                _G.RunBot(targetNode, routeFile)
+            else
+                warn("[TaskScheduler] FollowRoute: _G.RunBot unavailable or targetNode missing")
+            end
+        elseif act.type == "StopRoute" then
+            if _G.StopBot then _G.StopBot() end
+        elseif act.type == "TweenTo" then
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp and act.target then
+                local rawTarget = evalValue(act.target, ctx)
+                local targetCF = resolveCFrame(rawTarget)
+                if targetCF then
+                    local dist = (hrp.Position - targetCF.Position).Magnitude
+                    local dur = tonumber(evalValue(act.duration, ctx))
+                    if not dur or dur <= 0 then
+                        local spd = tonumber(evalValue(act.speed, ctx)) or 50
+                        dur = dist / spd
+                    end
+                    dur = math.clamp(dur, 0.05, 120)
+                    local ti = TweenInfo.new(dur, Enum.EasingStyle.Linear)
+                    local tw = TweenService:Create(hrp, ti, { CFrame = targetCF })
+                    tw:Play()
+                    if act.wait ~= false then tw.Completed:Wait() end
+                end
+            end
+        elseif act.type == "InstantTeleport" then
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if char and hrp and act.target then
+                local rawTarget = evalValue(act.target, ctx)
+                local targetCF = resolveCFrame(rawTarget)
+                if targetCF then
+                    char:PivotTo(targetCF)
+                    pcall(function()
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        hrp.AssemblyAngularVelocity = Vector3.zero
+                    end)
+                end
+            end
+        elseif act.type == "ActivatePrompt" then
+            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local bestPrompt = nil
+                local bestDist = tonumber(evalValue(act.maxDistance, ctx)) or 35
+                local promptName = tostring(evalValue(act.target or "", ctx)):lower()
+                for _, desc in ipairs(workspace:GetDescendants()) do
+                    if desc:IsA("ProximityPrompt") and desc.Enabled then
+                        local promptPos = nil
+                        if desc.Parent then
+                            if desc.Parent:IsA("BasePart") then
+                                promptPos = desc.Parent.Position
+                            elseif desc.Parent:IsA("Model") then
+                                promptPos = desc.Parent:GetPivot().Position
+                            elseif desc.Parent:IsA("Attachment") then
+                                promptPos = desc.Parent.WorldPosition
+                            end
+                        end
+                        if promptPos then
+                            local d = (hrp.Position - promptPos).Magnitude
+                            if d <= bestDist then
+                                if promptName == "" or promptName == "nearest" or desc.Name:lower():find(promptName, 1, true) or (desc.Parent and desc.Parent.Name:lower():find(promptName, 1, true)) then
+                                    bestPrompt = desc
+                                    bestDist = d
+                                end
+                            end
+                        end
+                    end
+                end
+                if bestPrompt then
+                    local holdDur = tonumber(evalValue(act.holdDuration, ctx)) or bestPrompt.HoldDuration or 0
+                    if type(fireproximityprompt) == "function" then
+                        fireproximityprompt(bestPrompt, holdDur)
+                    else
+                        bestPrompt:InputHoldBegin()
+                        if holdDur > 0 then task.wait(holdDur) end
+                        bestPrompt:InputHoldEnd()
+                    end
+                end
+            end
+        elseif act.type == "FireRemote" or act.type == "InvokeServer" then
+            local remPath = evalValue(act.remote, ctx)
+            local remoteObj = resolveInstance(remPath)
+            if remoteObj then
+                local processedArgs = {}
+                local rawArgs = act.args
+                if type(rawArgs) == "string" then
+                    rawArgs = evalValue(rawArgs, ctx)
+                    if type(rawArgs) == "string" and rawArgs:sub(1,1) == "[" then
+                        local okJ, dec = pcall(function() return HttpService:JSONDecode(rawArgs) end)
+                        rawArgs = (okJ and type(dec) == "table") and dec or { rawArgs }
+                    else
+                        rawArgs = { rawArgs }
+                    end
+                elseif type(rawArgs) ~= "table" then
+                    rawArgs = rawArgs and { rawArgs } or {}
+                end
+
+                for _, v in ipairs(rawArgs) do
+                    table.insert(processedArgs, substituteArg(v))
+                end
+
+                if act.type == "FireRemote" and remoteObj:IsA("RemoteEvent") then
+                    remoteObj:FireServer(unpack(processedArgs))
+                elseif act.type == "InvokeServer" and remoteObj:IsA("RemoteFunction") then
+                    remoteObj:InvokeServer(unpack(processedArgs))
+                elseif remoteObj:IsA("RemoteEvent") then
+                    remoteObj:FireServer(unpack(processedArgs))
+                elseif remoteObj:IsA("RemoteFunction") then
+                    remoteObj:InvokeServer(unpack(processedArgs))
+                end
+            end
+        elseif act.type == "ServerHop" then
+            pcall(function()
+                local TeleportService = game:GetService("TeleportService")
+                TeleportService:Teleport(game.PlaceId, LocalPlayer)
+            end)
+        elseif act.type == "Rejoin" then
+            pcall(function()
+                local TeleportService = game:GetService("TeleportService")
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+            end)
+        end
+    end)
+    if not ok then
+        warn("[TaskScheduler] Action failed (" .. tostring(act.type) .. "):", err)
+    end
+end
 
 local function executeActions(taskObj, triggerArgs)
     local actions = taskObj.actions or {}
-    local successCount = 0
+    local ctx = {
+        input = triggerArgs and triggerArgs[1],
+        inputs = triggerArgs or {},
+        vars = {},
+    }
 
-    for _, act in ipairs(actions) do
-        local ok, err = pcall(function()
-            if act.type == "Toast" then
-                if showToastNotification then
-                    local tTitle = formatTemplate(act.title or taskObj.name, triggerArgs)
-                    local tMsg = formatTemplate(act.message or "Triggered", triggerArgs)
-                    showToastNotification(tTitle, tMsg, 3.5)
-                end
-            elseif act.type == "Print" then
-                local pMsg = formatTemplate(act.message or "Triggered", triggerArgs)
-                print("[Shortcut]: " .. pMsg)
-            elseif act.type == "Delay" then
-                task.wait(math.max(0.01, tonumber(act.duration) or 1.0))
-            elseif act.type == "PauseAllLoops" then
-                if getgenv().PauseAllLoops then getgenv().PauseAllLoops(true) end
-            elseif act.type == "ResumeAllLoops" then
-                if getgenv().ResumeAllLoops then getgenv().ResumeAllLoops() end
-            elseif act.type == "SetTaskPriority" then
-                if getgenv().SetSchedulerTaskPriority and act.target then
-                    getgenv().SetSchedulerTaskPriority(act.target, tonumber(act.priority) or 80)
-                end
-            elseif act.type == "SetTaskHz" then
-                if getgenv().SetSchedulerTaskHz and act.target then
-                    getgenv().SetSchedulerTaskHz(act.target, tonumber(act.hz) or 60)
-                end
-            elseif act.type == "RunLuau" then
-                if act.code and act.code ~= "" then
-                    local fn, compileErr = loadstring(act.code)
-                    if fn then
-                        if type(triggerArgs) == "table" then
-                            task.spawn(fn, unpack(triggerArgs))
-                        else
-                            task.spawn(fn, triggerArgs)
-                        end
-                    else
-                        warn("[TaskScheduler] Luau compilation failed:", compileErr)
-                    end
-                end
-            elseif act.type == "VirtualPoke" then
-                pcall(function()
-                    local VirtualUser = game:GetService("VirtualUser")
-                    if VirtualUser then
-                        VirtualUser:CaptureController()
-                        VirtualUser:ClickButton2(Vector2.new(10, 10))
-                    end
-                end)
-            elseif act.type == "VirtualInput" then
-                local VIM = game:GetService("VirtualInputManager")
-                local kcName = act.key or "E"
-                local kc = Enum.KeyCode[kcName]
-                if VIM and kc then
-                    VIM:SendKeyEvent(true, kc, false, game)
-                    task.wait(math.max(0.05, tonumber(act.duration) or 0.1))
-                    VIM:SendKeyEvent(false, kc, false, game)
-                end
-            elseif act.type == "FollowRoute" then
-                local targetNode = act.targetNode or act.node
-                local routeFile = act.route or act.fileName or "road_network.json"
-                if not _G.RunBot then
-                    if isfile and isfile("prison_follower.lua") then
-                        pcall(function() loadstring(readfile("prison_follower.lua"))() end)
-                    end
-                end
-                if _G.RunBot and targetNode then
-                    _G.RunBot(targetNode, routeFile)
-                else
-                    warn("[TaskScheduler] FollowRoute: _G.RunBot unavailable or targetNode missing")
-                end
-            elseif act.type == "StopRoute" then
-                if _G.StopBot then
-                    _G.StopBot()
-                end
-            elseif act.type == "TweenTo" then
-                local char = LocalPlayer.Character
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                if hrp and act.target then
-                    local targetCF = resolveCFrame(act.target)
-                    if targetCF then
-                        local dist = (hrp.Position - targetCF.Position).Magnitude
-                        local dur = tonumber(act.duration)
-                        if not dur or dur <= 0 then
-                            local spd = tonumber(act.speed) or 50
-                            dur = dist / spd
-                        end
-                        dur = math.clamp(dur, 0.05, 120)
-                        local ti = TweenInfo.new(dur, Enum.EasingStyle.Linear)
-                        local tw = TweenService:Create(hrp, ti, { CFrame = targetCF })
-                        tw:Play()
-                        if act.wait ~= false then
-                            tw.Completed:Wait()
-                        end
-                    end
-                end
-            elseif act.type == "InstantTeleport" then
-                local char = LocalPlayer.Character
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                if char and hrp and act.target then
-                    local targetCF = resolveCFrame(act.target)
-                    if targetCF then
-                        char:PivotTo(targetCF)
-                        pcall(function()
-                            hrp.AssemblyLinearVelocity = Vector3.zero
-                            hrp.AssemblyAngularVelocity = Vector3.zero
-                        end)
-                    end
-                end
-            elseif act.type == "ActivatePrompt" then
-                local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    local bestPrompt = nil
-                    local bestDist = tonumber(act.maxDistance) or 35
-                    local promptName = act.target and act.target:lower() or ""
-                    for _, desc in ipairs(workspace:GetDescendants()) do
-                        if desc:IsA("ProximityPrompt") and desc.Enabled then
-                            local promptPos = nil
-                            if desc.Parent then
-                                if desc.Parent:IsA("BasePart") then
-                                    promptPos = desc.Parent.Position
-                                elseif desc.Parent:IsA("Model") then
-                                    promptPos = desc.Parent:GetPivot().Position
-                                elseif desc.Parent:IsA("Attachment") then
-                                    promptPos = desc.Parent.WorldPosition
-                                end
-                            end
-                            if promptPos then
-                                local d = (hrp.Position - promptPos).Magnitude
-                                if d <= bestDist then
-                                    if promptName == "" or promptName == "nearest" or desc.Name:lower():find(promptName, 1, true) or (desc.Parent and desc.Parent.Name:lower():find(promptName, 1, true)) then
-                                        bestPrompt = desc
-                                        bestDist = d
-                                    end
-                                end
-                            end
-                        end
-                    end
-                    if bestPrompt then
-                        local holdDur = tonumber(act.holdDuration) or bestPrompt.HoldDuration or 0
-                        if type(fireproximityprompt) == "function" then
-                            fireproximityprompt(bestPrompt, holdDur)
-                        else
-                            bestPrompt:InputHoldBegin()
-                            if holdDur > 0 then task.wait(holdDur) end
-                            bestPrompt:InputHoldEnd()
-                        end
-                    end
-                end
-            elseif act.type == "FireRemote" or act.type == "InvokeServer" then
-                local remoteObj = resolveInstance(act.remote)
-                if remoteObj then
-                    local processedArgs = {}
-                    local rawArgs = act.args
-                    if type(rawArgs) == "string" then
-                        if rawArgs:sub(1,1) == "[" then
-                            local okJ, dec = pcall(function() return HttpService:JSONDecode(rawArgs) end)
-                            if okJ and type(dec) == "table" then
-                                rawArgs = dec
-                            else
-                                rawArgs = { rawArgs }
-                            end
-                        else
-                            rawArgs = { rawArgs }
-                        end
-                    elseif type(rawArgs) ~= "table" then
-                        rawArgs = rawArgs and { rawArgs } or {}
-                    end
-
-                    for _, v in ipairs(rawArgs) do
-                        table.insert(processedArgs, substituteArg(v))
-                    end
-
-                    if act.type == "FireRemote" and remoteObj:IsA("RemoteEvent") then
-                        remoteObj:FireServer(unpack(processedArgs))
-                    elseif act.type == "InvokeServer" and remoteObj:IsA("RemoteFunction") then
-                        remoteObj:InvokeServer(unpack(processedArgs))
-                    elseif remoteObj:IsA("RemoteEvent") then
-                        remoteObj:FireServer(unpack(processedArgs))
-                    elseif remoteObj:IsA("RemoteFunction") then
-                        remoteObj:InvokeServer(unpack(processedArgs))
-                    end
-                end
-            elseif act.type == "ServerHop" then
-                pcall(function()
-                    local TeleportService = game:GetService("TeleportService")
-                    TeleportService:Teleport(game.PlaceId, LocalPlayer)
-                end)
-            elseif act.type == "Rejoin" then
-                pcall(function()
-                    local TeleportService = game:GetService("TeleportService")
-                    TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
-                end)
-            end
-        end)
-        if ok then
-            successCount = successCount + 1
-        else
-            warn("[TaskScheduler] Action failed (" .. tostring(act.type) .. "):", err)
-        end
+    local ok, err = pcall(function()
+        executeBlock(actions, ctx)
+    end)
+    if not ok then
+        warn("[TaskScheduler] Pipeline error:", err)
     end
 
     taskObj.telemetry = taskObj.telemetry or {}
     taskObj.telemetry.invocations = (taskObj.telemetry.invocations or 0) + 1
     taskObj.telemetry.lastRun = os.time()
-    taskObj.telemetry.lastResult = string.format("Executed %d/%d actions", successCount, #actions)
+    taskObj.telemetry.lastResult = ok and "Completed pipeline" or ("Error: " .. tostring(err))
     Storage.save(false)
 end
 
@@ -708,21 +801,6 @@ Engine.bindTask = function(taskObj)
         elseif preset == "Idled" then
             local c = LocalPlayer.Idled:Connect(function(timeVal) fireTask(taskObj, timeVal) end)
             table.insert(conns, c)
-        elseif preset == "CarSpawned" then
-            local function hookSpawnedCars()
-                local sc = workspace:FindFirstChild("SpawnedCars")
-                if sc then
-                    local c = sc.ChildAdded:Connect(function(child)
-                        fireTask(taskObj, child)
-                    end)
-                    table.insert(conns, c)
-                end
-            end
-            hookSpawnedCars()
-            local c2 = workspace.ChildAdded:Connect(function(ch)
-                if ch.Name == "SpawnedCars" then hookSpawnedCars() end
-            end)
-            table.insert(conns, c2)
         end
     elseif trig.type == "CustomSignal" then
         if trig.path and trig.path ~= "" then
@@ -2155,7 +2233,6 @@ local TRIGGER_OPTIONS = {
     { label = "⚡ Character Died", type = "Signal", preset = "Died", placeholder = "No parameter needed", defaultParam = "" },
     { label = "⚡ Window Focus Lost", type = "Signal", preset = "WindowFocus", placeholder = "No parameter needed", defaultParam = "" },
     { label = "💤 LocalPlayer Idled", type = "Signal", preset = "Idled", placeholder = "No parameter needed", defaultParam = "" },
-    { label = "🚗 Car Spawned (SpawnedCars)", type = "Signal", preset = "CarSpawned", placeholder = "No parameter needed", defaultParam = "" },
     { label = "⚙️ Custom Signal Path", type = "CustomSignal", placeholder = "Signal expr (e.g. workspace.ChildAdded)", defaultParam = "workspace.ChildAdded" },
 }
 
@@ -2287,6 +2364,14 @@ end)
 
 -- Action Primitive Definitions
 local ACTION_PRIMITIVES = {
+    { type = "SetVariable", name = "Set Variable", icon = "📦", cat = "Variables", def = { varName = "MyVar", value = "$input" } },
+    { type = "Wait", name = "Wait (Delay)", icon = "⏱️", cat = "Flow", def = { duration = 1.0 } },
+    { type = "Repeat", name = "Repeat (Loop)", icon = "🔂", cat = "Control", def = { count = 3 } },
+    { type = "ForEach", name = "For Each Item", icon = "🔄", cat = "Control", def = { target = "workspace", varName = "item" } },
+    { type = "If", name = "If Condition", icon = "❓", cat = "Control", def = { left = "$input", op = "==", right = "" } },
+    { type = "EndBlock", name = "End Block (Loop/If)", icon = "🔚", cat = "Control", def = {} },
+    { type = "Print", name = "Print to Console", icon = "🖨️", cat = "Flow", def = { message = "Value is: $MyVar" } },
+    { type = "Toast", name = "Toast Alert", icon = "🔔", cat = "Flow", def = { title = "Alert", message = "Notice: $MyVar" } },
     { type = "TweenTo", name = "Tween To (CFrame)", icon = "📍", cat = "Navigation", def = { target = "0, 10, 0", duration = 2.0 } },
     { type = "InstantTeleport", name = "Instant Teleport", icon = "⚡", cat = "Navigation", def = { target = "0, 10, 0" } },
     { type = "FollowRoute", name = "Follow Route", icon = "🚗", cat = "Navigation", def = { targetNode = "Yard", route = "road_network.json" } },
@@ -2294,11 +2379,8 @@ local ACTION_PRIMITIVES = {
     { type = "ActivatePrompt", name = "Activate Prompt", icon = "🎯", cat = "Interaction", def = { target = "nearest", maxDistance = 35 } },
     { type = "VirtualInput", name = "Virtual Keypress", icon = "⌨️", cat = "Interaction", def = { key = "E", duration = 0.1 } },
     { type = "VirtualPoke", name = "Virtual Poke (Anti-AFK)", icon = "👻", cat = "Interaction", def = {} },
-    { type = "FireRemote", name = "Fire Remote Event", icon = "📡", cat = "Network", def = { remote = "ReplicatedStorage.RemoteEvent", args = "[\"$position\"]" } },
-    { type = "InvokeServer", name = "Invoke Remote Func", icon = "📥", cat = "Network", def = { remote = "ReplicatedStorage.RemoteFunction", args = "[\"$userId\"]" } },
-    { type = "Delay", name = "Delay (Wait)", icon = "⏱️", cat = "Flow", def = { duration = 1.0 } },
-    { type = "Toast", name = "Toast Alert", icon = "🔔", cat = "Flow", def = { title = "Alert", message = "Action completed" } },
-    { type = "Print", name = "Print to Console", icon = "🖨️", cat = "Flow", def = { message = "Spawned by: $vehicleOwner ($vehicleName)" } },
+    { type = "FireRemote", name = "Fire Remote Event", icon = "📡", cat = "Network", def = { remote = "ReplicatedStorage.RemoteEvent", args = "["$position"]" } },
+    { type = "InvokeServer", name = "Invoke Remote Func", icon = "📥", cat = "Network", def = { remote = "ReplicatedStorage.RemoteFunction", args = "["$userId"]" } },
     { type = "PauseAllLoops", name = "Pause All Loops", icon = "⏸️", cat = "Flow", def = {} },
     { type = "ResumeAllLoops", name = "Resume All Loops", icon = "▶️", cat = "Flow", def = {} },
     { type = "Rejoin", name = "Rejoin Server", icon = "🔄", cat = "Flow", def = {} },
@@ -2469,8 +2551,133 @@ renderActionStack = function()
             renderActionStack()
         end)
 
-        -- Inline parameter fields based on Action Type
-        if act.type == "TweenTo" then
+                -- Inline parameter fields based on Action Type
+        if act.type == "SetVariable" then
+            local p1 = createBuilderInput("P1", "Var Name (e.g. Owner)", UDim2.new(0.24, -5, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.varName or "var")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.varName = p1.Text end)
+
+            local eqLbl = Instance.new("TextLabel")
+            eqLbl.Size = UDim2.new(0, 16, 0, 22)
+            eqLbl.Position = UDim2.new(0.24, 180, 0, 8)
+            eqLbl.BackgroundTransparency = 1
+            eqLbl.Font = Enum.Font.GothamBold
+            eqLbl.TextSize = 12
+            eqLbl.TextColor3 = Color3.fromRGB(150, 170, 205)
+            eqLbl.Text = "="
+            eqLbl.ZIndex = 203
+            eqLbl.Parent = block
+
+            local p2 = createBuilderInput("P2", "Value / Expr (e.g. $input.Name)", UDim2.new(0.48, -10, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.24, 200, 0, 8)
+            p2.Text = tostring(act.value or "$input")
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.value = p2.Text end)
+        elseif act.type == "Wait" or act.type == "Delay" then
+            local p1 = createBuilderInput("P1", "Wait Duration seconds (e.g. 1.0)", UDim2.new(0.65, 0, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.duration or 1.0)
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.duration = p1.Text end)
+        elseif act.type == "Repeat" then
+            local p1 = createBuilderInput("P1", "Count (e.g. 5)", UDim2.new(0.2, 0, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.count or 3)
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.count = p1.Text end)
+
+            local rLbl = Instance.new("TextLabel")
+            rLbl.Size = UDim2.new(0.5, 0, 0, 22)
+            rLbl.Position = UDim2.new(0.2, 190, 0, 8)
+            rLbl.BackgroundTransparency = 1
+            rLbl.Font = Enum.Font.Gotham
+            rLbl.TextSize = 10
+            rLbl.TextColor3 = Color3.fromRGB(140, 160, 190)
+            rLbl.TextXAlignment = Enum.TextXAlignment.Left
+            rLbl.Text = "times (actions run until End Block)"
+            rLbl.ZIndex = 203
+            rLbl.Parent = block
+        elseif act.type == "ForEach" then
+            local p1 = createBuilderInput("P1", "Item Var (e.g. item)", UDim2.new(0.2, 0, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.varName or "item")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.varName = p1.Text end)
+
+            local inLbl = Instance.new("TextLabel")
+            inLbl.Size = UDim2.new(0, 20, 0, 22)
+            inLbl.Position = UDim2.new(0.2, 185, 0, 8)
+            inLbl.BackgroundTransparency = 1
+            inLbl.Font = Enum.Font.GothamBold
+            inLbl.TextSize = 10
+            inLbl.TextColor3 = Color3.fromRGB(140, 160, 190)
+            inLbl.Text = "in"
+            inLbl.ZIndex = 203
+            inLbl.Parent = block
+
+            local p2 = createBuilderInput("P2", "Container (e.g. workspace.SpawnedCars)", UDim2.new(0.48, -10, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.2, 210, 0, 8)
+            p2.Text = tostring(act.target or "workspace")
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.target = p2.Text end)
+        elseif act.type == "If" then
+            local p1 = createBuilderInput("P1", "Left (e.g. $Owner)", UDim2.new(0.25, -5, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.left or "$input")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.left = p1.Text end)
+
+            local opBtn = Instance.new("TextButton")
+            opBtn.Size = UDim2.new(0, 40, 0, 22)
+            opBtn.Position = UDim2.new(0.25, 180, 0, 8)
+            opBtn.BackgroundColor3 = Color3.fromRGB(35, 42, 60)
+            opBtn.BorderSizePixel = 0
+            opBtn.Font = Enum.Font.GothamBold
+            opBtn.TextSize = 10
+            opBtn.TextColor3 = Color3.fromRGB(100, 200, 255)
+            opBtn.Text = tostring(act.op or "==")
+            opBtn.ZIndex = 203
+            opBtn.Parent = block
+            local opc = Instance.new("UICorner")
+            opc.CornerRadius = UDim.new(0, 4)
+            opc.Parent = opBtn
+
+            local OPS = { "==", "!=", ">", "<", ">=", "<=", "contains" }
+            opBtn.MouseButton1Click:Connect(function()
+                local cur = 1
+                for oIdx, o in ipairs(OPS) do if o == act.op then cur = oIdx; break end end
+                cur = (cur % #OPS) + 1
+                act.op = OPS[cur]
+                opBtn.Text = act.op
+            end)
+
+            local p2 = createBuilderInput("P2", "Right (e.g. $player)", UDim2.new(0.38, -10, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.25, 225, 0, 8)
+            p2.Text = tostring(act.right or "")
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.right = p2.Text end)
+        elseif act.type == "EndBlock" or act.type == "EndRepeat" or act.type == "EndIf" then
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(0.65, 0, 0, 22)
+            lbl.Position = UDim2.new(0, 180, 0, 8)
+            lbl.BackgroundTransparency = 1
+            lbl.Font = Enum.Font.GothamBold
+            lbl.TextSize = 10
+            lbl.TextColor3 = Color3.fromRGB(130, 145, 175)
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.Text = "─── End of Repeat / If Block ───"
+            lbl.ZIndex = 203
+            lbl.Parent = block
+        elseif act.type == "Print" then
+            local p1 = createBuilderInput("P1", "Message to print (supports $vars)", UDim2.new(0.65, 0, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.message or "Value is: $input")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.message = p1.Text end)
+        elseif act.type == "Toast" then
+            local p1 = createBuilderInput("P1", "Message (supports $vars)", UDim2.new(0.4, -10, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.message or "Triggered")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.message = p1.Text end)
+
+            local p2 = createBuilderInput("P2", "Title", UDim2.new(0.3, 0, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.4, 175, 0, 8)
+            p2.Text = tostring(act.title or "Scheduler")
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.title = p2.Text end)
+        elseif act.type == "TweenTo" then
             local p1 = createBuilderInput("P1", "Target Pos/Part (e.g. 0, 10, 0)", UDim2.new(0.55, -20, 0, 22), UDim2.new(0, 22), block)
             p1.Position = UDim2.new(0, 180, 0, 8)
             p1.Text = tostring(act.target or "0, 10, 0")
