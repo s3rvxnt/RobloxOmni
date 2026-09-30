@@ -5065,6 +5065,7 @@ local function renderTaskRow(taskObj, idx)
     end
 
     row.LayoutOrder = idx * 10
+    row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
 
     -- Update row content
     local dot = row:FindFirstChild("Dot")
@@ -7418,6 +7419,7 @@ local function renderStartupRow(scriptObj, idx)
     end
 
     row.LayoutOrder = idx * 10
+    row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
     local dot = row:FindFirstChild("Dot")
     local nameLbl = row:FindFirstChild("NameLbl")
     local pathLbl = row:FindFirstChild("PathLbl")
@@ -7539,8 +7541,8 @@ refreshStartupTab = function(force)
         end
 
         if matches then
-            renderStartupRow(scriptObj, idx)
             visibleCount = visibleCount + 1
+            renderStartupRow(scriptObj, visibleCount)
         else
             local r = cachedStartupRows[scriptObj.file]
             if r then r.Visible = false end
@@ -7821,6 +7823,7 @@ local function renderLoopRow(loopObj, idx)
     end
 
     row.LayoutOrder = idx * 10
+    row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
 
     -- Update row state
     local dot = row:FindFirstChild("Dot")
@@ -8141,8 +8144,8 @@ task.spawn(function()
                                 or (entry.event and entry.event:lower():find(filterText, 1, true))
 
                             if textMatches then
-                                renderGameTaskRow(entry, idx)
                                 visibleCount = visibleCount + 1
+                                renderGameTaskRow(entry, visibleCount)
                             else
                                 local r = cachedGameRows[entry.id]
                                 if r then r.Visible = false end
@@ -8180,8 +8183,8 @@ task.spawn(function()
                                     or (currentSourceFilter == "game" and not isExec)
 
                                 if textMatches and sourceMatches then
-                                    renderTaskRow(taskObj, idx)
                                     visibleCount = visibleCount + 1
+                                    renderTaskRow(taskObj, visibleCount)
                                 else
                                     local r = cachedTaskRows[taskObj.id]
                                     if r then r.Visible = false end
@@ -8226,8 +8229,8 @@ task.spawn(function()
                                 or (currentSourceFilter == "game" and not isExec)
 
                             if textMatches and sourceMatches then
-                                renderLoopRow(loopObj, idx)
                                 visibleCount = visibleCount + 1
+                                renderLoopRow(loopObj, visibleCount)
                             else
                                 local r = cachedLoopRows[loopObj.id]
                                 if r then r.Visible = false end
