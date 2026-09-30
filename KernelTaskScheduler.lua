@@ -1,41 +1,95 @@
---!stage Kernel
---!name KernelTaskScheduler
---!priority 990
 --[[
-    ==============================================================================
-    ANTIGRAVITY KERNEL TASK SCHEDULER (Windows 11 Fluent Automation Engine)
-    ==============================================================================
-    Standalone trigger & action automation subsystem for Roblox.
-    Separate from Task Manager (taskmgr vs taskschd).
-
-    Hotkey: Shift + F7 (or getgenv().ToggleTaskScheduler())
-
-    Features:
-    - Event Triggers: PlayerAdded, CharacterAdded, Died, Seated, WindowFocus, Timers, Custom Signals
-    - Condition Guards: Staff Rank, InVehicle, Health, Custom Luau Filter
-    - Action Multi-Tool: Task/Loop Controls, Run Luau Code, Toast Notifications, Server Hop, Rejoin
-    - Win11 Modern Action Cards View with in-game Visual Rule Creation Wizard
-    - Persistent Storage: workspace/TaskScheduler_Tasks.json (Universal + Place-Specific)
-    ==============================================================================
+    Omni Kernel Task Scheduler (Apple Shortcuts Edition)
+    Advanced Event-Driven Automation Dispatcher & Visual Shortcuts Pipeline Builder
+    Author: Omni Development Team
+    Design System: Apple Shortcuts (iOS / macOS Fluent Glass)
 ]]
 
-if not game or not game.GetService then return end
-
-local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
+-- Services
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
-local Debris = game:GetService("Debris")
 
 local LocalPlayer = Players.LocalPlayer
-if not LocalPlayer then return end
-
--- Clean up any prior instance
-if getgenv()._KernelTaskSchedulerCleanUp and type(getgenv()._KernelTaskSchedulerCleanUp) == "function" then
-    pcall(getgenv()._KernelTaskSchedulerCleanUp)
+while not LocalPlayer do
+    task.wait(0.1)
+    LocalPlayer = Players.LocalPlayer
 end
+
+-- ==============================================================================
+-- 0. THEME PALETTE & GLYPH SYSTEM (Apple Shortcuts)
+-- ==============================================================================
+local SHORTCUT_COLORS = {
+    blue = {
+        name = "Blue",
+        bg = Color3.fromRGB(0, 115, 230),
+        stroke = Color3.fromRGB(80, 170, 255),
+        badge = Color3.fromRGB(0, 85, 175),
+        text = Color3.fromRGB(255, 255, 255),
+        sub = Color3.fromRGB(215, 238, 255)
+    },
+    green = {
+        name = "Green",
+        bg = Color3.fromRGB(35, 155, 70),
+        stroke = Color3.fromRGB(75, 215, 120),
+        badge = Color3.fromRGB(25, 115, 50),
+        text = Color3.fromRGB(255, 255, 255),
+        sub = Color3.fromRGB(210, 250, 225)
+    },
+    orange = {
+        name = "Orange",
+        bg = Color3.fromRGB(220, 105, 15),
+        stroke = Color3.fromRGB(255, 155, 60),
+        badge = Color3.fromRGB(165, 75, 10),
+        text = Color3.fromRGB(255, 255, 255),
+        sub = Color3.fromRGB(255, 235, 210)
+    },
+    purple = {
+        name = "Purple",
+        bg = Color3.fromRGB(135, 55, 190),
+        stroke = Color3.fromRGB(190, 110, 255),
+        badge = Color3.fromRGB(95, 35, 140),
+        text = Color3.fromRGB(255, 255, 255),
+        sub = Color3.fromRGB(240, 215, 255)
+    },
+    red = {
+        name = "Red",
+        bg = Color3.fromRGB(200, 40, 65),
+        stroke = Color3.fromRGB(255, 90, 120),
+        badge = Color3.fromRGB(145, 25, 45),
+        text = Color3.fromRGB(255, 255, 255),
+        sub = Color3.fromRGB(255, 215, 225)
+    },
+    teal = {
+        name = "Teal",
+        bg = Color3.fromRGB(25, 140, 160),
+        stroke = Color3.fromRGB(65, 200, 225),
+        badge = Color3.fromRGB(18, 100, 115),
+        text = Color3.fromRGB(255, 255, 255),
+        sub = Color3.fromRGB(215, 250, 255)
+    },
+    amber = {
+        name = "Amber",
+        bg = Color3.fromRGB(195, 130, 15),
+        stroke = Color3.fromRGB(255, 185, 50),
+        badge = Color3.fromRGB(140, 92, 10),
+        text = Color3.fromRGB(255, 255, 255),
+        sub = Color3.fromRGB(255, 245, 210)
+    },
+    indigo = {
+        name = "Indigo",
+        bg = Color3.fromRGB(75, 65, 185),
+        stroke = Color3.fromRGB(130, 120, 250),
+        badge = Color3.fromRGB(50, 42, 130),
+        text = Color3.fromRGB(255, 255, 255),
+        sub = Color3.fromRGB(225, 220, 255)
+    }
+}
+local COLOR_ORDER = { "blue", "green", "orange", "purple", "red", "teal", "amber", "indigo" }
+local SHORTCUT_ICONS = { "⚡", "🚗", "🛡️", "💰", "⏱️", "📍", "🔄", "👻", "🚪", "💊", "🎯", "📡" }
 
 -- ==============================================================================
 -- 1. PERSISTENCE ENGINE & DATA STORE
@@ -43,7 +97,7 @@ end
 local Storage = {
     file = "TaskScheduler_Tasks.json",
     data = {
-        version = 1,
+        version = 2,
         universal = {},
         places = {},
     },
@@ -57,58 +111,6 @@ Storage.load = function()
         filePath = "workspace/" .. filePath
     end
     if not isfile(filePath) then
-        -- Default starter tasks
-        Storage.data.universal = {
-            {
-                id = "anti_afk_timer",
-                name = "Anti-AFK Heartbeat",
-                description = "Periodic virtual heartbeat to bypass Roblox 20-minute idle disconnect",
-                enabled = true,
-                scope = "universal",
-                trigger = { type = "Timer", interval = 600 },
-                condition = { type = "Always" },
-                actions = {
-                    { type = "VirtualPoke" },
-                    { type = "Toast", title = "Anti-AFK", message = "Virtual heartbeat poked" }
-                },
-                telemetry = { invocations = 0, lastRun = 0, lastResult = "Ready" }
-            },
-            {
-                id = "staff_detector",
-                name = "Staff / Mod Alert",
-                description = "Notifies when a high-ranking group member or moderator joins the server",
-                enabled = false,
-                scope = "universal",
-                trigger = { type = "Signal", preset = "PlayerAdded" },
-                condition = { type = "StaffRank", minRank = 100, groupId = 0 },
-                actions = {
-                    { type = "Toast", title = "⚠️ STAFF JOINED", message = "A staff member has entered the server!" },
-                    { type = "PauseAllLoops" }
-                },
-                telemetry = { invocations = 0, lastRun = 0, lastResult = "Ready" }
-            }
-        }
-
-        local placeIdStr = tostring(game.PlaceId or "0")
-        if game.PlaceId == 6764533218 then -- Washiez
-            Storage.data.places[placeIdStr] = {
-                {
-                    id = "washiez_mount_align",
-                    name = "Auto-Car Alignment on Seat",
-                    description = "Boosts vehicle alignment loop when mounting a car seat",
-                    enabled = true,
-                    scope = "place",
-                    trigger = { type = "Signal", preset = "Seated" },
-                    condition = { type = "InVehicle" },
-                    actions = {
-                        { type = "SetTaskPriority", target = "AutomaticCarAlignmentWashiez", priority = 95 },
-                        { type = "Toast", title = "Vehicle Mounted", message = "Engaged car alignment at 95 Priority" }
-                    },
-                    telemetry = { invocations = 0, lastRun = 0, lastResult = "Ready" }
-                }
-            }
-        end
-
         Storage.save(true)
         return
     end
@@ -381,7 +383,6 @@ local function executeActions(taskObj, triggerArgs)
                     _G.StopBot()
                 end
             elseif act.type == "TweenTo" then
-                local TweenService = game:GetService("TweenService")
                 local char = LocalPlayer.Character
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
                 if hrp and act.target then
@@ -562,139 +563,211 @@ Engine.bindTask = function(taskObj)
             end
         end)
         Engine.timerThreads[taskObj.id] = thread
-
     elseif trig.type == "ClockInterval" then
-        local intv = math.max(0.05, tonumber(trig.interval) or 5.0)
-        local thread = task.spawn(function()
-            local nextTick = os.clock() + intv
-            while taskObj.enabled do
-                local now = os.clock()
-                if now >= nextTick then
-                    nextTick = now + intv
-                    fireTask(taskObj, now)
-                end
-                task.wait(math.min(0.1, intv / 2))
+        local intv = math.max(0.05, tonumber(trig.interval) or 5)
+        local lastClock = os.clock()
+        local c = RunService.Heartbeat:Connect(function()
+            local now = os.clock()
+            if now - lastClock >= intv then
+                lastClock = now
+                fireTask(taskObj)
             end
         end)
-        Engine.timerThreads[taskObj.id] = thread
-
+        table.insert(conns, c)
     elseif trig.type == "ClockTarget" then
-        local targetTime = tonumber(trig.target) or (os.clock() + (tonumber(trig.interval) or 10))
-        local thread = task.spawn(function()
-            while taskObj.enabled do
-                local now = os.clock()
-                if now >= targetTime then
-                    fireTask(taskObj, now)
-                    break
-                end
-                task.wait(0.5)
+        local target = tonumber(trig.target) or (os.clock() + 60)
+        local fired = false
+        local c = RunService.Heartbeat:Connect(function()
+            if not fired and os.clock() >= target then
+                fired = true
+                fireTask(taskObj)
             end
         end)
-        Engine.timerThreads[taskObj.id] = thread
-
+        table.insert(conns, c)
     elseif trig.type == "Signal" then
         local preset = trig.preset
-        if preset == "PlayerAdded" then
-            local c = Players.PlayerAdded:Connect(function(plr) fireTask(taskObj, plr) end)
+        if preset == "Seated" then
+            local function hookChar(char)
+                local hum = char:WaitForChild("Humanoid", 5)
+                if hum then
+                    local c = hum.Seated:Connect(function(active, seat)
+                        if active then fireTask(taskObj, seat) end
+                    end)
+                    table.insert(conns, c)
+                end
+            end
+            if LocalPlayer.Character then hookChar(LocalPlayer.Character) end
+            local c2 = LocalPlayer.CharacterAdded:Connect(hookChar)
+            table.insert(conns, c2)
+        elseif preset == "PlayerAdded" then
+            local c = Players.PlayerAdded:Connect(function(p) fireTask(taskObj, p) end)
             table.insert(conns, c)
         elseif preset == "PlayerRemoving" then
-            local c = Players.PlayerRemoving:Connect(function(plr) fireTask(taskObj, plr) end)
+            local c = Players.PlayerRemoving:Connect(function(p) fireTask(taskObj, p) end)
             table.insert(conns, c)
         elseif preset == "CharacterAdded" then
             local c = LocalPlayer.CharacterAdded:Connect(function(char) fireTask(taskObj, char) end)
             table.insert(conns, c)
         elseif preset == "Died" then
-            local function hookChar(char)
-                if not char then return end
-                local hum = char:WaitForChild("Humanoid", 3)
+            local function hookDied(char)
+                local hum = char:WaitForChild("Humanoid", 5)
                 if hum then
                     local c = hum.Died:Connect(function() fireTask(taskObj) end)
                     table.insert(conns, c)
                 end
             end
-            if LocalPlayer.Character then hookChar(LocalPlayer.Character) end
-            local c = LocalPlayer.CharacterAdded:Connect(hookChar)
-            table.insert(conns, c)
-        elseif preset == "Seated" then
-            local function hookSeat(char)
-                if not char then return end
-                local hum = char:WaitForChild("Humanoid", 3)
-                if hum then
-                    local c = hum.Seated:Connect(function(active, seat) fireTask(taskObj, active, seat) end)
-                    table.insert(conns, c)
-                end
-            end
-            if LocalPlayer.Character then hookSeat(LocalPlayer.Character) end
-            local c = LocalPlayer.CharacterAdded:Connect(hookSeat)
-            table.insert(conns, c)
+            if LocalPlayer.Character then hookDied(LocalPlayer.Character) end
+            local c2 = LocalPlayer.CharacterAdded:Connect(hookDied)
+            table.insert(conns, c2)
         elseif preset == "WindowFocus" then
-            local c = UserInputService.WindowFocusReleased:Connect(function() fireTask(taskObj) end)
+            local c = UserInputService.WindowFocused:Connect(function() fireTask(taskObj, "FocusGained") end)
+            local c2 = UserInputService.WindowFocusReleased:Connect(function() fireTask(taskObj, "FocusLost") end)
             table.insert(conns, c)
+            table.insert(conns, c2)
         elseif preset == "Idled" then
-            local c = LocalPlayer.Idled:Connect(function(time) fireTask(taskObj, time) end)
+            local c = LocalPlayer.Idled:Connect(function(timeVal) fireTask(taskObj, timeVal) end)
             table.insert(conns, c)
         end
-
-    elseif trig.type == "CustomSignal" and trig.path and trig.path ~= "" then
-        pcall(function()
-            local sig = nil
-            local fn = loadstring("return " .. trig.path)
-            if fn then
-                local ok, res = pcall(fn)
-                if ok and (typeof(res) == "RBXScriptSignal" or (type(res) == "table" and type(res.Connect) == "function")) then
-                    sig = res
-                end
-            end
-            if not sig then
-                local cur = game
-                for seg in string.gmatch(trig.path, "[^%.]+") do
-                    cur = cur:FindFirstChild(seg)
-                    if not cur then break end
-                end
-                if cur and (typeof(cur) == "RBXScriptSignal" or (type(cur) == "table" and type(cur.Connect) == "function")) then
-                    sig = cur
-                end
-            end
-            if sig and sig.Connect then
+    elseif trig.type == "CustomSignal" then
+        if trig.path and trig.path ~= "" then
+            local sig = resolveInstance(trig.path)
+            if sig and typeof(sig) == "RBXScriptSignal" then
                 local c = sig:Connect(function(...) fireTask(taskObj, ...) end)
                 table.insert(conns, c)
             end
-        end)
+        end
     end
 
     Engine.liveConnections[taskObj.id] = conns
+    Engine.activeTasks[taskObj.id] = taskObj
 end
-
-Engine.syncAll = function()
-    -- Clear current active
-    for id in pairs(Engine.activeTasks) do
-        Engine.unbindTask(id)
-    end
-    Engine.activeTasks = {}
-
-    -- Bind universal
-    for _, t in pairs(Storage.data.universal or {}) do
-        if type(t) == "table" and t.id then
-            Engine.activeTasks[t.id] = t
-            if t.enabled then Engine.bindTask(t) end
-        end
-    end
-
-    -- Bind place-specific
-    local placeIdStr = tostring(game.PlaceId or "0")
-    for _, t in pairs(Storage.data.places[placeIdStr] or {}) do
-        if type(t) == "table" and t.id then
-            Engine.activeTasks[t.id] = t
-            if t.enabled then Engine.bindTask(t) end
-        end
-    end
-end
-
-Storage.load()
-Engine.syncAll()
 
 -- ==============================================================================
--- 3. WINDOWS 11 FLUENT GUI & ACTION CARDS
+-- 3. CURATED SHORTCUTS GALLERY RECIPES
+-- ==============================================================================
+local GALLERY_RECIPES = {
+    {
+        id = "gallery_anti_afk",
+        name = "Anti-AFK Ghost",
+        description = "Periodically pokes virtual mouse input to bypass Roblox's 20-minute idle disconnect",
+        icon = "👻",
+        color = "indigo",
+        scope = "universal",
+        trigger = { type = "Timer", interval = 120 },
+        condition = { type = "Always" },
+        actions = {
+            { type = "VirtualPoke" },
+            { type = "Toast", title = "Anti-AFK Ghost", message = "Poked virtual heartbeat" }
+        }
+    },
+    {
+        id = "gallery_emergency_rejoin",
+        name = "Emergency Low-HP Exit",
+        description = "Safely rejoins server before dying when health drops critical to preserve gear",
+        icon = "💊",
+        color = "red",
+        scope = "universal",
+        trigger = { type = "ClockInterval", interval = 0.5 },
+        condition = { type = "LowHealth", threshold = 20 },
+        actions = {
+            { type = "Toast", title = "CRITICAL HEALTH", message = "Health <= 20! Initiating emergency rejoin..." },
+            { type = "Delay", duration = 0.5 },
+            { type = "Rejoin" }
+        }
+    },
+    {
+        id = "gallery_prompt_harvester",
+        name = "Prompt Auto-Harvester",
+        description = "Continuously scans and triggers nearby proximity prompts (doors, registers, items)",
+        icon = "⚡",
+        color = "green",
+        scope = "universal",
+        trigger = { type = "Timer", interval = 1.0 },
+        condition = { type = "Always" },
+        actions = {
+            { type = "ActivatePrompt", target = "nearest", maxDistance = 25, holdDuration = 0 },
+            { type = "Toast", title = "Harvester", message = "Interacted with proximity prompt" }
+        }
+    },
+    {
+        id = "gallery_washiez_patrol",
+        name = "Washiez Route Patrol",
+        description = "Drives automated patrol route between Yard and Station exit when seated in car",
+        icon = "🚗",
+        color = "blue",
+        scope = "place",
+        trigger = { type = "Timer", interval = 60 },
+        condition = { type = "InVehicle" },
+        actions = {
+            { type = "Toast", title = "Washiez Patrol", message = "Navigating to Yard Node..." },
+            { type = "FollowRoute", targetNode = "Yard", route = "road_network.json" },
+            { type = "Delay", duration = 2.0 },
+            { type = "FollowRoute", targetNode = "Exit", route = "road_network.json" }
+        }
+    },
+    {
+        id = "gallery_cash_alert",
+        name = "Cash Milestone Notifier",
+        description = "Celebrates and alerts when leaderstats Cash crosses your savings threshold",
+        icon = "💰",
+        color = "amber",
+        scope = "universal",
+        trigger = { type = "ClockInterval", interval = 5.0 },
+        condition = { type = "StatThreshold", stat = "Cash", operator = ">=", value = 50000 },
+        actions = {
+            { type = "Toast", title = "💰 Goal Reached", message = "Cash reached over $50,000!" },
+            { type = "VirtualPoke" }
+        }
+    },
+    {
+        id = "gallery_staff_radar",
+        name = "Staff Radar & Panic Stop",
+        description = "Detects staff or moderators joining the server and freezes automation loops",
+        icon = "🛡️",
+        color = "purple",
+        scope = "universal",
+        trigger = { type = "Signal", preset = "PlayerAdded" },
+        condition = { type = "StaffRank", minRank = 100, groupId = 0 },
+        actions = {
+            { type = "Toast", title = "⚠️ STAFF DETECTED", message = "Moderator joined! Pausing all loops for safety." },
+            { type = "PauseAllLoops" }
+        }
+    },
+    {
+        id = "gallery_safe_respawn",
+        name = "Post-Death Safe Teleport",
+        description = "Waits for character spawn and tweens immediately to high ground coordinates",
+        icon = "📍",
+        color = "teal",
+        scope = "universal",
+        trigger = { type = "Signal", preset = "CharacterAdded" },
+        condition = { type = "Always" },
+        actions = {
+            { type = "Delay", duration = 2.0 },
+            { type = "TweenTo", target = "0, 100, 0", duration = 3.0 },
+            { type = "Toast", title = "Safety Transit", message = "Relocated to safe respawn coordinates" }
+        }
+    },
+    {
+        id = "gallery_anti_idle_jiggle",
+        name = "Anti-AFK Jiggle & Jump",
+        description = "Sends spacebar jump and micro-poke whenever Roblox signals player idled",
+        icon = "🔄",
+        color = "orange",
+        scope = "universal",
+        trigger = { type = "Signal", preset = "Idled" },
+        condition = { type = "Always" },
+        actions = {
+            { type = "VirtualInput", key = "Space", duration = 0.1 },
+            { type = "Delay", duration = 0.2 },
+            { type = "VirtualPoke" },
+            { type = "Toast", title = "Anti-Idle", message = "Reset idle state timer" }
+        }
+    }
+}
+
+-- ==============================================================================
+-- 4. APPLE SHORTCUTS GUI & DESIGN SYSTEM
 -- ==============================================================================
 local function getGuiContainer()
     if type(gethui) == "function" then
@@ -709,6 +782,11 @@ end
 local parentContainer = getGuiContainer()
 if not parentContainer then return end
 
+-- Destroy any existing instance
+if parentContainer:FindFirstChild("WindowsTaskSchedulerGui") then
+    pcall(function() parentContainer.WindowsTaskSchedulerGui:Destroy() end)
+end
+
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "WindowsTaskSchedulerGui"
 ScreenGui.ResetOnSpawn = false
@@ -716,7 +794,7 @@ ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Enabled = false
 ScreenGui.Parent = parentContainer
 
--- Toast Notification Container
+-- Toast Notification System
 local ToastContainer = Instance.new("Frame")
 ToastContainer.Name = "ToastContainer"
 ToastContainer.Size = UDim2.new(0, 320, 1, -20)
@@ -744,20 +822,20 @@ showToastNotification = function(title, message, duration)
     toast.Parent = ToastContainer
 
     local tCorner = Instance.new("UICorner")
-    tCorner.CornerRadius = UDim.new(0, 6)
+    tCorner.CornerRadius = UDim.new(0, 8)
     tCorner.Parent = toast
 
     local tStroke = Instance.new("UIStroke")
-    tStroke.Color = Color3.fromRGB(60, 130, 240)
+    tStroke.Color = Color3.fromRGB(0, 122, 255)
     tStroke.Thickness = 1
     tStroke.Transparency = 0.4
     tStroke.Parent = toast
 
     local accent = Instance.new("Frame")
     accent.Name = "Accent"
-    accent.Size = UDim2.new(0, 4, 1, -8)
-    accent.Position = UDim2.new(0, 4, 0, 4)
-    accent.BackgroundColor3 = Color3.fromRGB(60, 150, 255)
+    accent.Size = UDim2.new(0, 4, 1, -12)
+    accent.Position = UDim2.new(0, 6, 0, 6)
+    accent.BackgroundColor3 = Color3.fromRGB(0, 122, 255)
     accent.BorderSizePixel = 0
     accent.ZIndex = 502
     accent.Parent = toast
@@ -767,21 +845,21 @@ showToastNotification = function(title, message, duration)
 
     local titleLbl = Instance.new("TextLabel")
     titleLbl.Name = "TitleLbl"
-    titleLbl.Size = UDim2.new(1, -24, 0, 18)
-    titleLbl.Position = UDim2.new(0, 16, 0, 8)
+    titleLbl.Size = UDim2.new(1, -28, 0, 18)
+    titleLbl.Position = UDim2.new(0, 18, 0, 8)
     titleLbl.BackgroundTransparency = 1
     titleLbl.Font = Enum.Font.GothamBold
     titleLbl.TextSize = 12
     titleLbl.TextColor3 = Color3.fromRGB(240, 245, 255)
     titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-    titleLbl.Text = tostring(title or "Scheduler Alert")
+    titleLbl.Text = tostring(title or "Shortcuts Alert")
     titleLbl.ZIndex = 502
     titleLbl.Parent = toast
 
     local descLbl = Instance.new("TextLabel")
     descLbl.Name = "DescLbl"
-    descLbl.Size = UDim2.new(1, -24, 0, 16)
-    descLbl.Position = UDim2.new(0, 16, 0, 28)
+    descLbl.Size = UDim2.new(1, -28, 0, 16)
+    descLbl.Position = UDim2.new(0, 18, 0, 28)
     descLbl.BackgroundTransparency = 1
     descLbl.Font = Enum.Font.Gotham
     descLbl.TextSize = 10
@@ -804,34 +882,34 @@ end
 -- Main Window Frame
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 720, 0, 480)
-MainFrame.Position = UDim2.new(0.5, -360, 0.5, -240)
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 23)
+MainFrame.Size = UDim2.new(0, 760, 0, 520)
+MainFrame.Position = UDim2.new(0.5, -380, 0.5, -260)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.ClipsDescendants = true
 MainFrame.Active = true
 MainFrame.Parent = ScreenGui
 
 local mCorner = Instance.new("UICorner")
-mCorner.CornerRadius = UDim.new(0, 8)
+mCorner.CornerRadius = UDim.new(0, 12)
 mCorner.Parent = MainFrame
 
 local mStroke = Instance.new("UIStroke")
 mStroke.Thickness = 1.5
 mStroke.Color = Color3.fromRGB(45, 55, 75)
-mStroke.Transparency = 0.2
+mStroke.Transparency = 0.25
 mStroke.Parent = MainFrame
 
--- Title Bar
+-- Title Bar (macOS / iOS style)
 local TitleBar = Instance.new("Frame")
 TitleBar.Name = "TitleBar"
-TitleBar.Size = UDim2.new(1, 0, 0, 42)
+TitleBar.Size = UDim2.new(1, 0, 0, 44)
 TitleBar.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
 TitleBar.BorderSizePixel = 0
 TitleBar.Parent = MainFrame
 
 local tbCorner = Instance.new("UICorner")
-tbCorner.CornerRadius = UDim.new(0, 8)
+tbCorner.CornerRadius = UDim.new(0, 12)
 tbCorner.Parent = TitleBar
 
 -- Window Dragging
@@ -858,98 +936,165 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
-local IconLbl = Instance.new("TextLabel")
-IconLbl.Name = "IconLbl"
-IconLbl.Size = UDim2.new(0, 32, 1, 0)
-IconLbl.Position = UDim2.new(0, 12, 0, 0)
-IconLbl.BackgroundTransparency = 1
-IconLbl.Font = Enum.Font.GothamBold
-IconLbl.TextSize = 16
-IconLbl.Text = "⚡"
-IconLbl.TextColor3 = Color3.fromRGB(70, 160, 255)
-IconLbl.Parent = TitleBar
+-- Icon & Title in Header
+local HeaderBadge = Instance.new("Frame")
+HeaderBadge.Name = "HeaderBadge"
+HeaderBadge.Size = UDim2.new(0, 26, 0, 26)
+HeaderBadge.Position = UDim2.new(0, 14, 0.5, -13)
+HeaderBadge.BackgroundColor3 = Color3.fromRGB(0, 122, 255)
+HeaderBadge.BorderSizePixel = 0
+HeaderBadge.Parent = TitleBar
+local hbCorner = Instance.new("UICorner")
+hbCorner.CornerRadius = UDim.new(0, 7)
+hbCorner.Parent = HeaderBadge
+
+local HeaderBadgeIcon = Instance.new("TextLabel")
+HeaderBadgeIcon.Size = UDim2.new(1, 0, 1, 0)
+HeaderBadgeIcon.BackgroundTransparency = 1
+HeaderBadgeIcon.Font = Enum.Font.GothamBold
+HeaderBadgeIcon.TextSize = 14
+HeaderBadgeIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+HeaderBadgeIcon.Text = "⚡"
+HeaderBadgeIcon.Parent = HeaderBadge
 
 local TitleLbl = Instance.new("TextLabel")
 TitleLbl.Name = "TitleLbl"
-TitleLbl.Size = UDim2.new(0, 220, 1, 0)
-TitleLbl.Position = UDim2.new(0, 44, 0, 0)
+TitleLbl.Size = UDim2.new(0, 180, 1, 0)
+TitleLbl.Position = UDim2.new(0, 48, 0, 0)
 TitleLbl.BackgroundTransparency = 1
 TitleLbl.Font = Enum.Font.GothamBold
-TitleLbl.TextSize = 13
+TitleLbl.TextSize = 14
 TitleLbl.TextColor3 = Color3.fromRGB(240, 245, 255)
 TitleLbl.TextXAlignment = Enum.TextXAlignment.Left
-TitleLbl.Text = "Automation Scheduler"
+TitleLbl.Text = "Shortcuts"
 TitleLbl.Parent = TitleBar
+
+local SubtitleLbl = Instance.new("TextLabel")
+SubtitleLbl.Name = "SubtitleLbl"
+SubtitleLbl.Size = UDim2.new(0, 150, 1, 0)
+SubtitleLbl.Position = UDim2.new(0, 126, 0, 1)
+SubtitleLbl.BackgroundTransparency = 1
+SubtitleLbl.Font = Enum.Font.Gotham
+SubtitleLbl.TextSize = 11
+SubtitleLbl.TextColor3 = Color3.fromRGB(130, 145, 175)
+SubtitleLbl.TextXAlignment = Enum.TextXAlignment.Left
+SubtitleLbl.Text = "Omni Automation Engine"
+SubtitleLbl.Parent = TitleBar
 
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Name = "CloseBtn"
-CloseBtn.Size = UDim2.new(0, 32, 0, 26)
-CloseBtn.Position = UDim2.new(1, -38, 0.5, -13)
+CloseBtn.Size = UDim2.new(0, 28, 0, 28)
+CloseBtn.Position = UDim2.new(1, -38, 0.5, -14)
 CloseBtn.BackgroundColor3 = Color3.fromRGB(35, 40, 55)
 CloseBtn.BorderSizePixel = 0
 CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.TextSize = 11
+CloseBtn.TextSize = 12
 CloseBtn.TextColor3 = Color3.fromRGB(220, 225, 240)
-CloseBtn.Text = "X"
+CloseBtn.Text = "✕"
 CloseBtn.Parent = TitleBar
 local cbCorner = Instance.new("UICorner")
-cbCorner.CornerRadius = UDim.new(0, 4)
+cbCorner.CornerRadius = UDim.new(1, 0)
 cbCorner.Parent = CloseBtn
 
 CloseBtn.MouseButton1Click:Connect(function()
     ScreenGui.Enabled = false
 end)
 
--- Top Control Ribbon (Search, Filter, New Task Button)
+-- Top Control Ribbon (Segmented Pills, Search, Export, Import, + New Shortcut)
 local Ribbon = Instance.new("Frame")
 Ribbon.Name = "Ribbon"
-Ribbon.Size = UDim2.new(1, -24, 0, 38)
-Ribbon.Position = UDim2.new(0, 12, 0, 48)
+Ribbon.Size = UDim2.new(1, -28, 0, 36)
+Ribbon.Position = UDim2.new(0, 14, 0, 52)
 Ribbon.BackgroundTransparency = 1
 Ribbon.Parent = MainFrame
 
+-- Segmented Navigation Pill Container
+local SegmentContainer = Instance.new("Frame")
+SegmentContainer.Name = "SegmentContainer"
+SegmentContainer.Size = UDim2.new(0, 210, 0, 32)
+SegmentContainer.Position = UDim2.new(0, 0, 0, 2)
+SegmentContainer.BackgroundColor3 = Color3.fromRGB(25, 30, 42)
+SegmentContainer.BorderSizePixel = 0
+SegmentContainer.Parent = Ribbon
+local scCorner = Instance.new("UICorner")
+scCorner.CornerRadius = UDim.new(0, 8)
+scCorner.Parent = SegmentContainer
+
+local TabShortcutsBtn = Instance.new("TextButton")
+TabShortcutsBtn.Name = "TabShortcutsBtn"
+TabShortcutsBtn.Size = UDim2.new(0.5, -2, 1, -4)
+TabShortcutsBtn.Position = UDim2.new(0, 2, 0, 2)
+TabShortcutsBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 255)
+TabShortcutsBtn.BorderSizePixel = 0
+TabShortcutsBtn.Font = Enum.Font.GothamBold
+TabShortcutsBtn.TextSize = 11
+TabShortcutsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+TabShortcutsBtn.Text = "📱 Shortcuts"
+TabShortcutsBtn.Parent = SegmentContainer
+local tsbCorner = Instance.new("UICorner")
+tsbCorner.CornerRadius = UDim.new(0, 6)
+tsbCorner.Parent = TabShortcutsBtn
+
+local TabGalleryBtn = Instance.new("TextButton")
+TabGalleryBtn.Name = "TabGalleryBtn"
+TabGalleryBtn.Size = UDim2.new(0.5, -2, 1, -4)
+TabGalleryBtn.Position = UDim2.new(0.5, 0, 0, 2)
+TabGalleryBtn.BackgroundTransparency = 1
+TabGalleryBtn.BorderSizePixel = 0
+TabGalleryBtn.Font = Enum.Font.GothamBold
+TabGalleryBtn.TextSize = 11
+TabGalleryBtn.TextColor3 = Color3.fromRGB(150, 165, 190)
+TabGalleryBtn.Text = "🌟 Gallery"
+TabGalleryBtn.Parent = SegmentContainer
+local tgbCorner = Instance.new("UICorner")
+tgbCorner.CornerRadius = UDim.new(0, 6)
+tgbCorner.Parent = TabGalleryBtn
+
+-- Search Box
 local SearchBox = Instance.new("TextBox")
 SearchBox.Name = "SearchBox"
-SearchBox.Size = UDim2.new(0, 220, 0, 30)
-SearchBox.Position = UDim2.new(0, 0, 0, 4)
+SearchBox.Size = UDim2.new(0, 160, 0, 32)
+SearchBox.Position = UDim2.new(0, 220, 0, 2)
 SearchBox.BackgroundColor3 = Color3.fromRGB(22, 26, 36)
 SearchBox.BorderSizePixel = 0
 SearchBox.Font = Enum.Font.Gotham
 SearchBox.TextSize = 11
 SearchBox.TextColor3 = Color3.fromRGB(235, 240, 255)
-SearchBox.PlaceholderText = "Search scheduled tasks..."
+SearchBox.PlaceholderText = "🔍 Search..."
 SearchBox.PlaceholderColor3 = Color3.fromRGB(120, 135, 160)
 SearchBox.TextXAlignment = Enum.TextXAlignment.Left
 SearchBox.ClearTextOnFocus = false
 SearchBox.Text = ""
 SearchBox.Parent = Ribbon
 local sbCorner = Instance.new("UICorner")
-sbCorner.CornerRadius = UDim.new(0, 4)
+sbCorner.CornerRadius = UDim.new(0, 8)
 sbCorner.Parent = SearchBox
 local sbPad = Instance.new("UIPadding")
 sbPad.PaddingLeft = UDim.new(0, 10)
+sbPad.PaddingRight = UDim.new(0, 10)
 sbPad.Parent = SearchBox
 
+-- Right action buttons
 local ExportAllBtn = Instance.new("TextButton")
 ExportAllBtn.Name = "ExportAllBtn"
-ExportAllBtn.Size = UDim2.new(0, 95, 0, 30)
-ExportAllBtn.Position = UDim2.new(1, -315, 0, 4)
-ExportAllBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 80)
+ExportAllBtn.Size = UDim2.new(0, 86, 0, 32)
+ExportAllBtn.Position = UDim2.new(1, -320, 0, 2)
+ExportAllBtn.BackgroundColor3 = Color3.fromRGB(32, 45, 68)
 ExportAllBtn.BorderSizePixel = 0
 ExportAllBtn.Font = Enum.Font.GothamBold
 ExportAllBtn.TextSize = 11
 ExportAllBtn.TextColor3 = Color3.fromRGB(160, 210, 255)
-ExportAllBtn.Text = "📤 Export All"
+ExportAllBtn.Text = "📤 Export"
 ExportAllBtn.Parent = Ribbon
 local eabCorner = Instance.new("UICorner")
-eabCorner.CornerRadius = UDim.new(0, 4)
+eabCorner.CornerRadius = UDim.new(0, 8)
 eabCorner.Parent = ExportAllBtn
 
 local ImportBtn = Instance.new("TextButton")
 ImportBtn.Name = "ImportBtn"
-ImportBtn.Size = UDim2.new(0, 85, 0, 30)
-ImportBtn.Position = UDim2.new(1, -210, 0, 4)
-ImportBtn.BackgroundColor3 = Color3.fromRGB(30, 60, 45)
+ImportBtn.Size = UDim2.new(0, 86, 0, 32)
+ImportBtn.Position = UDim2.new(1, -226, 0, 2)
+ImportBtn.BackgroundColor3 = Color3.fromRGB(28, 55, 42)
 ImportBtn.BorderSizePixel = 0
 ImportBtn.Font = Enum.Font.GothamBold
 ImportBtn.TextSize = 11
@@ -957,63 +1102,171 @@ ImportBtn.TextColor3 = Color3.fromRGB(120, 235, 170)
 ImportBtn.Text = "📥 Import"
 ImportBtn.Parent = Ribbon
 local ibCorner = Instance.new("UICorner")
-ibCorner.CornerRadius = UDim.new(0, 4)
+ibCorner.CornerRadius = UDim.new(0, 8)
 ibCorner.Parent = ImportBtn
 
-local NewTaskBtn = Instance.new("TextButton")
-NewTaskBtn.Name = "NewTaskBtn"
-NewTaskBtn.Size = UDim2.new(0, 95, 0, 30)
-NewTaskBtn.Position = UDim2.new(1, -115, 0, 4)
-NewTaskBtn.BackgroundColor3 = Color3.fromRGB(40, 110, 220)
-NewTaskBtn.BorderSizePixel = 0
-NewTaskBtn.Font = Enum.Font.GothamBold
-NewTaskBtn.TextSize = 11
-NewTaskBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-NewTaskBtn.Text = "+ New Task"
-NewTaskBtn.Parent = Ribbon
-local ntbCorner = Instance.new("UICorner")
-ntbCorner.CornerRadius = UDim.new(0, 4)
-ntbCorner.Parent = NewTaskBtn
+local NewShortcutBtn = Instance.new("TextButton")
+NewShortcutBtn.Name = "NewShortcutBtn"
+NewShortcutBtn.Size = UDim2.new(0, 130, 0, 32)
+NewShortcutBtn.Position = UDim2.new(1, -132, 0, 2)
+NewShortcutBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 255)
+NewShortcutBtn.BorderSizePixel = 0
+NewShortcutBtn.Font = Enum.Font.GothamBold
+NewShortcutBtn.TextSize = 11
+NewShortcutBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+NewShortcutBtn.Text = "+ New Shortcut"
+NewShortcutBtn.Parent = Ribbon
+local nsbCorner = Instance.new("UICorner")
+nsbCorner.CornerRadius = UDim.new(0, 8)
+nsbCorner.Parent = NewShortcutBtn
 
--- Card Scroll List
-local ScrollList = Instance.new("ScrollingFrame")
-ScrollList.Name = "ScrollList"
-ScrollList.Size = UDim2.new(1, -24, 1, -100)
-ScrollList.Position = UDim2.new(0, 12, 0, 90)
-ScrollList.BackgroundTransparency = 1
-ScrollList.BorderSizePixel = 0
-ScrollList.ScrollBarThickness = 5
-ScrollList.ScrollBarImageColor3 = Color3.fromRGB(50, 65, 90)
-ScrollList.CanvasSize = UDim2.new(0, 0, 0, 0)
-ScrollList.Parent = MainFrame
+-- Views
+local ShortcutsView = Instance.new("Frame")
+ShortcutsView.Name = "ShortcutsView"
+ShortcutsView.Size = UDim2.new(1, -28, 1, -100)
+ShortcutsView.Position = UDim2.new(0, 14, 0, 94)
+ShortcutsView.BackgroundTransparency = 1
+ShortcutsView.Parent = MainFrame
 
-local ListLayout = Instance.new("UIListLayout")
-ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-ListLayout.Padding = UDim.new(0, 8)
-ListLayout.Parent = ScrollList
+local GalleryView = Instance.new("Frame")
+GalleryView.Name = "GalleryView"
+GalleryView.Size = UDim2.new(1, -28, 1, -100)
+GalleryView.Position = UDim2.new(0, 14, 0, 94)
+GalleryView.BackgroundTransparency = 1
+GalleryView.Visible = false
+GalleryView.Parent = MainFrame
 
-ListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    ScrollList.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y + 20)
+-- Shortcuts Tile Grid
+local ShortcutsScroll = Instance.new("ScrollingFrame")
+ShortcutsScroll.Name = "ShortcutsScroll"
+ShortcutsScroll.Size = UDim2.new(1, 0, 1, 0)
+ShortcutsScroll.BackgroundTransparency = 1
+ShortcutsScroll.BorderSizePixel = 0
+ShortcutsScroll.ScrollBarThickness = 5
+ShortcutsScroll.ScrollBarImageColor3 = Color3.fromRGB(60, 75, 100)
+ShortcutsScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+ShortcutsScroll.Parent = ShortcutsView
+
+local ShortcutsGrid = Instance.new("UIGridLayout")
+ShortcutsGrid.CellSize = UDim2.new(0, 230, 0, 118)
+ShortcutsGrid.CellPadding = UDim2.new(0, 14, 0, 14)
+ShortcutsGrid.SortOrder = Enum.SortOrder.LayoutOrder
+ShortcutsGrid.Parent = ShortcutsScroll
+
+ShortcutsGrid:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ShortcutsScroll.CanvasSize = UDim2.new(0, 0, 0, ShortcutsGrid.AbsoluteContentSize.Y + 20)
 end)
 
--- Empty Placeholder Label
-local EmptyLbl = Instance.new("TextLabel")
-EmptyLbl.Name = "EmptyLbl"
-EmptyLbl.Size = UDim2.new(1, 0, 0, 100)
-EmptyLbl.Position = UDim2.new(0, 0, 0, 40)
-EmptyLbl.BackgroundTransparency = 1
-EmptyLbl.Font = Enum.Font.GothamMedium
-EmptyLbl.TextSize = 12
-EmptyLbl.TextColor3 = Color3.fromRGB(110, 125, 150)
-EmptyLbl.Text = "No automation tasks scheduled. Click '+ New Task' to build one."
-EmptyLbl.Visible = false
-EmptyLbl.Parent = ScrollList
+-- Shortcuts Empty State
+local ShortcutsEmpty = Instance.new("Frame")
+ShortcutsEmpty.Name = "ShortcutsEmpty"
+ShortcutsEmpty.Size = UDim2.new(1, 0, 0, 220)
+ShortcutsEmpty.Position = UDim2.new(0, 0, 0, 40)
+ShortcutsEmpty.BackgroundTransparency = 1
+ShortcutsEmpty.Visible = false
+ShortcutsEmpty.Parent = ShortcutsView
 
--- Export Helpers
+local seIcon = Instance.new("TextLabel")
+seIcon.Size = UDim2.new(1, 0, 0, 50)
+seIcon.Position = UDim2.new(0, 0, 0, 10)
+seIcon.BackgroundTransparency = 1
+seIcon.Font = Enum.Font.GothamBold
+seIcon.TextSize = 42
+seIcon.Text = "⚡"
+seIcon.TextColor3 = Color3.fromRGB(80, 140, 220)
+seIcon.Parent = ShortcutsEmpty
+
+local seTitle = Instance.new("TextLabel")
+seTitle.Size = UDim2.new(1, 0, 0, 24)
+seTitle.Position = UDim2.new(0, 0, 0, 68)
+seTitle.BackgroundTransparency = 1
+seTitle.Font = Enum.Font.GothamBold
+seTitle.TextSize = 14
+seTitle.TextColor3 = Color3.fromRGB(220, 230, 250)
+seTitle.Text = "No Shortcuts Scheduled"
+seTitle.Parent = ShortcutsEmpty
+
+local seDesc = Instance.new("TextLabel")
+seDesc.Size = UDim2.new(1, 0, 0, 20)
+seDesc.Position = UDim2.new(0, 0, 0, 96)
+seDesc.BackgroundTransparency = 1
+seDesc.Font = Enum.Font.Gotham
+seDesc.TextSize = 11
+seDesc.TextColor3 = Color3.fromRGB(140, 155, 180)
+seDesc.Text = "Get started with pre-built recipes from the Gallery or build a custom workflow."
+seDesc.Parent = ShortcutsEmpty
+
+local seBrowseBtn = Instance.new("TextButton")
+seBrowseBtn.Size = UDim2.new(0, 160, 0, 32)
+seBrowseBtn.Position = UDim2.new(0.5, -80, 0, 130)
+seBrowseBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 255)
+seBrowseBtn.BorderSizePixel = 0
+seBrowseBtn.Font = Enum.Font.GothamBold
+seBrowseBtn.TextSize = 11
+seBrowseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+seBrowseBtn.Text = "🌟 Browse Gallery"
+seBrowseBtn.Parent = ShortcutsEmpty
+local sebCorn = Instance.new("UICorner")
+sebCorn.CornerRadius = UDim.new(0, 8)
+sebCorn.Parent = seBrowseBtn
+
+-- Gallery Grid
+local GalleryScroll = Instance.new("ScrollingFrame")
+GalleryScroll.Name = "GalleryScroll"
+GalleryScroll.Size = UDim2.new(1, 0, 1, 0)
+GalleryScroll.BackgroundTransparency = 1
+GalleryScroll.BorderSizePixel = 0
+GalleryScroll.ScrollBarThickness = 5
+GalleryScroll.ScrollBarImageColor3 = Color3.fromRGB(60, 75, 100)
+GalleryScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+GalleryScroll.Parent = GalleryView
+
+local GalleryGrid = Instance.new("UIGridLayout")
+GalleryGrid.CellSize = UDim2.new(0, 350, 0, 132)
+GalleryGrid.CellPadding = UDim2.new(0, 16, 0, 14)
+GalleryGrid.SortOrder = Enum.SortOrder.LayoutOrder
+GalleryGrid.Parent = GalleryScroll
+
+GalleryGrid:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    GalleryScroll.CanvasSize = UDim2.new(0, 0, 0, GalleryGrid.AbsoluteContentSize.Y + 20)
+end)
+
+-- Forward declarations
+local refreshShortcutsGrid
+local openShortcutEditor
+local switchToTab
+
+switchToTab = function(tabName)
+    if tabName == "shortcuts" then
+        ShortcutsView.Visible = true
+        GalleryView.Visible = false
+        TabShortcutsBtn.BackgroundTransparency = 0
+        TabShortcutsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        TabGalleryBtn.BackgroundTransparency = 1
+        TabGalleryBtn.TextColor3 = Color3.fromRGB(150, 165, 190)
+        refreshShortcutsGrid()
+    else
+        ShortcutsView.Visible = false
+        GalleryView.Visible = true
+        TabShortcutsBtn.BackgroundTransparency = 1
+        TabShortcutsBtn.TextColor3 = Color3.fromRGB(150, 165, 190)
+        TabGalleryBtn.BackgroundTransparency = 0
+        TabGalleryBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 255)
+        TabGalleryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end
+end
+
+TabShortcutsBtn.MouseButton1Click:Connect(function() switchToTab("shortcuts") end)
+TabGalleryBtn.MouseButton1Click:Connect(function() switchToTab("gallery") end)
+seBrowseBtn.MouseButton1Click:Connect(function() switchToTab("gallery") end)
+
+-- Export single / all functions
 local function exportTaskToJson(taskObj)
     local exportCopy = {
         name = taskObj.name,
         description = taskObj.description,
+        icon = taskObj.icon or "⚡",
+        color = taskObj.color or "blue",
         enabled = taskObj.enabled,
         scope = taskObj.scope,
         trigger = taskObj.trigger,
@@ -1028,11 +1281,11 @@ local function exportTaskToJson(taskObj)
             elseif toclipboard then
                 toclipboard(json)
             else
-                writefile("Exported_Workflow.json", json)
+                writefile("Exported_Shortcut.json", json)
             end
         end)
         if showToastNotification then
-            showToastNotification("Workflow Exported", string.format("Copied '%s' JSON to clipboard", taskObj.name), 3.0)
+            showToastNotification("Shortcut Exported", string.format("Copied '%s' JSON to clipboard", taskObj.name), 3.0)
         end
     end
 end
@@ -1044,6 +1297,8 @@ local function exportAllTasksToJson()
             table.insert(all, {
                 name = t.name,
                 description = t.description,
+                icon = t.icon or "⚡",
+                color = t.color or "blue",
                 enabled = t.enabled,
                 scope = t.scope,
                 trigger = t.trigger,
@@ -1058,6 +1313,8 @@ local function exportAllTasksToJson()
             table.insert(all, {
                 name = t.name,
                 description = t.description,
+                icon = t.icon or "⚡",
+                color = t.color or "blue",
                 enabled = t.enabled,
                 scope = t.scope,
                 trigger = t.trigger,
@@ -1074,179 +1331,188 @@ local function exportAllTasksToJson()
             elseif toclipboard then
                 toclipboard(json)
             else
-                writefile("Exported_All_Workflows.json", json)
+                writefile("Exported_All_Shortcuts.json", json)
             end
         end)
         if showToastNotification then
-            showToastNotification("All Workflows Exported", string.format("Copied %d workflows to clipboard", #all), 3.0)
+            showToastNotification("All Shortcuts Exported", string.format("Copied %d shortcuts to clipboard", #all), 3.0)
         end
     end
 end
 
 ExportAllBtn.MouseButton1Click:Connect(exportAllTasksToJson)
 
-local refreshCardList -- forward declaration
+-- Render Shortcut Tile (Apple Shortcuts Tile)
+local cachedTiles = {}
 
--- Render Task Card
-local cachedCards = {}
+local function renderShortcutTile(taskObj, idx)
+    local tile = cachedTiles[taskObj.id]
+    local colorKey = taskObj.color or "blue"
+    local colorTheme = SHORTCUT_COLORS[colorKey] or SHORTCUT_COLORS.blue
 
-local function renderCard(taskObj, idx)
-    local card = cachedCards[taskObj.id]
-    if not card then
-        card = Instance.new("Frame")
-        card.Name = taskObj.id
-        card.Size = UDim2.new(1, 0, 0, 72)
-        card.BackgroundColor3 = Color3.fromRGB(22, 26, 36)
-        card.BorderSizePixel = 0
-        card.LayoutOrder = idx
-        card.Parent = ScrollList
+    if not tile then
+        tile = Instance.new("TextButton")
+        tile.Name = taskObj.id
+        tile.Size = UDim2.new(0, 230, 0, 118)
+        tile.BackgroundColor3 = colorTheme.bg
+        tile.BorderSizePixel = 0
+        tile.AutoButtonColor = false
+        tile.Text = ""
+        tile.LayoutOrder = idx
+        tile.Parent = ShortcutsScroll
 
-        local cCorner = Instance.new("UICorner")
-        cCorner.CornerRadius = UDim.new(0, 6)
-        cCorner.Parent = card
+        local tCorner = Instance.new("UICorner")
+        tCorner.CornerRadius = UDim.new(0, 12)
+        tCorner.Parent = tile
 
-        local cStroke = Instance.new("UIStroke")
-        cStroke.Thickness = 1
-        cStroke.Color = Color3.fromRGB(38, 46, 64)
-        cStroke.Parent = card
+        local tStroke = Instance.new("UIStroke")
+        tStroke.Thickness = 1.2
+        tStroke.Color = colorTheme.stroke
+        tStroke.Transparency = 0.35
+        tStroke.Parent = tile
 
-        local dot = Instance.new("Frame")
-        dot.Name = "Dot"
-        dot.Size = UDim2.new(0, 8, 0, 8)
-        dot.Position = UDim2.new(0, 14, 0, 16)
-        dot.BackgroundColor3 = Color3.fromRGB(50, 220, 120)
-        dot.BorderSizePixel = 0
-        dot.Parent = card
-        local dCorn = Instance.new("UICorner")
-        dCorn.CornerRadius = UDim.new(1, 0)
-        dCorn.Parent = dot
+        -- Icon Badge Pill (top-left)
+        local iconBadge = Instance.new("Frame")
+        iconBadge.Name = "IconBadge"
+        iconBadge.Size = UDim2.new(0, 32, 0, 32)
+        iconBadge.Position = UDim2.new(0, 12, 0, 12)
+        iconBadge.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        iconBadge.BackgroundTransparency = 0.65
+        iconBadge.BorderSizePixel = 0
+        iconBadge.Parent = tile
+        local ibCorn = Instance.new("UICorner")
+        ibCorn.CornerRadius = UDim.new(1, 0)
+        ibCorn.Parent = iconBadge
 
+        local iconGlyph = Instance.new("TextLabel")
+        iconGlyph.Name = "IconGlyph"
+        iconGlyph.Size = UDim2.new(1, 0, 1, 0)
+        iconGlyph.BackgroundTransparency = 1
+        iconGlyph.Font = Enum.Font.GothamBold
+        iconGlyph.TextSize = 16
+        iconGlyph.TextColor3 = Color3.fromRGB(255, 255, 255)
+        iconGlyph.Text = taskObj.icon or "⚡"
+        iconGlyph.Parent = iconBadge
+
+        -- Status Indicator Pill
+        local statusPill = Instance.new("TextButton")
+        statusPill.Name = "StatusPill"
+        statusPill.Size = UDim2.new(0, 56, 0, 22)
+        statusPill.Position = UDim2.new(1, -94, 0, 12)
+        statusPill.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        statusPill.BackgroundTransparency = 0.65
+        statusPill.BorderSizePixel = 0
+        statusPill.Font = Enum.Font.GothamBold
+        statusPill.TextSize = 9
+        statusPill.TextColor3 = taskObj.enabled and Color3.fromRGB(140, 255, 180) or Color3.fromRGB(210, 215, 225)
+        statusPill.Text = taskObj.enabled and "● Active" or "○ Off"
+        statusPill.Parent = tile
+        local spCorn = Instance.new("UICorner")
+        spCorn.CornerRadius = UDim.new(1, 0)
+        spCorn.Parent = statusPill
+
+        -- Context Export / Delete buttons
+        local cardExport = Instance.new("TextButton")
+        cardExport.Name = "CardExport"
+        cardExport.Size = UDim2.new(0, 22, 0, 22)
+        cardExport.Position = UDim2.new(1, -62, 0, 12)
+        cardExport.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        cardExport.BackgroundTransparency = 0.65
+        cardExport.BorderSizePixel = 0
+        cardExport.Font = Enum.Font.GothamBold
+        cardExport.TextSize = 10
+        cardExport.TextColor3 = Color3.fromRGB(255, 255, 255)
+        cardExport.Text = "📋"
+        cardExport.Parent = tile
+        local ceCorn = Instance.new("UICorner")
+        ceCorn.CornerRadius = UDim.new(1, 0)
+        ceCorn.Parent = cardExport
+
+        local cardDelete = Instance.new("TextButton")
+        cardDelete.Name = "CardDelete"
+        cardDelete.Size = UDim2.new(0, 22, 0, 22)
+        cardDelete.Position = UDim2.new(1, -34, 0, 12)
+        cardDelete.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        cardDelete.BackgroundTransparency = 0.65
+        cardDelete.BorderSizePixel = 0
+        cardDelete.Font = Enum.Font.GothamBold
+        cardDelete.TextSize = 10
+        cardDelete.TextColor3 = Color3.fromRGB(255, 140, 140)
+        cardDelete.Text = "✕"
+        cardDelete.Parent = tile
+        local cdCorn = Instance.new("UICorner")
+        cdCorn.CornerRadius = UDim.new(1, 0)
+        cdCorn.Parent = cardDelete
+
+        -- Title & Summary
         local nameLbl = Instance.new("TextLabel")
         nameLbl.Name = "NameLbl"
-        nameLbl.Size = UDim2.new(0.45, 0, 0, 18)
-        nameLbl.Position = UDim2.new(0, 30, 0, 11)
+        nameLbl.Size = UDim2.new(1, -24, 0, 20)
+        nameLbl.Position = UDim2.new(0, 12, 0, 50)
         nameLbl.BackgroundTransparency = 1
         nameLbl.Font = Enum.Font.GothamBold
-        nameLbl.TextSize = 12
-        nameLbl.TextColor3 = Color3.fromRGB(240, 245, 255)
+        nameLbl.TextSize = 13
+        nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
         nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-        nameLbl.Parent = card
+        nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        nameLbl.Text = taskObj.name or "Untitled Shortcut"
+        nameLbl.Parent = tile
 
-        local descLbl = Instance.new("TextLabel")
-        descLbl.Name = "DescLbl"
-        descLbl.Size = UDim2.new(0.55, 0, 0, 14)
-        descLbl.Position = UDim2.new(0, 30, 0, 31)
-        descLbl.BackgroundTransparency = 1
-        descLbl.Font = Enum.Font.Gotham
-        descLbl.TextSize = 10
-        descLbl.TextColor3 = Color3.fromRGB(150, 165, 190)
-        descLbl.TextXAlignment = Enum.TextXAlignment.Left
-        descLbl.TextTruncate = Enum.TextTruncate.AtEnd
-        descLbl.Parent = card
+        local summaryLbl = Instance.new("TextLabel")
+        summaryLbl.Name = "SummaryLbl"
+        summaryLbl.Size = UDim2.new(1, -66, 0, 16)
+        summaryLbl.Position = UDim2.new(0, 12, 0, 72)
+        summaryLbl.BackgroundTransparency = 1
+        summaryLbl.Font = Enum.Font.Gotham
+        summaryLbl.TextSize = 10
+        summaryLbl.TextColor3 = colorTheme.sub
+        summaryLbl.TextXAlignment = Enum.TextXAlignment.Left
+        summaryLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        summaryLbl.Parent = tile
 
-        local triggerBadge = Instance.new("TextLabel")
-        triggerBadge.Name = "TriggerBadge"
-        triggerBadge.Size = UDim2.new(0, 120, 0, 18)
-        triggerBadge.Position = UDim2.new(0, 30, 0, 48)
-        triggerBadge.BackgroundColor3 = Color3.fromRGB(30, 40, 60)
-        triggerBadge.BorderSizePixel = 0
-        triggerBadge.Font = Enum.Font.GothamBold
-        triggerBadge.TextSize = 9
-        triggerBadge.TextColor3 = Color3.fromRGB(100, 180, 255)
-        triggerBadge.Parent = card
-        local tbCorn = Instance.new("UICorner")
-        tbCorn.CornerRadius = UDim.new(0, 3)
-        tbCorn.Parent = triggerBadge
+        local scopeChip = Instance.new("TextLabel")
+        scopeChip.Name = "ScopeChip"
+        scopeChip.Size = UDim2.new(0, 72, 0, 16)
+        scopeChip.Position = UDim2.new(0, 12, 1, -24)
+        scopeChip.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        scopeChip.BackgroundTransparency = 0.7
+        scopeChip.BorderSizePixel = 0
+        scopeChip.Font = Enum.Font.GothamBold
+        scopeChip.TextSize = 8
+        scopeChip.TextColor3 = Color3.fromRGB(255, 255, 255)
+        scopeChip.Text = (taskObj.scope == "universal") and "🌐 UNIVERSAL" or "📍 PLACE"
+        scopeChip.Parent = tile
+        local scpCorn = Instance.new("UICorner")
+        scpCorn.CornerRadius = UDim.new(0, 4)
+        scpCorn.Parent = scopeChip
 
-        local condBadge = Instance.new("TextLabel")
-        condBadge.Name = "ConditionBadge"
-        condBadge.Size = UDim2.new(0, 110, 0, 18)
-        condBadge.Position = UDim2.new(0, 156, 0, 48)
-        condBadge.BackgroundColor3 = Color3.fromRGB(25, 45, 40)
-        condBadge.BorderSizePixel = 0
-        condBadge.Font = Enum.Font.GothamBold
-        condBadge.TextSize = 9
-        condBadge.TextColor3 = Color3.fromRGB(100, 230, 170)
-        condBadge.Parent = card
-        local cbCorn = Instance.new("UICorner")
-        cbCorn.CornerRadius = UDim.new(0, 3)
-        cbCorn.Parent = condBadge
+        -- Quick Run ▶ Play Button
+        local runNowBtn = Instance.new("TextButton")
+        runNowBtn.Name = "RunNowBtn"
+        runNowBtn.Size = UDim2.new(0, 30, 0, 30)
+        runNowBtn.Position = UDim2.new(1, -42, 1, -38)
+        runNowBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        runNowBtn.BackgroundTransparency = 0.65
+        runNowBtn.BorderSizePixel = 0
+        runNowBtn.Font = Enum.Font.GothamBold
+        runNowBtn.TextSize = 13
+        runNowBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        runNowBtn.Text = "▶"
+        runNowBtn.Parent = tile
+        local rnbCorn = Instance.new("UICorner")
+        rnbCorn.CornerRadius = UDim.new(1, 0)
+        rnbCorn.Parent = runNowBtn
 
-        local scopeBadge = Instance.new("TextLabel")
-        scopeBadge.Name = "ScopeBadge"
-        scopeBadge.Size = UDim2.new(0, 65, 0, 18)
-        scopeBadge.Position = UDim2.new(0, 272, 0, 48)
-        scopeBadge.BackgroundColor3 = Color3.fromRGB(35, 30, 50)
-        scopeBadge.BorderSizePixel = 0
-        scopeBadge.Font = Enum.Font.GothamBold
-        scopeBadge.TextSize = 9
-        scopeBadge.TextColor3 = Color3.fromRGB(200, 120, 255)
-        scopeBadge.Parent = card
-        local sbCorn2 = Instance.new("UICorner")
-        sbCorn2.CornerRadius = UDim.new(0, 3)
-        sbCorn2.Parent = scopeBadge
+        -- Connect Play Button
+        runNowBtn.MouseButton1Click:Connect(function()
+            task.spawn(executeActions, taskObj, {})
+            if showToastNotification then
+                showToastNotification("Shortcut Executed", string.format("Ran '%s' (%d action%s)", taskObj.name, #(taskObj.actions or {}), #(taskObj.actions or {}) == 1 and "" or "s"), 2.5)
+            end
+        end)
 
-        -- Right Action Controls
-        local ToggleBtn = Instance.new("TextButton")
-        ToggleBtn.Name = "ToggleBtn"
-        ToggleBtn.Size = UDim2.new(0, 64, 0, 26)
-        ToggleBtn.Position = UDim2.new(1, -244, 0.5, -13)
-        ToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
-        ToggleBtn.BorderSizePixel = 0
-        ToggleBtn.Font = Enum.Font.GothamBold
-        ToggleBtn.TextSize = 10
-        ToggleBtn.TextColor3 = Color3.fromRGB(220, 230, 250)
-        ToggleBtn.Parent = card
-        local togCorn = Instance.new("UICorner")
-        togCorn.CornerRadius = UDim.new(0, 4)
-        togCorn.Parent = ToggleBtn
-
-        local RunNowBtn = Instance.new("TextButton")
-        RunNowBtn.Name = "RunNowBtn"
-        RunNowBtn.Size = UDim2.new(0, 70, 0, 26)
-        RunNowBtn.Position = UDim2.new(1, -172, 0.5, -13)
-        RunNowBtn.BackgroundColor3 = Color3.fromRGB(30, 70, 130)
-        RunNowBtn.BorderSizePixel = 0
-        RunNowBtn.Font = Enum.Font.GothamBold
-        RunNowBtn.TextSize = 10
-        RunNowBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        RunNowBtn.Text = "▶ Run Now"
-        RunNowBtn.Parent = card
-        local rnCorn = Instance.new("UICorner")
-        rnCorn.CornerRadius = UDim.new(0, 4)
-        rnCorn.Parent = RunNowBtn
-
-        local CardExportBtn = Instance.new("TextButton")
-        CardExportBtn.Name = "CardExportBtn"
-        CardExportBtn.Size = UDim2.new(0, 32, 0, 26)
-        CardExportBtn.Position = UDim2.new(1, -94, 0.5, -13)
-        CardExportBtn.BackgroundColor3 = Color3.fromRGB(25, 45, 65)
-        CardExportBtn.BorderSizePixel = 0
-        CardExportBtn.Font = Enum.Font.GothamBold
-        CardExportBtn.TextSize = 11
-        CardExportBtn.TextColor3 = Color3.fromRGB(140, 200, 255)
-        CardExportBtn.Text = "📋"
-        CardExportBtn.Parent = card
-        local cebCorn = Instance.new("UICorner")
-        cebCorn.CornerRadius = UDim.new(0, 4)
-        cebCorn.Parent = CardExportBtn
-
-        local TrashBtn = Instance.new("TextButton")
-        TrashBtn.Name = "TrashBtn"
-        TrashBtn.Size = UDim2.new(0, 32, 0, 26)
-        TrashBtn.Position = UDim2.new(1, -54, 0.5, -13)
-        TrashBtn.BackgroundColor3 = Color3.fromRGB(60, 25, 30)
-        TrashBtn.BorderSizePixel = 0
-        TrashBtn.Font = Enum.Font.GothamBold
-        TrashBtn.TextSize = 11
-        TrashBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
-        TrashBtn.Text = "X"
-        TrashBtn.Parent = card
-        local trCorn = Instance.new("UICorner")
-        trCorn.CornerRadius = UDim.new(0, 4)
-        trCorn.Parent = TrashBtn
-
-        ToggleBtn.MouseButton1Click:Connect(function()
+        -- Connect Toggle Button
+        statusPill.MouseButton1Click:Connect(function()
             taskObj.enabled = not taskObj.enabled
             if taskObj.enabled then
                 Engine.bindTask(taskObj)
@@ -1254,21 +1520,17 @@ local function renderCard(taskObj, idx)
                 Engine.unbindTask(taskObj.id)
             end
             Storage.save(true)
-            renderCard(taskObj, idx)
+            renderShortcutTile(taskObj, idx)
         end)
 
-        RunNowBtn.MouseButton1Click:Connect(function()
-            task.spawn(executeActions, taskObj, {})
-            renderCard(taskObj, idx)
-        end)
-
-        CardExportBtn.MouseButton1Click:Connect(function()
+        -- Connect Export Button
+        cardExport.MouseButton1Click:Connect(function()
             exportTaskToJson(taskObj)
         end)
 
-        TrashBtn.MouseButton1Click:Connect(function()
+        -- Connect Delete Button
+        cardDelete.MouseButton1Click:Connect(function()
             Engine.unbindTask(taskObj.id)
-            -- Remove from data
             local placeIdStr = tostring(game.PlaceId or "0")
             for i, t in ipairs(Storage.data.universal) do
                 if t.id == taskObj.id then table.remove(Storage.data.universal, i); break end
@@ -1279,83 +1541,66 @@ local function renderCard(taskObj, idx)
                 end
             end
             Storage.save(true)
-            card:Destroy()
-            cachedCards[taskObj.id] = nil
-            if refreshCardList then refreshCardList() end
+            tile:Destroy()
+            cachedTiles[taskObj.id] = nil
+            if refreshShortcutsGrid then refreshShortcutsGrid() end
         end)
 
-        cachedCards[taskObj.id] = card
+        -- Click tile to open Block Stack Editor
+        tile.MouseButton1Click:Connect(function()
+            openShortcutEditor(taskObj)
+        end)
+
+        cachedTiles[taskObj.id] = tile
     end
 
-    card.LayoutOrder = idx
+    tile.LayoutOrder = idx
+    tile.BackgroundColor3 = colorTheme.bg
+    local tStroke = tile:FindFirstChildOfClass("UIStroke")
+    if tStroke then tStroke.Color = colorTheme.stroke end
 
-    -- Update content
-    local dot = card:FindFirstChild("Dot")
-    local nameLbl = card:FindFirstChild("NameLbl")
-    local descLbl = card:FindFirstChild("DescLbl")
-    local triggerBadge = card:FindFirstChild("TriggerBadge")
-    local condBadge = card:FindFirstChild("ConditionBadge")
-    local scopeBadge = card:FindFirstChild("ScopeBadge")
-    local toggleBtn = card:FindFirstChild("ToggleBtn")
+    local iconGlyph = tile:FindFirstChild("IconBadge") and tile.IconBadge:FindFirstChild("IconGlyph")
+    if iconGlyph then iconGlyph.Text = taskObj.icon or "⚡" end
 
-    if dot then
-        dot.BackgroundColor3 = taskObj.enabled and Color3.fromRGB(50, 220, 120) or Color3.fromRGB(120, 130, 145)
+    local nameLbl = tile:FindFirstChild("NameLbl")
+    if nameLbl then nameLbl.Text = taskObj.name or "Untitled Shortcut" end
+
+    local statusPill = tile:FindFirstChild("StatusPill")
+    if statusPill then
+        statusPill.Text = taskObj.enabled and "● Active" or "○ Off"
+        statusPill.TextColor3 = taskObj.enabled and Color3.fromRGB(140, 255, 180) or Color3.fromRGB(210, 215, 225)
     end
-    if nameLbl then nameLbl.Text = taskObj.name or "Untitled Task" end
-    if descLbl then
-        local inv = (taskObj.telemetry and taskObj.telemetry.invocations) or 0
-        descLbl.Text = string.format("%s  (Runs: %d)", taskObj.description or "Automated rule", inv)
+
+    local scopeChip = tile:FindFirstChild("ScopeChip")
+    if scopeChip then
+        scopeChip.Text = (taskObj.scope == "universal") and "🌐 UNIVERSAL" or "📍 PLACE"
     end
-    if triggerBadge then
+
+    local summaryLbl = tile:FindFirstChild("SummaryLbl")
+    if summaryLbl then
         local trig = taskObj.trigger or {}
-        local trigStr = "⚡ Signal"
+        local trigStr = "Trigger"
         if trig.type == "Timer" then
             trigStr = string.format("⏱ Every %ds", trig.interval or 60)
         elseif trig.type == "ClockInterval" then
             trigStr = string.format("🕒 clock: %0.1fs", tonumber(trig.interval) or 5)
         elseif trig.type == "ClockTarget" then
             trigStr = string.format("⏰ clock >= %ds", tonumber(trig.target) or 0)
-        elseif trig.type == "CustomSignal" then
-            trigStr = string.format("⚙ %s", trig.path or "Custom")
-        else
+        elseif trig.type == "Signal" then
             trigStr = string.format("⚡ %s", trig.preset or "Signal")
+        else
+            trigStr = "⚡ Custom"
         end
-        triggerBadge.Text = trigStr
-    end
-    if condBadge then
-        local cond = taskObj.condition or { type = "Always" }
-        local condText = "🛡 Always"
-        if cond.type == "InVehicle" then
-            condText = "🛡 In Vehicle"
-        elseif cond.type == "StaffRank" then
-            condText = string.format("🛡 Staff >= %d", tonumber(cond.minRank) or 100)
-        elseif cond.type == "LowHealth" then
-            condText = string.format("🛡 HP <= %d", tonumber(cond.threshold) or 25)
-        elseif cond.type == "ClockElapsed" then
-            condText = string.format("🛡 Clock >= %ds", tonumber(cond.threshold) or 0)
-        elseif cond.type == "StatThreshold" then
-            condText = string.format("🛡 %s %s %s", cond.stat or "Stat", cond.operator or ">=", tostring(cond.value or 0))
-        elseif cond.type == "ObjectProximity" then
-            condText = string.format("🛡 Near %s (%ds)", cond.target or "Object", tonumber(cond.distance) or 30)
-        elseif cond.type == "CustomLua" then
-            condText = "🛡 Custom Lua"
-        end
-        condBadge.Text = condText
-    end
-    if scopeBadge then
-        scopeBadge.Text = (taskObj.scope == "place") and "PLACE" or "UNIVERSAL"
-    end
-    if toggleBtn then
-        toggleBtn.Text = taskObj.enabled and "Active" or "Paused"
-        toggleBtn.BackgroundColor3 = taskObj.enabled and Color3.fromRGB(25, 60, 40) or Color3.fromRGB(40, 45, 60)
-        toggleBtn.TextColor3 = taskObj.enabled and Color3.fromRGB(100, 230, 150) or Color3.fromRGB(180, 190, 210)
+        local actCount = #(taskObj.actions or {})
+        summaryLbl.Text = string.format("%s • %d Action%s", trigStr, actCount, actCount == 1 and "" or "s")
+        summaryLbl.TextColor3 = colorTheme.sub
     end
 
-    card.Visible = true
-    return card
+    tile.Visible = true
+    return tile
 end
 
-refreshCardList = function()
+refreshShortcutsGrid = function()
     local filter = SearchBox.Text:lower()
     local allTasks = {}
 
@@ -1378,77 +1623,284 @@ refreshCardList = function()
         seen[t.id] = true
         local matches = (filter == "") or (t.name and t.name:lower():find(filter, 1, true)) or (t.description and t.description:lower():find(filter, 1, true))
         if matches then
-            renderCard(t, i)
+            renderShortcutTile(t, i)
             visibleCount = visibleCount + 1
         else
-            local c = cachedCards[t.id]
+            local c = cachedTiles[t.id]
             if c then c.Visible = false end
         end
     end
 
-    for id, c in pairs(cachedCards) do
+    for id, c in pairs(cachedTiles) do
         if not seen[id] then
             c:Destroy()
-            cachedCards[id] = nil
+            cachedTiles[id] = nil
         end
     end
 
-    EmptyLbl.Visible = (visibleCount == 0)
+    ShortcutsEmpty.Visible = (visibleCount == 0)
 end
 
-SearchBox:GetPropertyChangedSignal("Text"):Connect(refreshCardList)
+SearchBox:GetPropertyChangedSignal("Text"):Connect(refreshShortcutsGrid)
+
+-- Render Gallery Cards
+local function buildGalleryCards()
+    for i, recipe in ipairs(GALLERY_RECIPES) do
+        local card = Instance.new("Frame")
+        card.Name = recipe.id
+        card.Size = UDim2.new(0, 350, 0, 132)
+        card.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
+        card.BorderSizePixel = 0
+        card.LayoutOrder = i
+        card.Parent = GalleryScroll
+
+        local cCorner = Instance.new("UICorner")
+        cCorner.CornerRadius = UDim.new(0, 10)
+        cCorner.Parent = card
+
+        local cStroke = Instance.new("UIStroke")
+        cStroke.Thickness = 1
+        cStroke.Color = Color3.fromRGB(42, 50, 70)
+        cStroke.Parent = card
+
+        -- Left icon badge with theme color
+        local col = SHORTCUT_COLORS[recipe.color] or SHORTCUT_COLORS.blue
+        local iconBox = Instance.new("Frame")
+        iconBox.Size = UDim2.new(0, 36, 0, 36)
+        iconBox.Position = UDim2.new(0, 12, 0, 12)
+        iconBox.BackgroundColor3 = col.bg
+        iconBox.BorderSizePixel = 0
+        iconBox.Parent = card
+        local ibCorn = Instance.new("UICorner")
+        ibCorn.CornerRadius = UDim.new(0, 8)
+        ibCorn.Parent = iconBox
+
+        local ibLbl = Instance.new("TextLabel")
+        ibLbl.Size = UDim2.new(1, 0, 1, 0)
+        ibLbl.BackgroundTransparency = 1
+        ibLbl.Font = Enum.Font.GothamBold
+        ibLbl.TextSize = 18
+        ibLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+        ibLbl.Text = recipe.icon or "⚡"
+        ibLbl.Parent = iconBox
+
+        local titleLbl = Instance.new("TextLabel")
+        titleLbl.Size = UDim2.new(1, -140, 0, 20)
+        titleLbl.Position = UDim2.new(0, 56, 0, 12)
+        titleLbl.BackgroundTransparency = 1
+        titleLbl.Font = Enum.Font.GothamBold
+        titleLbl.TextSize = 13
+        titleLbl.TextColor3 = Color3.fromRGB(240, 245, 255)
+        titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+        titleLbl.Text = recipe.name
+        titleLbl.Parent = card
+
+        local descLbl = Instance.new("TextLabel")
+        descLbl.Size = UDim2.new(1, -24, 0, 30)
+        descLbl.Position = UDim2.new(0, 12, 0, 52)
+        descLbl.BackgroundTransparency = 1
+        descLbl.Font = Enum.Font.Gotham
+        descLbl.TextSize = 10
+        descLbl.TextColor3 = Color3.fromRGB(150, 165, 190)
+        descLbl.TextXAlignment = Enum.TextXAlignment.Left
+        descLbl.TextYAlignment = Enum.TextYAlignment.Top
+        descLbl.TextWrapped = true
+        descLbl.Text = recipe.description
+        descLbl.Parent = card
+
+        -- Pipeline preview chip
+        local previewChip = Instance.new("TextLabel")
+        previewChip.Size = UDim2.new(1, -120, 0, 22)
+        previewChip.Position = UDim2.new(0, 12, 1, -32)
+        previewChip.BackgroundColor3 = Color3.fromRGB(30, 36, 52)
+        previewChip.BorderSizePixel = 0
+        previewChip.Font = Enum.Font.GothamBold
+        previewChip.TextSize = 9
+        previewChip.TextColor3 = Color3.fromRGB(160, 210, 255)
+        previewChip.TextXAlignment = Enum.TextXAlignment.Left
+        previewChip.Text = string.format("  ⚙ %s ➔ %d Action%s", recipe.trigger.type, #(recipe.actions or {}), #(recipe.actions or {}) == 1 and "" or "s")
+        previewChip.Parent = card
+        local pcCorn = Instance.new("UICorner")
+        pcCorn.CornerRadius = UDim.new(0, 6)
+        pcCorn.Parent = previewChip
+
+        -- + Get Shortcut button
+        local getBtn = Instance.new("TextButton")
+        getBtn.Name = "GetBtn"
+        getBtn.Size = UDim2.new(0, 96, 0, 26)
+        getBtn.Position = UDim2.new(1, -108, 1, -34)
+        getBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 255)
+        getBtn.BorderSizePixel = 0
+        getBtn.Font = Enum.Font.GothamBold
+        getBtn.TextSize = 10
+        getBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        getBtn.Text = "+ Get Shortcut"
+        getBtn.Parent = card
+        local gbCorn = Instance.new("UICorner")
+        gbCorn.CornerRadius = UDim.new(0, 6)
+        gbCorn.Parent = getBtn
+
+        getBtn.MouseButton1Click:Connect(function()
+            local newId = "task_" .. tostring(os.time()) .. "_" .. tostring(math.random(100, 999))
+            local cloned = {
+                id = newId,
+                name = recipe.name,
+                description = recipe.description,
+                icon = recipe.icon or "⚡",
+                color = recipe.color or "blue",
+                enabled = true,
+                scope = recipe.scope or "universal",
+                trigger = HttpService:JSONDecode(HttpService:JSONEncode(recipe.trigger)),
+                condition = HttpService:JSONDecode(HttpService:JSONEncode(recipe.condition)),
+                actions = HttpService:JSONDecode(HttpService:JSONEncode(recipe.actions)),
+                telemetry = { invocations = 0, lastRun = 0, lastResult = "Ready" }
+            }
+
+            if cloned.scope == "universal" then
+                Storage.data.universal = Storage.data.universal or {}
+                table.insert(Storage.data.universal, cloned)
+            else
+                local placeIdStr = tostring(game.PlaceId or "0")
+                Storage.data.places[placeIdStr] = Storage.data.places[placeIdStr] or {}
+                table.insert(Storage.data.places[placeIdStr], cloned)
+            end
+
+            Engine.bindTask(cloned)
+            Storage.save(true)
+
+            if showToastNotification then
+                showToastNotification("Added to Shortcuts", string.format("Installed '%s' recipe", cloned.name), 3.0)
+            end
+
+            switchToTab("shortcuts")
+        end)
+    end
+end
+
+buildGalleryCards()
 
 -- ==============================================================================
--- 4. VISUAL RULE CREATION WIZARD MODAL
+-- 5. VISUAL MULTI-ACTION BLOCK STACK BUILDER (Apple Shortcuts Editor)
 -- ==============================================================================
-local WizardModal = Instance.new("Frame")
-WizardModal.Name = "WizardModal"
-WizardModal.Size = UDim2.new(0, 580, 0, 410)
-WizardModal.Position = UDim2.new(0.5, -290, 0.5, -205)
-WizardModal.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
-WizardModal.BorderSizePixel = 0
-WizardModal.Visible = false
-WizardModal.ZIndex = 200
-WizardModal.Parent = MainFrame
+local BuilderModal = Instance.new("Frame")
+BuilderModal.Name = "BuilderModal"
+BuilderModal.Size = UDim2.new(1, -16, 1, -16)
+BuilderModal.Position = UDim2.new(0.5, 0, 0.5, 0)
+BuilderModal.AnchorPoint = Vector2.new(0.5, 0.5)
+BuilderModal.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
+BuilderModal.BorderSizePixel = 0
+BuilderModal.Visible = false
+BuilderModal.ZIndex = 200
+BuilderModal.Parent = MainFrame
 
-local wmCorner = Instance.new("UICorner")
-wmCorner.CornerRadius = UDim.new(0, 8)
-wmCorner.Parent = WizardModal
+local bmCorner = Instance.new("UICorner")
+bmCorner.CornerRadius = UDim.new(0, 10)
+bmCorner.Parent = BuilderModal
 
-local wmStroke = Instance.new("UIStroke")
-wmStroke.Thickness = 1.5
-wmStroke.Color = Color3.fromRGB(60, 130, 240)
-wmStroke.Parent = WizardModal
+local bmStroke = Instance.new("UIStroke")
+bmStroke.Thickness = 1.5
+bmStroke.Color = Color3.fromRGB(0, 122, 255)
+bmStroke.Parent = BuilderModal
 
-local wmTitle = Instance.new("TextLabel")
-wmTitle.Size = UDim2.new(1, -32, 0, 20)
-wmTitle.Position = UDim2.new(0, 16, 0, 8)
-wmTitle.BackgroundTransparency = 1
-wmTitle.Font = Enum.Font.GothamBold
-wmTitle.TextSize = 13
-wmTitle.TextColor3 = Color3.fromRGB(240, 245, 255)
-wmTitle.TextXAlignment = Enum.TextXAlignment.Left
-wmTitle.Text = "Create Automation Task"
-wmTitle.ZIndex = 201
-wmTitle.Parent = WizardModal
+-- Builder Header Bar
+local BuilderHeader = Instance.new("Frame")
+BuilderHeader.Name = "BuilderHeader"
+BuilderHeader.Size = UDim2.new(1, 0, 0, 42)
+BuilderHeader.BackgroundColor3 = Color3.fromRGB(22, 27, 40)
+BuilderHeader.BorderSizePixel = 0
+BuilderHeader.ZIndex = 201
+BuilderHeader.Parent = BuilderModal
+local bhCorner = Instance.new("UICorner")
+bhCorner.CornerRadius = UDim.new(0, 10)
+bhCorner.Parent = BuilderHeader
 
-local wmSub = Instance.new("TextLabel")
-wmSub.Size = UDim2.new(1, -32, 0, 14)
-wmSub.Position = UDim2.new(0, 16, 0, 28)
-wmSub.BackgroundTransparency = 1
-wmSub.Font = Enum.Font.Gotham
-wmSub.TextSize = 10
-wmSub.TextColor3 = Color3.fromRGB(140, 155, 180)
-wmSub.TextXAlignment = Enum.TextXAlignment.Left
-wmSub.Text = "Configure event trigger, condition guard filter, and automated actions"
-wmSub.ZIndex = 201
-wmSub.Parent = WizardModal
+local BuilderTitle = Instance.new("TextLabel")
+BuilderTitle.Size = UDim2.new(0, 180, 1, 0)
+BuilderTitle.Position = UDim2.new(0, 16, 0, 0)
+BuilderTitle.BackgroundTransparency = 1
+BuilderTitle.Font = Enum.Font.GothamBold
+BuilderTitle.TextSize = 13
+BuilderTitle.TextColor3 = Color3.fromRGB(240, 245, 255)
+BuilderTitle.TextXAlignment = Enum.TextXAlignment.Left
+BuilderTitle.Text = "Shortcut Pipeline Editor"
+BuilderTitle.ZIndex = 202
+BuilderTitle.Parent = BuilderHeader
 
-local function createInputBox(name, placeholder, posX, posY, sizeX, sizeY, z)
+local BuilderScopeBtn = Instance.new("TextButton")
+BuilderScopeBtn.Name = "BuilderScopeBtn"
+BuilderScopeBtn.Size = UDim2.new(0, 140, 0, 26)
+BuilderScopeBtn.Position = UDim2.new(0, 200, 0.5, -13)
+BuilderScopeBtn.BackgroundColor3 = Color3.fromRGB(35, 30, 50)
+BuilderScopeBtn.BorderSizePixel = 0
+BuilderScopeBtn.Font = Enum.Font.GothamBold
+BuilderScopeBtn.TextSize = 10
+BuilderScopeBtn.TextColor3 = Color3.fromRGB(210, 140, 255)
+BuilderScopeBtn.Text = "Scope: Place-Specific"
+BuilderScopeBtn.ZIndex = 202
+BuilderScopeBtn.Parent = BuilderHeader
+local bscCorn = Instance.new("UICorner")
+bscCorn.CornerRadius = UDim.new(0, 6)
+bscCorn.Parent = BuilderScopeBtn
+
+local BuilderCancelBtn = Instance.new("TextButton")
+BuilderCancelBtn.Name = "BuilderCancelBtn"
+BuilderCancelBtn.Size = UDim2.new(0, 74, 0, 26)
+BuilderCancelBtn.Position = UDim2.new(1, -210, 0.5, -13)
+BuilderCancelBtn.BackgroundColor3 = Color3.fromRGB(35, 40, 55)
+BuilderCancelBtn.BorderSizePixel = 0
+BuilderCancelBtn.Font = Enum.Font.GothamBold
+BuilderCancelBtn.TextSize = 11
+BuilderCancelBtn.TextColor3 = Color3.fromRGB(200, 210, 230)
+BuilderCancelBtn.Text = "Cancel"
+BuilderCancelBtn.ZIndex = 202
+BuilderCancelBtn.Parent = BuilderHeader
+local bcbCorn = Instance.new("UICorner")
+bcbCorn.CornerRadius = UDim.new(0, 6)
+bcbCorn.Parent = BuilderCancelBtn
+
+local BuilderSaveBtn = Instance.new("TextButton")
+BuilderSaveBtn.Name = "BuilderSaveBtn"
+BuilderSaveBtn.Size = UDim2.new(0, 120, 0, 26)
+BuilderSaveBtn.Position = UDim2.new(1, -128, 0.5, -13)
+BuilderSaveBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 255)
+BuilderSaveBtn.BorderSizePixel = 0
+BuilderSaveBtn.Font = Enum.Font.GothamBold
+BuilderSaveBtn.TextSize = 11
+BuilderSaveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+BuilderSaveBtn.Text = "Save Shortcut"
+BuilderSaveBtn.ZIndex = 202
+BuilderSaveBtn.Parent = BuilderHeader
+local bsbCorn = Instance.new("UICorner")
+bsbCorn.CornerRadius = UDim.new(0, 6)
+bsbCorn.Parent = BuilderSaveBtn
+
+-- Builder Scroll Body
+local BuilderScroll = Instance.new("ScrollingFrame")
+BuilderScroll.Name = "BuilderScroll"
+BuilderScroll.Size = UDim2.new(1, -24, 1, -54)
+BuilderScroll.Position = UDim2.new(0, 12, 0, 48)
+BuilderScroll.BackgroundTransparency = 1
+BuilderScroll.BorderSizePixel = 0
+BuilderScroll.ScrollBarThickness = 5
+BuilderScroll.ScrollBarImageColor3 = Color3.fromRGB(60, 75, 100)
+BuilderScroll.CanvasSize = UDim2.new(0, 0, 0, 700)
+BuilderScroll.ZIndex = 201
+BuilderScroll.Parent = BuilderModal
+
+local BuilderLayout = Instance.new("UIListLayout")
+BuilderLayout.SortOrder = Enum.SortOrder.LayoutOrder
+BuilderLayout.Padding = UDim.new(0, 12)
+BuilderLayout.Parent = BuilderScroll
+
+BuilderLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    BuilderScroll.CanvasSize = UDim2.new(0, 0, 0, BuilderLayout.AbsoluteContentSize.Y + 30)
+end)
+
+-- Helper to make text inputs
+local function createBuilderInput(name, placeholder, sizeX, sizeY, parent)
     local tb = Instance.new("TextBox")
     tb.Name = name
-    tb.Size = UDim2.new(sizeX.Scale, sizeX.Offset, sizeY.Scale, sizeY.Offset)
-    tb.Position = UDim2.new(posX.Scale, posX.Offset, posY.Scale, posY.Offset)
+    tb.Size = sizeX
     tb.BackgroundColor3 = Color3.fromRGB(25, 30, 44)
     tb.BorderSizePixel = 0
     tb.Font = Enum.Font.Gotham
@@ -1459,10 +1911,10 @@ local function createInputBox(name, placeholder, posX, posY, sizeX, sizeY, z)
     tb.TextXAlignment = Enum.TextXAlignment.Left
     tb.ClearTextOnFocus = false
     tb.Text = ""
-    tb.ZIndex = z or 201
-    tb.Parent = WizardModal
+    tb.ZIndex = 202
+    tb.Parent = parent
     local tbc = Instance.new("UICorner")
-    tbc.CornerRadius = UDim.new(0, 4)
+    tbc.CornerRadius = UDim.new(0, 6)
     tbc.Parent = tb
     local pad = Instance.new("UIPadding")
     pad.PaddingLeft = UDim.new(0, 8)
@@ -1471,195 +1923,135 @@ local function createInputBox(name, placeholder, posX, posY, sizeX, sizeY, z)
     return tb
 end
 
--- Row 1: Name & Description
-local InputName = createInputBox("InputName", "Task Name (e.g. Anti-AFK)", UDim.new(0, 16), UDim.new(0, 46), UDim.new(0.5, -22), UDim.new(0, 26))
-local InputDesc = createInputBox("InputDesc", "Description / Notes", UDim.new(0.5, 6), UDim.new(0, 46), UDim.new(0.5, -22), UDim.new(0, 26))
+-- ==========================================
+-- Builder Section 1: Details & Customization
+-- ==========================================
+local CardDetails = Instance.new("Frame")
+CardDetails.Name = "CardDetails"
+CardDetails.Size = UDim2.new(1, 0, 0, 114)
+CardDetails.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
+CardDetails.BorderSizePixel = 0
+CardDetails.LayoutOrder = 1
+CardDetails.ZIndex = 202
+CardDetails.Parent = BuilderScroll
+local cdCorn = Instance.new("UICorner")
+cdCorn.CornerRadius = UDim.new(0, 8)
+cdCorn.Parent = CardDetails
 
--- Row 2: Trigger Selector & Parameter
-local TriggerBtn = Instance.new("TextButton")
-TriggerBtn.Name = "TriggerBtn"
-TriggerBtn.Size = UDim2.new(0.5, -22, 0, 26)
-TriggerBtn.Position = UDim2.new(0, 16, 0, 78)
-TriggerBtn.BackgroundColor3 = Color3.fromRGB(30, 40, 60)
-TriggerBtn.BorderSizePixel = 0
-TriggerBtn.Font = Enum.Font.GothamBold
-TriggerBtn.TextSize = 10
-TriggerBtn.TextColor3 = Color3.fromRGB(120, 200, 255)
-TriggerBtn.Text = "Trigger: ⏱ Timer (task.wait)"
-TriggerBtn.ZIndex = 201
-TriggerBtn.Parent = WizardModal
-local trgCorn = Instance.new("UICorner")
-trgCorn.CornerRadius = UDim.new(0, 4)
-trgCorn.Parent = TriggerBtn
+local InputName = createBuilderInput("InputName", "Shortcut Name (e.g. Anti-AFK Ghost)", UDim2.new(0.55, -12, 0, 28), UDim2.new(0, 28), CardDetails)
+InputName.Position = UDim2.new(0, 10, 0, 10)
 
-local InputTriggerParam = createInputBox("InputTriggerParam", "Interval seconds (e.g. 60)", UDim.new(0.5, 6), UDim.new(0, 78), UDim.new(0.5, -22), UDim.new(0, 26))
-InputTriggerParam.Text = "60"
+local InputDesc = createBuilderInput("InputDesc", "Description / Notes", UDim2.new(0.45, -16, 0, 28), UDim2.new(0, 28), CardDetails)
+InputDesc.Position = UDim2.new(0.55, 6, 0, 10)
 
--- Row 3: Condition Selector & Parameter
-local ConditionBtn = Instance.new("TextButton")
-ConditionBtn.Name = "ConditionBtn"
-ConditionBtn.Size = UDim2.new(0.5, -22, 0, 26)
-ConditionBtn.Position = UDim2.new(0, 16, 0, 110)
-ConditionBtn.BackgroundColor3 = Color3.fromRGB(26, 44, 38)
-ConditionBtn.BorderSizePixel = 0
-ConditionBtn.Font = Enum.Font.GothamBold
-ConditionBtn.TextSize = 10
-ConditionBtn.TextColor3 = Color3.fromRGB(110, 230, 170)
-ConditionBtn.Text = "Condition: 🛡️ Always (No Filter)"
-ConditionBtn.ZIndex = 201
-ConditionBtn.Parent = WizardModal
-local cndCorn = Instance.new("UICorner")
-cndCorn.CornerRadius = UDim.new(0, 4)
-cndCorn.Parent = ConditionBtn
+-- Color Picker Swatches Row
+local ColorRow = Instance.new("Frame")
+ColorRow.Name = "ColorRow"
+ColorRow.Size = UDim2.new(0.55, -12, 0, 26)
+ColorRow.Position = UDim2.new(0, 10, 0, 46)
+ColorRow.BackgroundTransparency = 1
+ColorRow.ZIndex = 202
+ColorRow.Parent = CardDetails
 
-local InputConditionParam = createInputBox("InputConditionParam", "Always evaluates true", UDim.new(0.5, 6), UDim.new(0, 110), UDim.new(0.5, -22), UDim.new(0, 26))
+local colorButtons = {}
+local selectedColor = "blue"
 
--- Row 4: Action Selector & Action Parameter
-local ActionBtn = Instance.new("TextButton")
-ActionBtn.Name = "ActionBtn"
-ActionBtn.Size = UDim2.new(0.5, -22, 0, 26)
-ActionBtn.Position = UDim2.new(0, 16, 0, 142)
-ActionBtn.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
-ActionBtn.BorderSizePixel = 0
-ActionBtn.Font = Enum.Font.GothamBold
-ActionBtn.TextSize = 10
-ActionBtn.TextColor3 = Color3.fromRGB(220, 230, 255)
-ActionBtn.Text = "Action: Toast Alert"
-ActionBtn.ZIndex = 201
-ActionBtn.Parent = WizardModal
-local actCorn = Instance.new("UICorner")
-actCorn.CornerRadius = UDim.new(0, 4)
-actCorn.Parent = ActionBtn
+for i, colName in ipairs(COLOR_ORDER) do
+    local cTheme = SHORTCUT_COLORS[colName]
+    local btn = Instance.new("TextButton")
+    btn.Name = "ColorBtn_" .. colName
+    btn.Size = UDim2.new(0, 24, 0, 24)
+    btn.Position = UDim2.new(0, (i - 1) * 28, 0, 1)
+    btn.BackgroundColor3 = cTheme.bg
+    btn.BorderSizePixel = 0
+    btn.Text = ""
+    btn.ZIndex = 203
+    btn.Parent = ColorRow
+    local bCorn = Instance.new("UICorner")
+    bCorn.CornerRadius = UDim.new(1, 0)
+    bCorn.Parent = btn
 
-local InputActionParam = createInputBox("InputActionParam", "Toast Message", UDim.new(0.5, 6), UDim.new(0, 142), UDim.new(0.5, -22), UDim.new(0, 26))
-InputActionParam.Text = "Task activated"
+    local bStroke = Instance.new("UIStroke")
+    bStroke.Thickness = 2
+    bStroke.Color = Color3.fromRGB(255, 255, 255)
+    bStroke.Transparency = (colName == selectedColor) and 0 or 1
+    bStroke.Parent = btn
 
--- Row 5: Scope & Action Extra Parameter
-local ScopeBtn = Instance.new("TextButton")
-ScopeBtn.Name = "ScopeBtn"
-ScopeBtn.Size = UDim2.new(0.5, -22, 0, 26)
-ScopeBtn.Position = UDim2.new(0, 16, 0, 174)
-ScopeBtn.BackgroundColor3 = Color3.fromRGB(35, 30, 50)
-ScopeBtn.BorderSizePixel = 0
-ScopeBtn.Font = Enum.Font.GothamBold
-ScopeBtn.TextSize = 10
-ScopeBtn.TextColor3 = Color3.fromRGB(210, 140, 255)
-ScopeBtn.Text = "Scope: Place-Specific"
-ScopeBtn.ZIndex = 201
-ScopeBtn.Parent = WizardModal
-local scCorn = Instance.new("UICorner")
-scCorn.CornerRadius = UDim.new(0, 4)
-scCorn.Parent = ScopeBtn
+    btn.MouseButton1Click:Connect(function()
+        selectedColor = colName
+        for cN, b in pairs(colorButtons) do
+            local st = b:FindFirstChildOfClass("UIStroke")
+            if st then st.Transparency = (cN == selectedColor) and 0 or 1 end
+        end
+    end)
+    colorButtons[colName] = btn
+end
 
-local InputActionExtra = createInputBox("InputActionExtra", "Toast Title", UDim.new(0.5, 6), UDim.new(0, 174), UDim.new(0.5, -22), UDim.new(0, 26))
-InputActionExtra.Text = "Scheduler"
+-- Icon Picker Row
+local IconRow = Instance.new("Frame")
+IconRow.Name = "IconRow"
+IconRow.Size = UDim2.new(1, -20, 0, 28)
+IconRow.Position = UDim2.new(0, 10, 0, 78)
+IconRow.BackgroundTransparency = 1
+IconRow.ZIndex = 202
+IconRow.Parent = CardDetails
 
--- Row 6: Action Luau Code
-local CodeHeader = Instance.new("TextLabel")
-CodeHeader.Size = UDim2.new(1, -32, 0, 14)
-CodeHeader.Position = UDim2.new(0, 16, 0, 204)
-CodeHeader.BackgroundTransparency = 1
-CodeHeader.Font = Enum.Font.GothamBold
-CodeHeader.TextSize = 10
-CodeHeader.TextColor3 = Color3.fromRGB(160, 175, 205)
-CodeHeader.TextXAlignment = Enum.TextXAlignment.Left
-CodeHeader.Text = "Optional Action Luau Code (runs when triggered & conditions pass):"
-CodeHeader.ZIndex = 201
-CodeHeader.Parent = WizardModal
+local iconButtons = {}
+local selectedIcon = "⚡"
 
-local InputCode = Instance.new("TextBox")
-InputCode.Name = "InputCode"
-InputCode.Size = UDim2.new(1, -32, 0, 56)
-InputCode.Position = UDim2.new(0, 16, 0, 220)
-InputCode.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-InputCode.BorderSizePixel = 0
-InputCode.Font = Enum.Font.Code
-InputCode.TextSize = 10
-InputCode.TextColor3 = Color3.fromRGB(240, 245, 255)
-InputCode.PlaceholderText = "-- Luau code here (e.g. print('Triggered!'))"
-InputCode.PlaceholderColor3 = Color3.fromRGB(110, 120, 145)
-InputCode.TextXAlignment = Enum.TextXAlignment.Left
-InputCode.TextYAlignment = Enum.TextYAlignment.Top
-InputCode.ClearTextOnFocus = false
-InputCode.MultiLine = true
-InputCode.TextWrapped = true
-InputCode.Text = ""
-InputCode.ZIndex = 201
-InputCode.Parent = WizardModal
-local icCorn = Instance.new("UICorner")
-icCorn.CornerRadius = UDim.new(0, 4)
-icCorn.Parent = InputCode
-local icPad = Instance.new("UIPadding")
-icPad.PaddingLeft = UDim.new(0, 8)
-icPad.PaddingRight = UDim.new(0, 8)
-icPad.PaddingTop = UDim.new(0, 6)
-icPad.Parent = InputCode
+for i, ic in ipairs(SHORTCUT_ICONS) do
+    local btn = Instance.new("TextButton")
+    btn.Name = "IconBtn_" .. tostring(i)
+    btn.Size = UDim2.new(0, 26, 0, 26)
+    btn.Position = UDim2.new(0, (i - 1) * 30, 0, 1)
+    btn.BackgroundColor3 = Color3.fromRGB(30, 36, 52)
+    btn.BorderSizePixel = 0
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = ic
+    btn.ZIndex = 203
+    btn.Parent = IconRow
+    local bCorn = Instance.new("UICorner")
+    bCorn.CornerRadius = UDim.new(0, 6)
+    bCorn.Parent = btn
 
--- Row 7: Summary Banner
-local SummaryBanner = Instance.new("Frame")
-SummaryBanner.Name = "SummaryBanner"
-SummaryBanner.Size = UDim2.new(1, -32, 0, 36)
-SummaryBanner.Position = UDim2.new(0, 16, 0, 284)
-SummaryBanner.BackgroundColor3 = Color3.fromRGB(22, 27, 40)
-SummaryBanner.BorderSizePixel = 0
-SummaryBanner.ZIndex = 201
-SummaryBanner.Parent = WizardModal
-local sumCorn = Instance.new("UICorner")
-sumCorn.CornerRadius = UDim.new(0, 4)
-sumCorn.Parent = SummaryBanner
+    local bStroke = Instance.new("UIStroke")
+    bStroke.Thickness = 1.5
+    bStroke.Color = Color3.fromRGB(0, 122, 255)
+    bStroke.Transparency = (ic == selectedIcon) and 0 or 1
+    bStroke.Parent = btn
 
-local SummaryLbl = Instance.new("TextLabel")
-SummaryLbl.Name = "SummaryLbl"
-SummaryLbl.Size = UDim2.new(1, -16, 1, 0)
-SummaryLbl.Position = UDim2.new(0, 8, 0, 0)
-SummaryLbl.BackgroundTransparency = 1
-SummaryLbl.Font = Enum.Font.Gotham
-SummaryLbl.TextSize = 10
-SummaryLbl.TextColor3 = Color3.fromRGB(160, 185, 225)
-SummaryLbl.TextXAlignment = Enum.TextXAlignment.Left
-SummaryLbl.TextWrapped = true
-SummaryLbl.Text = "📋 Rule: When Timer fires → IF Always → Execute Toast Alert"
-SummaryLbl.ZIndex = 202
-SummaryLbl.Parent = SummaryBanner
+    btn.MouseButton1Click:Connect(function()
+        selectedIcon = ic
+        for icN, b in pairs(iconButtons) do
+            local st = b:FindFirstChildOfClass("UIStroke")
+            if st then st.Transparency = (icN == selectedIcon) and 0 or 1 end
+        end
+    end)
+    iconButtons[ic] = btn
+end
 
--- Footer Controls
-local CancelBtn = Instance.new("TextButton")
-CancelBtn.Name = "CancelBtn"
-CancelBtn.Size = UDim2.new(0, 84, 0, 30)
-CancelBtn.Position = UDim2.new(1, -242, 0, 330)
-CancelBtn.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
-CancelBtn.BorderSizePixel = 0
-CancelBtn.Font = Enum.Font.GothamBold
-CancelBtn.TextSize = 11
-CancelBtn.TextColor3 = Color3.fromRGB(180, 190, 210)
-CancelBtn.Text = "Cancel"
-CancelBtn.ZIndex = 201
-CancelBtn.Parent = WizardModal
-local cc = Instance.new("UICorner")
-cc.CornerRadius = UDim.new(0, 4)
-cc.Parent = CancelBtn
+-- ==========================================
+-- Builder Section 2: When & If (Trigger & Condition)
+-- ==========================================
+local CardRules = Instance.new("Frame")
+CardRules.Name = "CardRules"
+CardRules.Size = UDim2.new(1, 0, 0, 80)
+CardRules.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
+CardRules.BorderSizePixel = 0
+CardRules.LayoutOrder = 2
+CardRules.ZIndex = 202
+CardRules.Parent = BuilderScroll
+local crCorn = Instance.new("UICorner")
+crCorn.CornerRadius = UDim.new(0, 8)
+crCorn.Parent = CardRules
 
-local SaveTaskBtn = Instance.new("TextButton")
-SaveTaskBtn.Name = "SaveTaskBtn"
-SaveTaskBtn.Size = UDim2.new(0, 140, 0, 30)
-SaveTaskBtn.Position = UDim2.new(1, -150, 0, 330)
-SaveTaskBtn.BackgroundColor3 = Color3.fromRGB(40, 120, 240)
-SaveTaskBtn.BorderSizePixel = 0
-SaveTaskBtn.Font = Enum.Font.GothamBold
-SaveTaskBtn.TextSize = 11
-SaveTaskBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-SaveTaskBtn.Text = "Save & Activate"
-SaveTaskBtn.ZIndex = 201
-SaveTaskBtn.Parent = WizardModal
-local stc = Instance.new("UICorner")
-stc.CornerRadius = UDim.new(0, 4)
-stc.Parent = SaveTaskBtn
-
--- Options & Logic
+-- Options definitions
 local TRIGGER_OPTIONS = {
-    { label = "⏱ Timer (task.wait)", type = "Timer", placeholder = "Interval in sec (e.g. 60)", defaultParam = "60" },
-    { label = "🕒 Clock Interval (os.clock)", type = "ClockInterval", placeholder = "os.clock interval sec (e.g. 5.0)", defaultParam = "5.0" },
-    { label = "⏰ Clock Target (os.clock >= T)", type = "ClockTarget", placeholder = "Target os.clock uptime sec (e.g. 120)", defaultParam = "120" },
+    { label = "⏱ Timer (task.wait)", type = "Timer", placeholder = "Interval sec (e.g. 60)", defaultParam = "60" },
+    { label = "🕒 Clock Interval (os.clock)", type = "ClockInterval", placeholder = "Interval sec (e.g. 5.0)", defaultParam = "5.0" },
+    { label = "⏰ Clock Target (os.clock >= T)", type = "ClockTarget", placeholder = "Target os.clock uptime (e.g. 120)", defaultParam = "120" },
     { label = "⚡ Seated in Vehicle", type = "Signal", preset = "Seated", placeholder = "No parameter needed", defaultParam = "" },
     { label = "⚡ Player Added", type = "Signal", preset = "PlayerAdded", placeholder = "No parameter needed", defaultParam = "" },
     { label = "⚡ Player Removing", type = "Signal", preset = "PlayerRemoving", placeholder = "No parameter needed", defaultParam = "" },
@@ -1667,7 +2059,7 @@ local TRIGGER_OPTIONS = {
     { label = "⚡ Character Died", type = "Signal", preset = "Died", placeholder = "No parameter needed", defaultParam = "" },
     { label = "⚡ Window Focus Lost", type = "Signal", preset = "WindowFocus", placeholder = "No parameter needed", defaultParam = "" },
     { label = "💤 LocalPlayer Idled", type = "Signal", preset = "Idled", placeholder = "No parameter needed", defaultParam = "" },
-    { label = "⚙️ Custom Signal / Path", type = "CustomSignal", placeholder = "Signal expr (e.g. workspace.ChildAdded)", defaultParam = "workspace.ChildAdded" },
+    { label = "⚙️ Custom Signal Path", type = "CustomSignal", placeholder = "Signal expr (e.g. workspace.ChildAdded)", defaultParam = "workspace.ChildAdded" },
 }
 
 local CONDITION_OPTIONS = {
@@ -1681,117 +2073,680 @@ local CONDITION_OPTIONS = {
     { label = "🛡️ Custom Luau Filter", type = "CustomLua", placeholder = "Luau expr (e.g. args[1] ~= nil)", defaultParam = "return true" },
 }
 
-local ACTION_OPTIONS = {
-    { label = "Toast Alert", type = "Toast", p1 = "Toast Message", def1 = "Task activated", p2 = "Toast Title", def2 = "Scheduler" },
-    { label = "Follow Route", type = "FollowRoute", p1 = "Target Node (e.g. Yard)", def1 = "Yard", p2 = "Route File (e.g. road_network.json)", def2 = "road_network.json" },
-    { label = "Stop Route", type = "StopRoute", p1 = "No parameter needed", def1 = "", p2 = "No parameter needed", def2 = "" },
-    { label = "Tween To (CFrame)", type = "TweenTo", p1 = "Target Pos/Part (e.g. 0, 10, 0)", def1 = "0, 10, 0", p2 = "Duration sec (e.g. 2.0)", def2 = "2.0" },
-    { label = "Instant Teleport", type = "InstantTeleport", p1 = "Target Pos/Part (e.g. 0, 10, 0)", def1 = "0, 10, 0", p2 = "No parameter needed", def2 = "" },
-    { label = "Activate Prompt", type = "ActivatePrompt", p1 = "Prompt/Part Name or 'nearest'", def1 = "nearest", p2 = "Max Distance studs (e.g. 35)", def2 = "35" },
-    { label = "Fire Remote Event", type = "FireRemote", p1 = "Remote Path (e.g. ReplicatedStorage.Remote)", def1 = "ReplicatedStorage.RemoteEvent", p2 = "Args array (e.g. [\"$position\"])", def2 = "[\"$position\"]" },
-    { label = "Invoke Remote Func", type = "InvokeServer", p1 = "Remote Path (e.g. ReplicatedStorage.Func)", def1 = "ReplicatedStorage.RemoteFunction", p2 = "Args array (e.g. [\"$userId\"])", def2 = "[\"$userId\"]" },
-    { label = "Virtual Keypress", type = "VirtualInput", p1 = "KeyCode (e.g. E, Space, F)", def1 = "E", p2 = "Hold duration sec (e.g. 0.1)", def2 = "0.1" },
-    { label = "Virtual Poke (Anti-AFK)", type = "VirtualPoke", p1 = "No parameter needed", def1 = "", p2 = "No parameter needed", def2 = "" },
-    { label = "Delay (Pipeline Wait)", type = "Delay", p1 = "Delay duration sec (e.g. 1.0)", def1 = "1.0", p2 = "No parameter needed", def2 = "" },
-    { label = "Pause All Loops", type = "PauseAllLoops", p1 = "No parameter needed", def1 = "", p2 = "No parameter needed", def2 = "" },
-    { label = "Resume All Loops", type = "ResumeAllLoops", p1 = "No parameter needed", def1 = "", p2 = "No parameter needed", def2 = "" },
-    { label = "Server Hop", type = "ServerHop", p1 = "No parameter needed", def1 = "", p2 = "No parameter needed", def2 = "" },
-    { label = "Rejoin Server", type = "Rejoin", p1 = "No parameter needed", def1 = "", p2 = "No parameter needed", def2 = "" },
-    { label = "Run Luau Code", type = "RunLuau", p1 = "Custom Luau (see box below)", def1 = "", p2 = "No parameter needed", def2 = "" },
-}
-
 local curTrigIdx = 1
 local curCondIdx = 1
-local curActIdx = 1
-local isUniversalScope = false
 
-local function updateWizardSummary()
-    local tOpt = TRIGGER_OPTIONS[curTrigIdx]
-    local cOpt = CONDITION_OPTIONS[curCondIdx]
-    local aOpt = ACTION_OPTIONS[curActIdx]
-    SummaryLbl.Text = string.format("📋 Rule: When %s fires → IF %s → Execute %s", tOpt.label, cOpt.label, aOpt.label)
-end
+local TriggerBtn = Instance.new("TextButton")
+TriggerBtn.Name = "TriggerBtn"
+TriggerBtn.Size = UDim2.new(0.5, -14, 0, 28)
+TriggerBtn.Position = UDim2.new(0, 10, 0, 10)
+TriggerBtn.BackgroundColor3 = Color3.fromRGB(30, 42, 65)
+TriggerBtn.BorderSizePixel = 0
+TriggerBtn.Font = Enum.Font.GothamBold
+TriggerBtn.TextSize = 10
+TriggerBtn.TextColor3 = Color3.fromRGB(120, 200, 255)
+TriggerBtn.Text = "WHEN: " .. TRIGGER_OPTIONS[1].label
+TriggerBtn.ZIndex = 203
+TriggerBtn.Parent = CardRules
+local tbCorn2 = Instance.new("UICorner")
+tbCorn2.CornerRadius = UDim.new(0, 6)
+tbCorn2.Parent = TriggerBtn
+
+local InputTriggerParam = createBuilderInput("InputTriggerParam", "Interval sec (e.g. 60)", UDim2.new(0.5, -14, 0, 26), UDim2.new(0, 26), CardRules)
+InputTriggerParam.Position = UDim2.new(0, 10, 0, 44)
+InputTriggerParam.Text = "60"
+
+local ConditionBtn = Instance.new("TextButton")
+ConditionBtn.Name = "ConditionBtn"
+ConditionBtn.Size = UDim2.new(0.5, -14, 0, 28)
+ConditionBtn.Position = UDim2.new(0.5, 4, 0, 10)
+ConditionBtn.BackgroundColor3 = Color3.fromRGB(26, 48, 40)
+ConditionBtn.BorderSizePixel = 0
+ConditionBtn.Font = Enum.Font.GothamBold
+ConditionBtn.TextSize = 10
+ConditionBtn.TextColor3 = Color3.fromRGB(110, 230, 170)
+ConditionBtn.Text = "IF: " .. CONDITION_OPTIONS[1].label
+ConditionBtn.ZIndex = 203
+ConditionBtn.Parent = CardRules
+local cbCorn2 = Instance.new("UICorner")
+cbCorn2.CornerRadius = UDim.new(0, 6)
+cbCorn2.Parent = ConditionBtn
+
+local InputConditionParam = createBuilderInput("InputConditionParam", "Always evaluates true", UDim2.new(0.5, -14, 0, 26), UDim2.new(0, 26), CardRules)
+InputConditionParam.Position = UDim2.new(0.5, 4, 0, 44)
 
 TriggerBtn.MouseButton1Click:Connect(function()
     curTrigIdx = (curTrigIdx % #TRIGGER_OPTIONS) + 1
     local opt = TRIGGER_OPTIONS[curTrigIdx]
-    TriggerBtn.Text = "Trigger: " .. opt.label
+    TriggerBtn.Text = "WHEN: " .. opt.label
     InputTriggerParam.PlaceholderText = opt.placeholder
-    if opt.defaultParam ~= "" then
-        InputTriggerParam.Text = opt.defaultParam
-    else
-        InputTriggerParam.Text = ""
-    end
-    updateWizardSummary()
+    InputTriggerParam.Text = opt.defaultParam
 end)
 
 ConditionBtn.MouseButton1Click:Connect(function()
     curCondIdx = (curCondIdx % #CONDITION_OPTIONS) + 1
     local opt = CONDITION_OPTIONS[curCondIdx]
-    ConditionBtn.Text = "Condition: " .. opt.label
+    ConditionBtn.Text = "IF: " .. opt.label
     InputConditionParam.PlaceholderText = opt.placeholder
-    if opt.defaultParam ~= "" then
-        InputConditionParam.Text = opt.defaultParam
-    else
-        InputConditionParam.Text = ""
+    InputConditionParam.Text = opt.defaultParam
+end)
+
+-- ==========================================
+-- Builder Section 3: Sequential Action Stack
+-- ==========================================
+local PipelineHeader = Instance.new("Frame")
+PipelineHeader.Name = "PipelineHeader"
+PipelineHeader.Size = UDim2.new(1, 0, 0, 32)
+PipelineHeader.BackgroundTransparency = 1
+PipelineHeader.LayoutOrder = 3
+PipelineHeader.ZIndex = 202
+PipelineHeader.Parent = BuilderScroll
+
+local phTitle = Instance.new("TextLabel")
+phTitle.Size = UDim2.new(0, 250, 1, 0)
+phTitle.Position = UDim2.new(0, 4, 0, 0)
+phTitle.BackgroundTransparency = 1
+phTitle.Font = Enum.Font.GothamBold
+phTitle.TextSize = 12
+phTitle.TextColor3 = Color3.fromRGB(220, 230, 250)
+phTitle.TextXAlignment = Enum.TextXAlignment.Left
+phTitle.Text = "ACTIONS PIPELINE (Sequential Execution)"
+phTitle.ZIndex = 202
+phTitle.Parent = PipelineHeader
+
+local AddActionBtn = Instance.new("TextButton")
+AddActionBtn.Name = "AddActionBtn"
+AddActionBtn.Size = UDim2.new(0, 110, 0, 26)
+AddActionBtn.Position = UDim2.new(1, -114, 0, 2)
+AddActionBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 255)
+AddActionBtn.BorderSizePixel = 0
+AddActionBtn.Font = Enum.Font.GothamBold
+AddActionBtn.TextSize = 10
+AddActionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+AddActionBtn.Text = "+ Add Action"
+AddActionBtn.ZIndex = 203
+AddActionBtn.Parent = PipelineHeader
+local aabCorn = Instance.new("UICorner")
+aabCorn.CornerRadius = UDim.new(0, 6)
+aabCorn.Parent = AddActionBtn
+
+-- Action Stack Container
+local ActionStack = Instance.new("Frame")
+ActionStack.Name = "ActionStack"
+ActionStack.Size = UDim2.new(1, 0, 0, 0)
+ActionStack.BackgroundTransparency = 1
+ActionStack.LayoutOrder = 4
+ActionStack.ZIndex = 202
+ActionStack.Parent = BuilderScroll
+
+local ActionStackLayout = Instance.new("UIListLayout")
+ActionStackLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ActionStackLayout.Padding = UDim.new(0, 8)
+ActionStackLayout.Parent = ActionStack
+
+ActionStackLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ActionStack.Size = UDim2.new(1, 0, 0, ActionStackLayout.AbsoluteContentSize.Y)
+end)
+
+-- Action Primitive Definitions
+local ACTION_PRIMITIVES = {
+    { type = "TweenTo", name = "Tween To (CFrame)", icon = "📍", cat = "Navigation", def = { target = "0, 10, 0", duration = 2.0 } },
+    { type = "InstantTeleport", name = "Instant Teleport", icon = "⚡", cat = "Navigation", def = { target = "0, 10, 0" } },
+    { type = "FollowRoute", name = "Follow Route", icon = "🚗", cat = "Navigation", def = { targetNode = "Yard", route = "road_network.json" } },
+    { type = "StopRoute", name = "Stop Route", icon = "🛑", cat = "Navigation", def = {} },
+    { type = "ActivatePrompt", name = "Activate Prompt", icon = "🎯", cat = "Interaction", def = { target = "nearest", maxDistance = 35 } },
+    { type = "VirtualInput", name = "Virtual Keypress", icon = "⌨️", cat = "Interaction", def = { key = "E", duration = 0.1 } },
+    { type = "VirtualPoke", name = "Virtual Poke (Anti-AFK)", icon = "👻", cat = "Interaction", def = {} },
+    { type = "FireRemote", name = "Fire Remote Event", icon = "📡", cat = "Network", def = { remote = "ReplicatedStorage.RemoteEvent", args = "[\"$position\"]" } },
+    { type = "InvokeServer", name = "Invoke Remote Func", icon = "📥", cat = "Network", def = { remote = "ReplicatedStorage.RemoteFunction", args = "[\"$userId\"]" } },
+    { type = "Delay", name = "Delay (Wait)", icon = "⏱️", cat = "Flow", def = { duration = 1.0 } },
+    { type = "Toast", name = "Toast Alert", icon = "🔔", cat = "Flow", def = { title = "Alert", message = "Action completed" } },
+    { type = "PauseAllLoops", name = "Pause All Loops", icon = "⏸️", cat = "Flow", def = {} },
+    { type = "ResumeAllLoops", name = "Resume All Loops", icon = "▶️", cat = "Flow", def = {} },
+    { type = "Rejoin", name = "Rejoin Server", icon = "🔄", cat = "Flow", def = {} },
+    { type = "ServerHop", name = "Server Hop", icon = "🌐", cat = "Flow", def = {} },
+    { type = "RunLuau", name = "Run Luau Code", icon = "💻", cat = "Flow", def = { code = "print('Executed step!')" } },
+}
+
+-- Current Builder State
+local builderState = {
+    editingTask = nil,
+    scope = "place",
+    actions = {}
+}
+
+local renderActionStack -- forward declaration
+
+renderActionStack = function()
+    -- Clear current stack
+    for _, ch in ipairs(ActionStack:GetChildren()) do
+        if ch:IsA("Frame") then ch:Destroy() end
     end
-    updateWizardSummary()
+
+    if #builderState.actions == 0 then
+        local emptyCard = Instance.new("Frame")
+        emptyCard.Size = UDim2.new(1, 0, 0, 48)
+        emptyCard.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
+        emptyCard.BorderSizePixel = 0
+        emptyCard.ZIndex = 202
+        emptyCard.Parent = ActionStack
+        local ecCorn = Instance.new("UICorner")
+        ecCorn.CornerRadius = UDim.new(0, 8)
+        ecCorn.Parent = emptyCard
+
+        local ecLbl = Instance.new("TextLabel")
+        ecLbl.Size = UDim2.new(1, 0, 1, 0)
+        ecLbl.BackgroundTransparency = 1
+        ecLbl.Font = Enum.Font.Gotham
+        ecLbl.TextSize = 11
+        ecLbl.TextColor3 = Color3.fromRGB(140, 155, 180)
+        ecLbl.Text = "No actions in pipeline. Click '+ Add Action' above to add a step."
+        ecLbl.ZIndex = 203
+        ecLbl.Parent = emptyCard
+        return
+    end
+
+    for idx, act in ipairs(builderState.actions) do
+        local isLuau = (act.type == "RunLuau")
+        local blockH = isLuau and 96 or 58
+
+        local block = Instance.new("Frame")
+        block.Name = "Block_" .. tostring(idx)
+        block.Size = UDim2.new(1, 0, 0, blockH)
+        block.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+        block.BorderSizePixel = 0
+        block.LayoutOrder = idx
+        block.ZIndex = 202
+        block.Parent = ActionStack
+        local bCorn = Instance.new("UICorner")
+        bCorn.CornerRadius = UDim.new(0, 8)
+        bCorn.Parent = block
+
+        local bStroke = Instance.new("UIStroke")
+        bStroke.Thickness = 1
+        bStroke.Color = Color3.fromRGB(45, 55, 78)
+        bStroke.Parent = block
+
+        -- Step Number Badge
+        local stepBadge = Instance.new("Frame")
+        stepBadge.Size = UDim2.new(0, 22, 0, 22)
+        stepBadge.Position = UDim2.new(0, 8, 0, 8)
+        stepBadge.BackgroundColor3 = Color3.fromRGB(0, 122, 255)
+        stepBadge.BorderSizePixel = 0
+        stepBadge.ZIndex = 203
+        stepBadge.Parent = block
+        local sbCorn = Instance.new("UICorner")
+        sbCorn.CornerRadius = UDim.new(1, 0)
+        sbCorn.Parent = stepBadge
+
+        local sbLbl = Instance.new("TextLabel")
+        sbLbl.Size = UDim2.new(1, 0, 1, 0)
+        sbLbl.BackgroundTransparency = 1
+        sbLbl.Font = Enum.Font.GothamBold
+        sbLbl.TextSize = 10
+        sbLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+        sbLbl.Text = tostring(idx)
+        sbLbl.ZIndex = 204
+        sbLbl.Parent = stepBadge
+
+        -- Action Type Label
+        local actNameLbl = Instance.new("TextLabel")
+        actNameLbl.Size = UDim2.new(0, 140, 0, 22)
+        actNameLbl.Position = UDim2.new(0, 36, 0, 8)
+        actNameLbl.BackgroundTransparency = 1
+        actNameLbl.Font = Enum.Font.GothamBold
+        actNameLbl.TextSize = 11
+        actNameLbl.TextColor3 = Color3.fromRGB(240, 245, 255)
+        actNameLbl.TextXAlignment = Enum.TextXAlignment.Left
+        actNameLbl.Text = tostring(act.type)
+        actNameLbl.ZIndex = 203
+        actNameLbl.Parent = block
+
+        -- Reorder & Delete controls (Right side)
+        local btnUp = Instance.new("TextButton")
+        btnUp.Size = UDim2.new(0, 22, 0, 22)
+        btnUp.Position = UDim2.new(1, -74, 0, 8)
+        btnUp.BackgroundColor3 = Color3.fromRGB(35, 42, 60)
+        btnUp.BorderSizePixel = 0
+        btnUp.Font = Enum.Font.GothamBold
+        btnUp.TextSize = 10
+        btnUp.TextColor3 = Color3.fromRGB(200, 215, 240)
+        btnUp.Text = "▲"
+        btnUp.ZIndex = 203
+        btnUp.Parent = block
+        local buCorn = Instance.new("UICorner")
+        buCorn.CornerRadius = UDim.new(0, 4)
+        buCorn.Parent = btnUp
+
+        local btnDown = Instance.new("TextButton")
+        btnDown.Size = UDim2.new(0, 22, 0, 22)
+        btnDown.Position = UDim2.new(1, -48, 0, 8)
+        btnDown.BackgroundColor3 = Color3.fromRGB(35, 42, 60)
+        btnDown.BorderSizePixel = 0
+        btnDown.Font = Enum.Font.GothamBold
+        btnDown.TextSize = 10
+        btnDown.TextColor3 = Color3.fromRGB(200, 215, 240)
+        btnDown.Text = "▼"
+        btnDown.ZIndex = 203
+        btnDown.Parent = block
+        local bdCorn = Instance.new("UICorner")
+        bdCorn.CornerRadius = UDim.new(0, 4)
+        bdCorn.Parent = btnDown
+
+        local btnDel = Instance.new("TextButton")
+        btnDel.Size = UDim2.new(0, 22, 0, 22)
+        btnDel.Position = UDim2.new(1, -22, 0, 8)
+        btnDel.BackgroundColor3 = Color3.fromRGB(55, 25, 35)
+        btnDel.BorderSizePixel = 0
+        btnDel.Font = Enum.Font.GothamBold
+        btnDel.TextSize = 10
+        btnDel.TextColor3 = Color3.fromRGB(255, 120, 120)
+        btnDel.Text = "✕"
+        btnDel.ZIndex = 203
+        btnDel.Parent = block
+        local bdelCorn = Instance.new("UICorner")
+        bdelCorn.CornerRadius = UDim.new(0, 4)
+        bdelCorn.Parent = btnDel
+
+        btnUp.MouseButton1Click:Connect(function()
+            if idx > 1 then
+                local tmp = builderState.actions[idx]
+                builderState.actions[idx] = builderState.actions[idx - 1]
+                builderState.actions[idx - 1] = tmp
+                renderActionStack()
+            end
+        end)
+
+        btnDown.MouseButton1Click:Connect(function()
+            if idx < #builderState.actions then
+                local tmp = builderState.actions[idx]
+                builderState.actions[idx] = builderState.actions[idx + 1]
+                builderState.actions[idx + 1] = tmp
+                renderActionStack()
+            end
+        end)
+
+        btnDel.MouseButton1Click:Connect(function()
+            table.remove(builderState.actions, idx)
+            renderActionStack()
+        end)
+
+        -- Inline parameter fields based on Action Type
+        if act.type == "TweenTo" then
+            local p1 = createBuilderInput("P1", "Target Pos/Part (e.g. 0, 10, 0)", UDim2.new(0.55, -20, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.target or "0, 10, 0")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.target = p1.Text end)
+
+            local p2 = createBuilderInput("P2", "Duration s", UDim2.new(0.2, -10, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.75, 5, 0, 8)
+            p2.Text = tostring(act.duration or 2.0)
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.duration = tonumber(p2.Text) or 2.0 end)
+        elseif act.type == "InstantTeleport" then
+            local p1 = createBuilderInput("P1", "Target Pos/Part (e.g. 0, 10, 0)", UDim2.new(0.65, 0, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.target or "0, 10, 0")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.target = p1.Text end)
+        elseif act.type == "FollowRoute" then
+            local p1 = createBuilderInput("P1", "Target Node (e.g. Yard)", UDim2.new(0.35, -10, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.targetNode or "Yard")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.targetNode = p1.Text end)
+
+            local p2 = createBuilderInput("P2", "Route file (e.g. road_network.json)", UDim2.new(0.35, 0, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.35, 175, 0, 8)
+            p2.Text = tostring(act.route or "road_network.json")
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.route = p2.Text end)
+        elseif act.type == "ActivatePrompt" then
+            local p1 = createBuilderInput("P1", "Prompt Name / nearest", UDim2.new(0.4, -10, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.target or "nearest")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.target = p1.Text end)
+
+            local p2 = createBuilderInput("P2", "Max Distance studs", UDim2.new(0.3, 0, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.4, 175, 0, 8)
+            p2.Text = tostring(act.maxDistance or 35)
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.maxDistance = tonumber(p2.Text) or 35 end)
+        elseif act.type == "VirtualInput" then
+            local p1 = createBuilderInput("P1", "KeyCode (e.g. E, Space)", UDim2.new(0.35, -10, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.key or "E")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.key = p1.Text end)
+
+            local p2 = createBuilderInput("P2", "Hold sec", UDim2.new(0.3, 0, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.35, 175, 0, 8)
+            p2.Text = tostring(act.duration or 0.1)
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.duration = tonumber(p2.Text) or 0.1 end)
+        elseif act.type == "Delay" then
+            local p1 = createBuilderInput("P1", "Delay duration sec (e.g. 1.0)", UDim2.new(0.65, 0, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.duration or 1.0)
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.duration = tonumber(p1.Text) or 1.0 end)
+        elseif act.type == "Toast" then
+            local p1 = createBuilderInput("P1", "Message", UDim2.new(0.4, -10, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.message or "Triggered")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.message = p1.Text end)
+
+            local p2 = createBuilderInput("P2", "Title", UDim2.new(0.3, 0, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.4, 175, 0, 8)
+            p2.Text = tostring(act.title or "Scheduler")
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.title = p2.Text end)
+        elseif act.type == "FireRemote" or act.type == "InvokeServer" then
+            local p1 = createBuilderInput("P1", "Remote Path (e.g. ReplicatedStorage.Remote)", UDim2.new(0.4, -10, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.remote or "")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.remote = p1.Text end)
+
+            local p2 = createBuilderInput("P2", "Args JSON array (e.g. [\"$position\"])", UDim2.new(0.3, 0, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.4, 175, 0, 8)
+            p2.Text = type(act.args) == "string" and act.args or "[\"$position\"]"
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.args = p2.Text end)
+        elseif act.type == "RunLuau" then
+            local p1 = Instance.new("TextBox")
+            p1.Size = UDim2.new(1, -24, 0, 50)
+            p1.Position = UDim2.new(0, 12, 0, 36)
+            p1.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+            p1.BorderSizePixel = 0
+            p1.Font = Enum.Font.Code
+            p1.TextSize = 10
+            p1.TextColor3 = Color3.fromRGB(240, 245, 255)
+            p1.PlaceholderText = "-- Luau code here"
+            p1.PlaceholderColor3 = Color3.fromRGB(110, 120, 140)
+            p1.TextXAlignment = Enum.TextXAlignment.Left
+            p1.TextYAlignment = Enum.TextYAlignment.Top
+            p1.ClearTextOnFocus = false
+            p1.MultiLine = true
+            p1.Text = tostring(act.code or "")
+            p1.ZIndex = 203
+            p1.Parent = block
+            local p1c = Instance.new("UICorner")
+            p1c.CornerRadius = UDim.new(0, 4)
+            p1c.Parent = p1
+            local pad = Instance.new("UIPadding")
+            pad.PaddingLeft = UDim.new(0, 6)
+            pad.PaddingTop = UDim.new(0, 4)
+            pad.Parent = p1
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.code = p1.Text end)
+        else
+            -- No extra parameters needed
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(0.65, 0, 0, 22)
+            lbl.Position = UDim2.new(0, 180, 0, 8)
+            lbl.BackgroundTransparency = 1
+            lbl.Font = Enum.Font.Gotham
+            lbl.TextSize = 10
+            lbl.TextColor3 = Color3.fromRGB(150, 165, 190)
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.Text = "(No additional parameters required)"
+            lbl.ZIndex = 203
+            lbl.Parent = block
+        end
+    end
+end
+
+-- ==========================================
+-- Action Primitive Picker Modal Drawer
+-- ==========================================
+local PickerDrawer = Instance.new("Frame")
+PickerDrawer.Name = "PickerDrawer"
+PickerDrawer.Size = UDim2.new(0, 360, 0, 380)
+PickerDrawer.Position = UDim2.new(0.5, -180, 0.5, -190)
+PickerDrawer.BackgroundColor3 = Color3.fromRGB(18, 22, 34)
+PickerDrawer.BorderSizePixel = 0
+PickerDrawer.Visible = false
+PickerDrawer.ZIndex = 250
+PickerDrawer.Parent = BuilderModal
+local pdCorn = Instance.new("UICorner")
+pdCorn.CornerRadius = UDim.new(0, 10)
+pdCorn.Parent = PickerDrawer
+local pdStroke = Instance.new("UIStroke")
+pdStroke.Thickness = 1.5
+pdStroke.Color = Color3.fromRGB(0, 122, 255)
+pdStroke.Parent = PickerDrawer
+
+local pdTitle = Instance.new("TextLabel")
+pdTitle.Size = UDim2.new(1, -24, 0, 32)
+pdTitle.Position = UDim2.new(0, 12, 0, 6)
+pdTitle.BackgroundTransparency = 1
+pdTitle.Font = Enum.Font.GothamBold
+pdTitle.TextSize = 12
+pdTitle.TextColor3 = Color3.fromRGB(240, 245, 255)
+pdTitle.TextXAlignment = Enum.TextXAlignment.Left
+pdTitle.Text = "Select Action Primitive to Add"
+pdTitle.ZIndex = 251
+pdTitle.Parent = PickerDrawer
+
+local pdCloseBtn = Instance.new("TextButton")
+pdCloseBtn.Name = "CloseBtn"
+pdCloseBtn.Size = UDim2.new(0, 24, 0, 24)
+pdCloseBtn.Position = UDim2.new(1, -34, 0, 10)
+pdCloseBtn.BackgroundColor3 = Color3.fromRGB(35, 40, 55)
+pdCloseBtn.BorderSizePixel = 0
+pdCloseBtn.Font = Enum.Font.GothamBold
+pdCloseBtn.TextSize = 11
+pdCloseBtn.TextColor3 = Color3.fromRGB(220, 225, 240)
+pdCloseBtn.Text = "✕"
+pdCloseBtn.ZIndex = 251
+pdCloseBtn.Parent = PickerDrawer
+local pdcCorn = Instance.new("UICorner")
+pdcCorn.CornerRadius = UDim.new(1, 0)
+pdcCorn.Parent = pdCloseBtn
+
+pdCloseBtn.MouseButton1Click:Connect(function()
+    PickerDrawer.Visible = false
 end)
 
-ActionBtn.MouseButton1Click:Connect(function()
-    curActIdx = (curActIdx % #ACTION_OPTIONS) + 1
-    local opt = ACTION_OPTIONS[curActIdx]
-    ActionBtn.Text = "Action: " .. opt.label
-    InputActionParam.PlaceholderText = opt.p1
-    InputActionParam.Text = opt.def1
-    InputActionExtra.PlaceholderText = opt.p2
-    InputActionExtra.Text = opt.def2
-    updateWizardSummary()
+local PickerScroll = Instance.new("ScrollingFrame")
+PickerScroll.Name = "PickerScroll"
+PickerScroll.Size = UDim2.new(1, -24, 1, -50)
+PickerScroll.Position = UDim2.new(0, 12, 0, 42)
+PickerScroll.BackgroundTransparency = 1
+PickerScroll.BorderSizePixel = 0
+PickerScroll.ScrollBarThickness = 4
+PickerScroll.ScrollBarImageColor3 = Color3.fromRGB(60, 75, 100)
+PickerScroll.ZIndex = 251
+PickerScroll.Parent = PickerDrawer
+
+local PickerLayout = Instance.new("UIListLayout")
+PickerLayout.SortOrder = Enum.SortOrder.LayoutOrder
+PickerLayout.Padding = UDim.new(0, 6)
+PickerLayout.Parent = PickerScroll
+
+PickerLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    PickerScroll.CanvasSize = UDim2.new(0, 0, 0, PickerLayout.AbsoluteContentSize.Y + 10)
 end)
 
-ScopeBtn.MouseButton1Click:Connect(function()
-    isUniversalScope = not isUniversalScope
-    ScopeBtn.Text = isUniversalScope and "Scope: Universal (All Games)" or "Scope: Place-Specific"
-    ScopeBtn.BackgroundColor3 = isUniversalScope and Color3.fromRGB(25, 45, 65) or Color3.fromRGB(35, 30, 50)
-    ScopeBtn.TextColor3 = isUniversalScope and Color3.fromRGB(100, 190, 255) or Color3.fromRGB(210, 140, 255)
+for i, prim in ipairs(ACTION_PRIMITIVES) do
+    local pBtn = Instance.new("TextButton")
+    pBtn.Name = "Prim_" .. prim.type
+    pBtn.Size = UDim2.new(1, 0, 0, 32)
+    pBtn.BackgroundColor3 = Color3.fromRGB(25, 32, 48)
+    pBtn.BorderSizePixel = 0
+    pBtn.LayoutOrder = i
+    pBtn.Text = ""
+    pBtn.ZIndex = 252
+    pBtn.Parent = PickerScroll
+    local pbCorn = Instance.new("UICorner")
+    pbCorn.CornerRadius = UDim.new(0, 6)
+    pbCorn.Parent = pBtn
+
+    local pIcon = Instance.new("TextLabel")
+    pIcon.Size = UDim2.new(0, 24, 1, 0)
+    pIcon.Position = UDim2.new(0, 8, 0, 0)
+    pIcon.BackgroundTransparency = 1
+    pIcon.Font = Enum.Font.GothamBold
+    pIcon.TextSize = 13
+    pIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+    pIcon.Text = prim.icon
+    pIcon.ZIndex = 253
+    pIcon.Parent = pBtn
+
+    local pName = Instance.new("TextLabel")
+    pName.Size = UDim2.new(0.65, 0, 1, 0)
+    pName.Position = UDim2.new(0, 36, 0, 0)
+    pName.BackgroundTransparency = 1
+    pName.Font = Enum.Font.GothamBold
+    pName.TextSize = 11
+    pName.TextColor3 = Color3.fromRGB(240, 245, 255)
+    pName.TextXAlignment = Enum.TextXAlignment.Left
+    pName.Text = prim.name
+    pName.ZIndex = 253
+    pName.Parent = pBtn
+
+    local pCat = Instance.new("TextLabel")
+    pCat.Size = UDim2.new(0.25, 0, 1, 0)
+    pCat.Position = UDim2.new(0.72, 0, 0, 0)
+    pCat.BackgroundTransparency = 1
+    pCat.Font = Enum.Font.Gotham
+    pCat.TextSize = 9
+    pCat.TextColor3 = Color3.fromRGB(140, 160, 190)
+    pCat.TextXAlignment = Enum.TextXAlignment.Right
+    pCat.Text = prim.cat
+    pCat.ZIndex = 253
+    pCat.Parent = pBtn
+
+    pBtn.MouseButton1Click:Connect(function()
+        local newAct = { type = prim.type }
+        for k, v in pairs(prim.def) do newAct[k] = v end
+        table.insert(builderState.actions, newAct)
+        PickerDrawer.Visible = false
+        renderActionStack()
+    end)
+end
+
+AddActionBtn.MouseButton1Click:Connect(function()
+    PickerDrawer.Visible = true
 end)
 
-CancelBtn.MouseButton1Click:Connect(function()
-    WizardModal.Visible = false
+-- Scope Toggle Button
+BuilderScopeBtn.MouseButton1Click:Connect(function()
+    builderState.scope = (builderState.scope == "universal") and "place" or "universal"
+    BuilderScopeBtn.Text = (builderState.scope == "universal") and "Scope: Universal (All Games)" or "Scope: Place-Specific"
+    BuilderScopeBtn.BackgroundColor3 = (builderState.scope == "universal") and Color3.fromRGB(25, 45, 65) or Color3.fromRGB(35, 30, 50)
+    BuilderScopeBtn.TextColor3 = (builderState.scope == "universal") and Color3.fromRGB(100, 190, 255) or Color3.fromRGB(210, 140, 255)
 end)
 
-NewTaskBtn.MouseButton1Click:Connect(function()
-    InputName.Text = ""
-    InputDesc.Text = ""
-    InputCode.Text = ""
-    curTrigIdx = 1
-    curCondIdx = 1
-    curActIdx = 1
-    TriggerBtn.Text = "Trigger: " .. TRIGGER_OPTIONS[1].label
-    InputTriggerParam.PlaceholderText = TRIGGER_OPTIONS[1].placeholder
-    InputTriggerParam.Text = TRIGGER_OPTIONS[1].defaultParam
-    ConditionBtn.Text = "Condition: " .. CONDITION_OPTIONS[1].label
-    InputConditionParam.PlaceholderText = CONDITION_OPTIONS[1].placeholder
-    InputConditionParam.Text = CONDITION_OPTIONS[1].defaultParam
-    ActionBtn.Text = "Action: " .. ACTION_OPTIONS[1].label
-    InputActionParam.PlaceholderText = ACTION_OPTIONS[1].p1
-    InputActionParam.Text = ACTION_OPTIONS[1].def1
-    InputActionExtra.PlaceholderText = ACTION_OPTIONS[1].p2
-    InputActionExtra.Text = ACTION_OPTIONS[1].def2
-    updateWizardSummary()
-    WizardModal.Visible = true
+BuilderCancelBtn.MouseButton1Click:Connect(function()
+    BuilderModal.Visible = false
 end)
 
-SaveTaskBtn.MouseButton1Click:Connect(function()
+-- Open Shortcut Editor
+openShortcutEditor = function(taskObj)
+    if taskObj then
+        builderState.editingTask = taskObj
+        builderState.scope = taskObj.scope or "place"
+        selectedColor = taskObj.color or "blue"
+        selectedIcon = taskObj.icon or "⚡"
+        InputName.Text = taskObj.name or "Untitled Shortcut"
+        InputDesc.Text = taskObj.description or ""
+
+        -- Clone actions
+        builderState.actions = {}
+        for _, a in ipairs(taskObj.actions or {}) do
+            local cloneAct = {}
+            for k, v in pairs(a) do cloneAct[k] = v end
+            table.insert(builderState.actions, cloneAct)
+        end
+
+        -- Match Trigger
+        local trig = taskObj.trigger or { type = "Timer", interval = 60 }
+        curTrigIdx = 1
+        for i, opt in ipairs(TRIGGER_OPTIONS) do
+            if opt.type == trig.type and (opt.preset == trig.preset) then
+                curTrigIdx = i
+                break
+            end
+        end
+        TriggerBtn.Text = "WHEN: " .. TRIGGER_OPTIONS[curTrigIdx].label
+        InputTriggerParam.PlaceholderText = TRIGGER_OPTIONS[curTrigIdx].placeholder
+        if trig.type == "Timer" then
+            InputTriggerParam.Text = tostring(trig.interval or 60)
+        elseif trig.type == "ClockInterval" then
+            InputTriggerParam.Text = tostring(trig.interval or 5.0)
+        elseif trig.type == "ClockTarget" then
+            InputTriggerParam.Text = tostring(trig.target or 120)
+        elseif trig.type == "CustomSignal" then
+            InputTriggerParam.Text = tostring(trig.path or "workspace.ChildAdded")
+        else
+            InputTriggerParam.Text = ""
+        end
+
+        -- Match Condition
+        local cond = taskObj.condition or { type = "Always" }
+        curCondIdx = 1
+        for i, opt in ipairs(CONDITION_OPTIONS) do
+            if opt.type == cond.type then
+                curCondIdx = i
+                break
+            end
+        end
+        ConditionBtn.Text = "IF: " .. CONDITION_OPTIONS[curCondIdx].label
+        InputConditionParam.PlaceholderText = CONDITION_OPTIONS[curCondIdx].placeholder
+        if cond.type == "LowHealth" then
+            InputConditionParam.Text = tostring(cond.threshold or 25)
+        elseif cond.type == "StaffRank" then
+            InputConditionParam.Text = string.format("%d:%d", cond.minRank or 100, cond.groupId or 0)
+        elseif cond.type == "StatThreshold" then
+            InputConditionParam.Text = string.format("%s:%s:%s", cond.stat or "Cash", cond.operator or ">=", tostring(cond.value or 0))
+        elseif cond.type == "ObjectProximity" then
+            InputConditionParam.Text = string.format("%s:%s:%s", cond.target or "Door", tostring(cond.distance or 25), cond.mode or "within")
+        elseif cond.type == "ClockElapsed" then
+            InputConditionParam.Text = tostring(cond.threshold or 60)
+        elseif cond.type == "CustomLua" then
+            InputConditionParam.Text = tostring(cond.code or "return true")
+        else
+            InputConditionParam.Text = ""
+        end
+    else
+        builderState.editingTask = nil
+        builderState.scope = "place"
+        selectedColor = "blue"
+        selectedIcon = "⚡"
+        InputName.Text = "New Shortcut"
+        InputDesc.Text = "Automated workflow pipeline"
+        builderState.actions = {
+            { type = "Toast", title = "Shortcut Fired", message = "Action completed" }
+        }
+        curTrigIdx = 1
+        curCondIdx = 1
+        TriggerBtn.Text = "WHEN: " .. TRIGGER_OPTIONS[1].label
+        InputTriggerParam.Text = TRIGGER_OPTIONS[1].defaultParam
+        ConditionBtn.Text = "IF: " .. CONDITION_OPTIONS[1].label
+        InputConditionParam.Text = CONDITION_OPTIONS[1].defaultParam
+    end
+
+    -- Update Color & Icon selection strokes
+    for cN, b in pairs(colorButtons) do
+        local st = b:FindFirstChildOfClass("UIStroke")
+        if st then st.Transparency = (cN == selectedColor) and 0 or 1 end
+    end
+    for icN, b in pairs(iconButtons) do
+        local st = b:FindFirstChildOfClass("UIStroke")
+        if st then st.Transparency = (icN == selectedIcon) and 0 or 1 end
+    end
+
+    BuilderScopeBtn.Text = (builderState.scope == "universal") and "Scope: Universal (All Games)" or "Scope: Place-Specific"
+    BuilderScopeBtn.BackgroundColor3 = (builderState.scope == "universal") and Color3.fromRGB(25, 45, 65) or Color3.fromRGB(35, 30, 50)
+    BuilderScopeBtn.TextColor3 = (builderState.scope == "universal") and Color3.fromRGB(100, 190, 255) or Color3.fromRGB(210, 140, 255)
+
+    renderActionStack()
+    BuilderModal.Visible = true
+end
+
+NewShortcutBtn.MouseButton1Click:Connect(function()
+    openShortcutEditor(nil)
+end)
+
+-- Save Shortcut Logic
+BuilderSaveBtn.MouseButton1Click:Connect(function()
     local name = InputName.Text
-    if name == "" then name = "New Automated Task" end
+    if name == "" then name = "New Automated Shortcut" end
     local desc = InputDesc.Text
+    if desc == "" then desc = "Multi-action automated shortcut" end
+
     local tOpt = TRIGGER_OPTIONS[curTrigIdx]
     local cOpt = CONDITION_OPTIONS[curCondIdx]
-    local aOpt = ACTION_OPTIONS[curActIdx]
-    if desc == "" then
-        desc = string.format("When %s fires, execute %s", tOpt.label, aOpt.label)
-    end
 
     -- Build Trigger
     local triggerObj = { type = tOpt.type }
@@ -1836,77 +2791,87 @@ SaveTaskBtn.MouseButton1Click:Connect(function()
         conditionObj.code = InputConditionParam.Text ~= "" and InputConditionParam.Text or "return true"
     end
 
-    -- Build Actions
-    local actions = {}
-    if aOpt.type == "Toast" then
-        table.insert(actions, { type = "Toast", title = InputActionExtra.Text ~= "" and InputActionExtra.Text or name, message = InputActionParam.Text ~= "" and InputActionParam.Text or "Trigger activated" })
-    elseif aOpt.type == "FollowRoute" then
-        table.insert(actions, { type = "FollowRoute", targetNode = InputActionParam.Text ~= "" and InputActionParam.Text or "Yard", route = InputActionExtra.Text ~= "" and InputActionExtra.Text or "road_network.json" })
-    elseif aOpt.type == "StopRoute" then
-        table.insert(actions, { type = "StopRoute" })
-    elseif aOpt.type == "TweenTo" then
-        table.insert(actions, { type = "TweenTo", target = InputActionParam.Text ~= "" and InputActionParam.Text or "0, 10, 0", duration = tonumber(InputActionExtra.Text) or 2.0 })
-    elseif aOpt.type == "InstantTeleport" then
-        table.insert(actions, { type = "InstantTeleport", target = InputActionParam.Text ~= "" and InputActionParam.Text or "0, 10, 0" })
-    elseif aOpt.type == "ActivatePrompt" then
-        table.insert(actions, { type = "ActivatePrompt", target = InputActionParam.Text ~= "" and InputActionParam.Text or "nearest", maxDistance = tonumber(InputActionExtra.Text) or 35 })
-    elseif aOpt.type == "FireRemote" then
-        table.insert(actions, { type = "FireRemote", remote = InputActionParam.Text ~= "" and InputActionParam.Text or "ReplicatedStorage.RemoteEvent", args = InputActionExtra.Text ~= "" and InputActionExtra.Text or "[\"$position\"]" })
-    elseif aOpt.type == "InvokeServer" then
-        table.insert(actions, { type = "InvokeServer", remote = InputActionParam.Text ~= "" and InputActionParam.Text or "ReplicatedStorage.RemoteFunction", args = InputActionExtra.Text ~= "" and InputActionExtra.Text or "[\"$userId\"]" })
-    elseif aOpt.type == "VirtualInput" then
-        table.insert(actions, { type = "VirtualInput", key = InputActionParam.Text ~= "" and InputActionParam.Text or "E", duration = tonumber(InputActionExtra.Text) or 0.1 })
-    elseif aOpt.type == "VirtualPoke" then
-        table.insert(actions, { type = "VirtualPoke" })
-    elseif aOpt.type == "Delay" then
-        table.insert(actions, { type = "Delay", duration = tonumber(InputActionParam.Text) or 1.0 })
-    elseif aOpt.type == "PauseAllLoops" then
-        table.insert(actions, { type = "PauseAllLoops" })
-    elseif aOpt.type == "ResumeAllLoops" then
-        table.insert(actions, { type = "ResumeAllLoops" })
-    elseif aOpt.type == "ServerHop" then
-        table.insert(actions, { type = "ServerHop" })
-    elseif aOpt.type == "Rejoin" then
-        table.insert(actions, { type = "Rejoin" })
+    -- Ensure at least one action
+    local actions = builderState.actions
+    if #actions == 0 then
+        table.insert(actions, { type = "Toast", title = name, message = "Executed successfully" })
     end
 
-    if InputCode.Text ~= "" then
-        table.insert(actions, { type = "RunLuau", code = InputCode.Text })
-    end
+    local placeIdStr = tostring(game.PlaceId or "0")
 
-    local newTask = {
-        id = "task_" .. tostring(os.time()) .. "_" .. tostring(math.random(100, 999)),
-        name = name,
-        description = desc,
-        enabled = true,
-        scope = isUniversalScope and "universal" or "place",
-        trigger = triggerObj,
-        condition = conditionObj,
-        actions = actions,
-        telemetry = { invocations = 0, lastRun = 0, lastResult = "Ready" }
-    }
+    if builderState.editingTask then
+        local taskObj = builderState.editingTask
+        Engine.unbindTask(taskObj.id)
 
-    if isUniversalScope then
-        Storage.data.universal = Storage.data.universal or {}
-        table.insert(Storage.data.universal, newTask)
+        taskObj.name = name
+        taskObj.description = desc
+        taskObj.icon = selectedIcon
+        taskObj.color = selectedColor
+        taskObj.trigger = triggerObj
+        taskObj.condition = conditionObj
+        taskObj.actions = actions
+
+        -- Handle scope change
+        if taskObj.scope ~= builderState.scope then
+            if taskObj.scope == "universal" then
+                for i, t in ipairs(Storage.data.universal) do
+                    if t.id == taskObj.id then table.remove(Storage.data.universal, i); break end
+                end
+                Storage.data.places[placeIdStr] = Storage.data.places[placeIdStr] or {}
+                table.insert(Storage.data.places[placeIdStr], taskObj)
+            else
+                if Storage.data.places[placeIdStr] then
+                    for i, t in ipairs(Storage.data.places[placeIdStr]) do
+                        if t.id == taskObj.id then table.remove(Storage.data.places[placeIdStr], i); break end
+                    end
+                end
+                Storage.data.universal = Storage.data.universal or {}
+                table.insert(Storage.data.universal, taskObj)
+            end
+            taskObj.scope = builderState.scope
+        end
+
+        if taskObj.enabled then
+            Engine.bindTask(taskObj)
+        end
     else
-        local placeIdStr = tostring(game.PlaceId or "0")
-        Storage.data.places[placeIdStr] = Storage.data.places[placeIdStr] or {}
-        table.insert(Storage.data.places[placeIdStr], newTask)
+        local newId = "task_" .. tostring(os.time()) .. "_" .. tostring(math.random(100, 999))
+        local newTask = {
+            id = newId,
+            name = name,
+            description = desc,
+            icon = selectedIcon,
+            color = selectedColor,
+            enabled = true,
+            scope = builderState.scope,
+            trigger = triggerObj,
+            condition = conditionObj,
+            actions = actions,
+            telemetry = { invocations = 0, lastRun = 0, lastResult = "Ready" }
+        }
+
+        if newTask.scope == "universal" then
+            Storage.data.universal = Storage.data.universal or {}
+            table.insert(Storage.data.universal, newTask)
+        else
+            Storage.data.places[placeIdStr] = Storage.data.places[placeIdStr] or {}
+            table.insert(Storage.data.places[placeIdStr], newTask)
+        end
+
+        Engine.bindTask(newTask)
     end
 
-    Engine.bindTask(newTask)
     Storage.save(true)
-    WizardModal.Visible = false
-    refreshCardList()
+    BuilderModal.Visible = false
+    refreshShortcutsGrid()
 
     if showToastNotification then
-        showToastNotification("Automation Scheduler", string.format("Activated '%s'", newTask.name), 3.0)
+        showToastNotification("Shortcut Saved", string.format("Saved '%s' with %d action%s", name, #actions, #actions == 1 and "" or "s"), 3.0)
     end
 end)
 
 -- ==============================================================================
--- 4.5 IMPORT WORKFLOW MODAL
+-- 6. IMPORT WORKFLOW MODAL
 -- ==============================================================================
 local ImportModal = Instance.new("Frame")
 ImportModal.Name = "ImportModal"
@@ -1960,7 +2925,7 @@ ImportTextBox.BorderSizePixel = 0
 ImportTextBox.Font = Enum.Font.Code
 ImportTextBox.TextSize = 10
 ImportTextBox.TextColor3 = Color3.fromRGB(240, 245, 255)
-ImportTextBox.PlaceholderText = '{\n  "name": "My Shared Task",\n  "trigger": { "type": "Timer", "interval": 10 },\n  "actions": [...]\n}'
+ImportTextBox.PlaceholderText = '{\n  "name": "My Shared Shortcut",\n  "icon": "⚡",\n  "color": "blue",\n  "trigger": { "type": "Timer", "interval": 10 },\n  "actions": [...]\n}'
 ImportTextBox.PlaceholderColor3 = Color3.fromRGB(100, 115, 135)
 ImportTextBox.TextXAlignment = Enum.TextXAlignment.Left
 ImportTextBox.TextYAlignment = Enum.TextYAlignment.Top
@@ -2006,7 +2971,7 @@ DoImportBtn.BorderSizePixel = 0
 DoImportBtn.Font = Enum.Font.GothamBold
 DoImportBtn.TextSize = 11
 DoImportBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-DoImportBtn.Text = "Import Workflow"
+DoImportBtn.Text = "Import Shortcut"
 DoImportBtn.ZIndex = 301
 DoImportBtn.Parent = ImportModal
 local dibCorn = Instance.new("UICorner")
@@ -2047,8 +3012,10 @@ DoImportBtn.MouseButton1Click:Connect(function()
         local newId = "task_" .. tostring(os.time()) .. "_" .. tostring(math.random(1000, 9999))
         local cloned = {
             id = newId,
-            name = tostring(taskData.name or "Imported Task"),
+            name = tostring(taskData.name or "Imported Shortcut"),
             description = tostring(taskData.description or "Imported workflow"),
+            icon = taskData.icon or "⚡",
+            color = taskData.color or "blue",
             enabled = (taskData.enabled ~= false),
             scope = (taskData.scope == "universal") and "universal" or "place",
             trigger = type(taskData.trigger) == "table" and taskData.trigger or { type = "Timer", interval = 60 },
@@ -2090,11 +3057,11 @@ DoImportBtn.MouseButton1Click:Connect(function()
 
     if importedCount > 0 then
         Storage.save(true)
-        refreshCardList()
+        refreshShortcutsGrid()
         ImportModal.Visible = false
         ImportTextBox.Text = ""
         if showToastNotification then
-            showToastNotification("Import Successful", string.format("Imported %d workflow(s)", importedCount), 3.5)
+            showToastNotification("Import Successful", string.format("Imported %d shortcut(s)", importedCount), 3.5)
         end
     else
         if showToastNotification then
@@ -2104,12 +3071,12 @@ DoImportBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ==============================================================================
--- 5. HOTKEY & GLOBAL EXPORTS
+-- 7. HOTKEY & GLOBAL EXPORTS
 -- ==============================================================================
 local function toggleSchedulerHUD()
     ScreenGui.Enabled = not ScreenGui.Enabled
     if ScreenGui.Enabled then
-        refreshCardList()
+        refreshShortcutsGrid()
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
         UserInputService.MouseIconEnabled = true
     end
@@ -2117,7 +3084,6 @@ end
 
 local keybindConnection
 keybindConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    -- Do not check gameProcessed: Shift and Function keys are often marked gameProcessed by Roblox CoreGui/ShiftLock
     if input.KeyCode == Enum.KeyCode.F7 then
         local isShiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
         if isShiftHeld then
@@ -2138,6 +3104,8 @@ getgenv().RegisterAutomationTask = function(taskDef)
     taskDef.id = taskDef.id or ("task_" .. tostring(os.time()) .. "_" .. tostring(math.random(100, 999)))
     taskDef.enabled = (taskDef.enabled ~= false)
     taskDef.scope = taskDef.scope or "place"
+    taskDef.icon = taskDef.icon or "⚡"
+    taskDef.color = taskDef.color or "blue"
     if taskDef.scope == "universal" then
         Storage.data.universal = Storage.data.universal or {}
         table.insert(Storage.data.universal, taskDef)
@@ -2168,5 +3136,20 @@ getgenv()._KernelTaskSchedulerCleanUp = function()
     end
 end
 
-refreshCardList()
-print("[AutomationScheduler]: Automation Scheduler engine loaded successfully! (Shift + F7 to open)")
+-- Initialize Storage & Bind existing tasks
+Storage.load()
+
+for _, t in pairs(Storage.data.universal or {}) do
+    if type(t) == "table" and t.enabled then
+        Engine.bindTask(t)
+    end
+end
+local placeIdStr = tostring(game.PlaceId or "0")
+for _, t in pairs(Storage.data.places[placeIdStr] or {}) do
+    if type(t) == "table" and t.enabled then
+        Engine.bindTask(t)
+    end
+end
+
+refreshShortcutsGrid()
+print("[AutomationScheduler]: Omni Shortcuts Engine loaded successfully! (Shift + F7 to open)")
