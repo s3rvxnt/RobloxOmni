@@ -2374,7 +2374,7 @@ local ACTION_PRIMITIVES = {
     { type = "Toast", name = "Toast Alert", icon = "🔔", cat = "Flow", def = { title = "Alert", message = "Notice: $MyVar" } },
     { type = "TweenTo", name = "Tween To (CFrame)", icon = "📍", cat = "Navigation", def = { target = "0, 10, 0", duration = 2.0 } },
     { type = "InstantTeleport", name = "Instant Teleport", icon = "⚡", cat = "Navigation", def = { target = "0, 10, 0" } },
-    { type = "FollowRoute", name = "Follow Route", icon = "🚗", cat = "Navigation", def = { targetNode = "Yard", route = "road_network.json" } },
+    { type = "FollowRoute", name = "Follow Route", icon = "🚶", cat = "Navigation", def = { targetNode = "Yard", route = "road_network.json" } },
     { type = "StopRoute", name = "Stop Route", icon = "🛑", cat = "Navigation", def = {} },
     { type = "ActivatePrompt", name = "Activate Prompt", icon = "🎯", cat = "Interaction", def = { target = "nearest", maxDistance = 35 } },
     { type = "VirtualInput", name = "Virtual Keypress", icon = "⌨️", cat = "Interaction", def = { key = "E", duration = 0.1 } },
