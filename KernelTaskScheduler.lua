@@ -686,6 +686,143 @@ executeSingleAction = function(act, ctx)
                     myChar:BreakJoints()
                 end
             end
+        elseif act.type == "EquipTool" then
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local bp = LocalPlayer:FindFirstChildOfClass("Backpack")
+            if hum and bp then
+                local tName = tostring(evalValue(act.toolName or act.name or "", ctx)):lower()
+                for _, item in ipairs(bp:GetChildren()) do
+                    if item:IsA("Tool") then
+                        if tName == "" or tName == "first" or item.Name:lower():find(tName, 1, true) then
+                            hum:EquipTool(item)
+                            break
+                        end
+                    end
+                end
+            end
+        elseif act.type == "UseTool" then
+            local char = LocalPlayer.Character
+            local subAct = tostring(evalValue(act.action or "activate", ctx)):lower()
+            if subAct == "unequip" then
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum then hum:UnequipTools() end
+            else
+                local tool = char and char:FindFirstChildOfClass("Tool")
+                if tool then
+                    tool:Activate()
+                end
+            end
+        elseif act.type == "ClickGuiButton" then
+            local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+            if pg then
+                local targetQuery = tostring(evalValue(act.target or "", ctx)):lower()
+                local foundBtn = nil
+                local directInst = resolveInstance(targetQuery)
+                if directInst and directInst:IsA("GuiButton") then
+                    foundBtn = directInst
+                else
+                    for _, desc in ipairs(pg:GetDescendants()) do
+                        if desc:IsA("GuiButton") and desc.Visible then
+                            if desc.Name:lower() == targetQuery
+                               or (desc:IsA("TextButton") and desc.Text:lower():find(targetQuery, 1, true))
+                               or desc.Name:lower():find(targetQuery, 1, true) then
+                                foundBtn = desc
+                                break
+                            end
+                        end
+                    end
+                end
+                if foundBtn then
+                    pcall(function()
+                        if firesignal then
+                            firesignal(foundBtn.MouseButton1Click)
+                            firesignal(foundBtn.Activated)
+                        else
+                            foundBtn.MouseButton1Click:Fire()
+                        end
+                    end)
+                else
+                    warn("[TaskScheduler] ClickGuiButton: Button not found matching:", targetQuery)
+                end
+            end
+        elseif act.type == "SendChat" then
+            local msg = evalValue(act.message or "", ctx)
+            if msg and msg ~= "" then
+                local ok = pcall(function()
+                    local TCS = game:GetService("TextChatService")
+                    if TCS and TCS.ChatVersion == Enum.ChatVersion.TextChatService then
+                        local genChan = TCS.TextChannels:FindFirstChild("RBXGeneral")
+                        if genChan then
+                            genChan:SendAsync(tostring(msg))
+                            return true
+                        end
+                    end
+                    return false
+                end)
+                if not ok then
+                    pcall(function()
+                        local SayMsg = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
+                        local SayReq = SayMsg and SayMsg:FindFirstChild("SayMessageRequest")
+                        if SayReq then
+                            SayReq:FireServer(tostring(msg), "All")
+                        end
+                    end)
+                end
+            end
+        elseif act.type == "SetCharacterState" then
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local prop = tostring(evalValue(act.property or "WalkSpeed", ctx)):lower()
+            local val = evalValue(act.value, ctx)
+            if hum then
+                if prop == "walkspeed" or prop == "speed" then
+                    hum.WalkSpeed = tonumber(val) or 16
+                elseif prop == "jumppower" or prop == "jump" then
+                    hum.UseJumpPower = true
+                    hum.JumpPower = tonumber(val) or 50
+                elseif prop == "sit" then
+                    hum.Sit = (tostring(val):lower() == "true" or val == true or val == 1 or val == "1")
+                elseif prop == "noclip" then
+                    local enableNoclip = (tostring(val):lower() == "true" or val == true or val == 1 or val == "1")
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = not enableNoclip
+                        end
+                    end
+                end
+            end
+        elseif act.type == "LookAt" then
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp and act.target then
+                local rawTarget = evalValue(act.target, ctx)
+                local targetCF = resolveCFrame(rawTarget)
+                if targetCF then
+                    local targetPos = targetCF.Position
+                    local myPos = hrp.Position
+                    local flatTarget = Vector3.new(targetPos.X, myPos.Y, targetPos.Z)
+                    if (flatTarget - myPos).Magnitude > 0.1 then
+                        hrp.CFrame = CFrame.lookAt(myPos, flatTarget)
+                    end
+                end
+            end
+        elseif act.type == "PlaySound" then
+            local sPreset = tostring(evalValue(act.sound or act.soundId or "Ping", ctx)):lower()
+            local soundMap = {
+                ping = "rbxassetid://4590662766",
+                success = "rbxassetid://6026987820",
+                alert = "rbxassetid://6026987850",
+                buzzer = "rbxassetid://3761307659",
+                chime = "rbxassetid://138090596"
+            }
+            local sId = soundMap[sPreset] or (sPreset:find("^rbxassetid://") and sPreset or ("rbxassetid://" .. sPreset))
+            local snd = Instance.new("Sound")
+            snd.SoundId = sId
+            snd.Volume = tonumber(evalValue(act.volume, ctx)) or 1.0
+            snd.Parent = game:GetService("SoundService")
+            snd:Play()
+            game:GetService("Debris"):AddItem(snd, 5)
         elseif act.type == "ActivatePrompt" then
             local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
@@ -2491,6 +2628,13 @@ local ACTION_PRIMITIVES = {
     { type = "VirtualPoke", name = "Virtual Poke (Anti-AFK)", icon = "👻", cat = "Interaction", def = {} },
     { type = "FireRemote", name = "Fire Remote Event", icon = "📡", cat = "Network", def = { remote = "ReplicatedStorage.RemoteEvent", args = "["$position"]" } },
     { type = "InvokeServer", name = "Invoke Remote Func", icon = "📥", cat = "Network", def = { remote = "ReplicatedStorage.RemoteFunction", args = "["$userId"]" } },
+    { type = "EquipTool", name = "Equip Tool", icon = "🎒", cat = "Player", def = { toolName = "first" } },
+    { type = "UseTool", name = "Use / Click Tool", icon = "✋", cat = "Player", def = { action = "activate" } },
+    { type = "ClickGuiButton", name = "Click UI Button", icon = "🖱️", cat = "Interaction", def = { target = "Accept" } },
+    { type = "SendChat", name = "Send Chat", icon = "💬", cat = "Flow", def = { message = "Hello from Shortcut!" } },
+    { type = "SetCharacterState", name = "Set Character State", icon = "⚡", cat = "Player", def = { property = "WalkSpeed", value = "32" } },
+    { type = "LookAt", name = "Look At Target", icon = "👀", cat = "Navigation", def = { target = "$nearest" } },
+    { type = "PlaySound", name = "Play Sound Chime", icon = "🔊", cat = "Flow", def = { sound = "Success", volume = 1.0 } },
     { type = "PauseAllLoops", name = "Pause All Loops", icon = "⏸️", cat = "Flow", def = {} },
     { type = "ResumeAllLoops", name = "Resume All Loops", icon = "▶️", cat = "Flow", def = {} },
     { type = "Rejoin", name = "Rejoin Server", icon = "🔄", cat = "Flow", def = {} },
@@ -2834,6 +2978,51 @@ renderActionStack = function()
             lbl.Text = "Resets character (respawns at spawn point)"
             lbl.ZIndex = 203
             lbl.Parent = block
+        elseif act.type == "EquipTool" then
+            local p1 = createBuilderInput("P1", "Tool Name (or 'first')", UDim2.new(0.65, 0, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.toolName or "first")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.toolName = p1.Text end)
+        elseif act.type == "UseTool" then
+            local p1 = createBuilderInput("P1", "Action (activate / unequip)", UDim2.new(0.65, 0, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.action or "activate")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.action = p1.Text end)
+        elseif act.type == "ClickGuiButton" then
+            local p1 = createBuilderInput("P1", "Button Name / Text / Path", UDim2.new(0.65, 0, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.target or "Accept")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.target = p1.Text end)
+        elseif act.type == "SendChat" then
+            local p1 = createBuilderInput("P1", "Chat Message (e.g. Hello $player)", UDim2.new(0.65, 0, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.message or "Hello!")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.message = p1.Text end)
+        elseif act.type == "SetCharacterState" then
+            local p1 = createBuilderInput("P1", "Property (Speed/Jump/Sit/Noclip)", UDim2.new(0.38, -10, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.property or "WalkSpeed")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.property = p1.Text end)
+
+            local p2 = createBuilderInput("P2", "Value (e.g. 32 / true)", UDim2.new(0.27, 0, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.38, 175, 0, 8)
+            p2.Text = tostring(act.value or "32")
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.value = p2.Text end)
+        elseif act.type == "LookAt" then
+            local p1 = createBuilderInput("P1", "Target ($nearest / Pos / Part)", UDim2.new(0.65, 0, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.target or "$nearest")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.target = p1.Text end)
+        elseif act.type == "PlaySound" then
+            local p1 = createBuilderInput("P1", "Preset (Success/Ping/Alert/Buzzer) or ID", UDim2.new(0.42, -10, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.sound or "Success")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.sound = p1.Text end)
+
+            local p2 = createBuilderInput("P2", "Vol (0-1)", UDim2.new(0.23, 0, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.42, 175, 0, 8)
+            p2.Text = tostring(act.volume or 1.0)
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.volume = tonumber(p2.Text) or 1.0 end)
         elseif act.type == "FollowRoute" then
             local p1 = createBuilderInput("P1", "Target Node (e.g. Yard)", UDim2.new(0.35, -10, 0, 22), UDim2.new(0, 22), block)
             p1.Position = UDim2.new(0, 180, 0, 8)
