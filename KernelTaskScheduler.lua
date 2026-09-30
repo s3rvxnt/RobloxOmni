@@ -232,6 +232,78 @@ local function substituteArg(arg)
     return arg
 end
 
+local function formatTemplate(str, triggerArgs)
+    if type(str) ~= "string" then return tostring(str or "") end
+    local arg1 = triggerArgs and triggerArgs[1]
+
+    local car = nil
+    if typeof(arg1) == "Instance" then
+        if (arg1.Parent and arg1.Parent.Name == "SpawnedCars") or arg1:FindFirstChild("VehicleSeat") or arg1:FindFirstChild("Chassis") then
+            car = arg1
+        end
+    end
+    if not car and getgenv().WashiezGetVehicle then
+        car = getgenv().WashiezGetVehicle()
+    end
+
+    local owner = "Unknown"
+    local carModel = "Vehicle"
+    if car then
+        if getgenv().GetVehicleOwner then
+            local okO, resO = pcall(getgenv().GetVehicleOwner, car)
+            if okO and resO then owner = tostring(resO) end
+        end
+        if owner == "Unknown" then
+            local parts = string.split(car.Name, "-")
+            if parts and parts[1] then owner = parts[1] end
+        end
+
+        if getgenv().GetVehicleName then
+            local okN, resN = pcall(getgenv().GetVehicleName, car)
+            if okN and resN then carModel = tostring(resN) end
+        end
+        if carModel == "Vehicle" then
+            local parts = string.split(car.Name, "-")
+            if parts and #parts >= 3 then
+                carModel = parts[3]
+            elseif parts and #parts >= 2 then
+                carModel = parts[2]
+            else
+                carModel = car.Name
+            end
+        end
+    end
+
+    local rep = {
+        ["%$vehicleOwner"] = owner,
+        ["%$carOwner"] = owner,
+        ["%$owner"] = owner,
+        ["%$vehicleName"] = carModel,
+        ["%$carModel"] = carModel,
+        ["%$carName"] = carModel,
+        ["%$car"] = car and car.Name or "Vehicle",
+        ["%$player"] = LocalPlayer.Name,
+        ["%$username"] = LocalPlayer.Name,
+        ["%$name"] = LocalPlayer.Name,
+        ["%$userId"] = tostring(LocalPlayer.UserId),
+        ["%$placeId"] = tostring(game.PlaceId),
+        ["%$arg1"] = tostring(arg1 or ""),
+        ["%$triggerArg"] = tostring(arg1 or "")
+    }
+
+    for token, val in pairs(rep) do
+        str = str:gsub(token, val)
+    end
+
+    str = str:gsub("%$leaderstat:([%w_]+)", function(statName)
+        local ls = LocalPlayer:FindFirstChild("leaderstats")
+        local st = ls and ls:FindFirstChild(statName)
+        return st and tostring(st.Value) or "0"
+    end)
+
+    return str
+end
+
 local function evaluateCondition(taskObj, triggerArgs)
     local cond = taskObj.condition or { type = "Always" }
     if cond.type == "Always" then
@@ -323,8 +395,13 @@ local function executeActions(taskObj, triggerArgs)
         local ok, err = pcall(function()
             if act.type == "Toast" then
                 if showToastNotification then
-                    showToastNotification(act.title or taskObj.name, act.message or "Triggered", 3.5)
+                    local tTitle = formatTemplate(act.title or taskObj.name, triggerArgs)
+                    local tMsg = formatTemplate(act.message or "Triggered", triggerArgs)
+                    showToastNotification(tTitle, tMsg, 3.5)
                 end
+            elseif act.type == "Print" then
+                local pMsg = formatTemplate(act.message or "Triggered", triggerArgs)
+                print("[Shortcut]: " .. pMsg)
             elseif act.type == "Delay" then
                 task.wait(math.max(0.01, tonumber(act.duration) or 1.0))
             elseif act.type == "PauseAllLoops" then
@@ -343,7 +420,11 @@ local function executeActions(taskObj, triggerArgs)
                 if act.code and act.code ~= "" then
                     local fn, compileErr = loadstring(act.code)
                     if fn then
-                        task.spawn(fn, triggerArgs)
+                        if type(triggerArgs) == "table" then
+                            task.spawn(fn, unpack(triggerArgs))
+                        else
+                            task.spawn(fn, triggerArgs)
+                        end
                     else
                         warn("[TaskScheduler] Luau compilation failed:", compileErr)
                     end
@@ -627,6 +708,21 @@ Engine.bindTask = function(taskObj)
         elseif preset == "Idled" then
             local c = LocalPlayer.Idled:Connect(function(timeVal) fireTask(taskObj, timeVal) end)
             table.insert(conns, c)
+        elseif preset == "CarSpawned" then
+            local function hookSpawnedCars()
+                local sc = workspace:FindFirstChild("SpawnedCars")
+                if sc then
+                    local c = sc.ChildAdded:Connect(function(child)
+                        fireTask(taskObj, child)
+                    end)
+                    table.insert(conns, c)
+                end
+            end
+            hookSpawnedCars()
+            local c2 = workspace.ChildAdded:Connect(function(ch)
+                if ch.Name == "SpawnedCars" then hookSpawnedCars() end
+            end)
+            table.insert(conns, c2)
         end
     elseif trig.type == "CustomSignal" then
         if trig.path and trig.path ~= "" then
@@ -2059,6 +2155,7 @@ local TRIGGER_OPTIONS = {
     { label = "⚡ Character Died", type = "Signal", preset = "Died", placeholder = "No parameter needed", defaultParam = "" },
     { label = "⚡ Window Focus Lost", type = "Signal", preset = "WindowFocus", placeholder = "No parameter needed", defaultParam = "" },
     { label = "💤 LocalPlayer Idled", type = "Signal", preset = "Idled", placeholder = "No parameter needed", defaultParam = "" },
+    { label = "🚗 Car Spawned (SpawnedCars)", type = "Signal", preset = "CarSpawned", placeholder = "No parameter needed", defaultParam = "" },
     { label = "⚙️ Custom Signal Path", type = "CustomSignal", placeholder = "Signal expr (e.g. workspace.ChildAdded)", defaultParam = "workspace.ChildAdded" },
 }
 
@@ -2201,6 +2298,7 @@ local ACTION_PRIMITIVES = {
     { type = "InvokeServer", name = "Invoke Remote Func", icon = "📥", cat = "Network", def = { remote = "ReplicatedStorage.RemoteFunction", args = "[\"$userId\"]" } },
     { type = "Delay", name = "Delay (Wait)", icon = "⏱️", cat = "Flow", def = { duration = 1.0 } },
     { type = "Toast", name = "Toast Alert", icon = "🔔", cat = "Flow", def = { title = "Alert", message = "Action completed" } },
+    { type = "Print", name = "Print to Console", icon = "🖨️", cat = "Flow", def = { message = "Spawned by: $vehicleOwner ($vehicleName)" } },
     { type = "PauseAllLoops", name = "Pause All Loops", icon = "⏸️", cat = "Flow", def = {} },
     { type = "ResumeAllLoops", name = "Resume All Loops", icon = "▶️", cat = "Flow", def = {} },
     { type = "Rejoin", name = "Rejoin Server", icon = "🔄", cat = "Flow", def = {} },
@@ -2432,6 +2530,11 @@ renderActionStack = function()
             p2.Position = UDim2.new(0.4, 175, 0, 8)
             p2.Text = tostring(act.title or "Scheduler")
             p2:GetPropertyChangedSignal("Text"):Connect(function() act.title = p2.Text end)
+        elseif act.type == "Print" then
+            local p1 = createBuilderInput("P1", "Message (e.g. $vehicleOwner spawned $vehicleName)", UDim2.new(0.65, 0, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.message or "Spawned by: $vehicleOwner ($vehicleName)")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.message = p1.Text end)
         elseif act.type == "FireRemote" or act.type == "InvokeServer" then
             local p1 = createBuilderInput("P1", "Remote Path (e.g. ReplicatedStorage.Remote)", UDim2.new(0.4, -10, 0, 22), UDim2.new(0, 22), block)
             p1.Position = UDim2.new(0, 180, 0, 8)
