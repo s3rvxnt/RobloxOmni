@@ -86,10 +86,18 @@ local SHORTCUT_COLORS = {
         badge = Color3.fromRGB(50, 42, 130),
         text = Color3.fromRGB(255, 255, 255),
         sub = Color3.fromRGB(225, 220, 255)
+    },
+    cyan = {
+        name = "Cyan",
+        bg = Color3.fromRGB(0, 145, 175),
+        stroke = Color3.fromRGB(50, 215, 245),
+        badge = Color3.fromRGB(0, 105, 130),
+        text = Color3.fromRGB(255, 255, 255),
+        sub = Color3.fromRGB(215, 245, 255)
     }
 }
-local COLOR_ORDER = { "blue", "green", "orange", "purple", "red", "teal", "amber", "indigo" }
-local SHORTCUT_ICONS = { "⚡", "🚗", "🛡️", "💰", "⏱️", "📍", "🔄", "👻", "🚪", "💊", "🎯", "📡" }
+local COLOR_ORDER = { "blue", "green", "orange", "purple", "red", "teal", "amber", "indigo", "cyan" }
+local SHORTCUT_ICONS = { "⚡", "🚗", "🛡️", "💰", "⏱️", "📍", "🔄", "👻", "🚪", "💊", "🎯", "📡", "✨", "📋", "💃", "🎥" }
 
 -- ==============================================================================
 -- 1. PERSISTENCE ENGINE & DATA STORE
@@ -823,6 +831,246 @@ executeSingleAction = function(act, ctx)
             snd.Parent = game:GetService("SoundService")
             snd:Play()
             game:GetService("Debris"):AddItem(snd, 5)
+        elseif act.type == "HighlightInstance" then
+            local rawTarget = evalValue(act.target or "$nearest", ctx)
+            local colStr = tostring(evalValue(act.color or "cyan", ctx)):lower()
+            local dur = tonumber(evalValue(act.duration, ctx)) or 0
+            local subAct = tostring(evalValue(act.action or "highlight", ctx)):lower()
+
+            if not getgenv()._OmniHighlights then getgenv()._OmniHighlights = {} end
+
+            if rawTarget == "clear" or subAct == "clear" then
+                for _, hl in pairs(getgenv()._OmniHighlights) do
+                    pcall(function() hl:Destroy() end)
+                end
+                getgenv()._OmniHighlights = {}
+            else
+                local targetInst = nil
+                if typeof(rawTarget) == "Instance" then
+                    targetInst = rawTarget
+                elseif type(rawTarget) == "string" then
+                    local p = Players:FindFirstChild(rawTarget)
+                    if p and p.Character then
+                        targetInst = p.Character
+                    else
+                        targetInst = resolveInstance(rawTarget)
+                    end
+                end
+
+                if targetInst and targetInst:IsA("Player") and targetInst.Character then
+                    targetInst = targetInst.Character
+                end
+
+                if targetInst and (targetInst:IsA("Model") or targetInst:IsA("BasePart")) then
+                    if subAct == "remove" or subAct == "disable" then
+                        local existing = getgenv()._OmniHighlights[targetInst] or targetInst:FindFirstChild("OmniHighlight")
+                        if existing then
+                            pcall(function() existing:Destroy() end)
+                            getgenv()._OmniHighlights[targetInst] = nil
+                        end
+                    else
+                        local colorMap = {
+                            cyan = Color3.fromRGB(0, 255, 255),
+                            red = Color3.fromRGB(255, 60, 60),
+                            green = Color3.fromRGB(60, 255, 100),
+                            blue = Color3.fromRGB(60, 160, 255),
+                            yellow = Color3.fromRGB(255, 230, 0),
+                            gold = Color3.fromRGB(255, 200, 0),
+                            purple = Color3.fromRGB(180, 80, 255),
+                            magenta = Color3.fromRGB(255, 60, 220),
+                            orange = Color3.fromRGB(255, 140, 0),
+                            white = Color3.fromRGB(255, 255, 255),
+                        }
+                        local mainColor = colorMap[colStr]
+                        if not mainColor then
+                            local r, g, b = colStr:match("(%d+)%s*,%s*(%d+)%s*,%s*(%d+)")
+                            if r and g and b then
+                                mainColor = Color3.fromRGB(tonumber(r), tonumber(g), tonumber(b))
+                            else
+                                mainColor = Color3.fromRGB(0, 255, 255)
+                            end
+                        end
+
+                        local hl = getgenv()._OmniHighlights[targetInst] or targetInst:FindFirstChild("OmniHighlight")
+                        if not hl then
+                            hl = Instance.new("Highlight")
+                            hl.Name = "OmniHighlight"
+                        end
+                        hl.Adornee = targetInst
+                        hl.FillColor = mainColor
+                        hl.FillTransparency = 0.5
+                        hl.OutlineColor = mainColor
+                        hl.OutlineTransparency = 0
+                        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                        hl.Parent = targetInst
+                        getgenv()._OmniHighlights[targetInst] = hl
+
+                        if dur > 0 then
+                            task.delay(dur, function()
+                                if hl and hl.Parent then
+                                    hl:Destroy()
+                                    if getgenv()._OmniHighlights[targetInst] == hl then
+                                        getgenv()._OmniHighlights[targetInst] = nil
+                                    end
+                                end
+                            end)
+                        end
+                    end
+                end
+            end
+        elseif act.type == "SendWebhook" then
+            local url = tostring(evalValue(act.url or "", ctx))
+            local msg = tostring(evalValue(act.message or act.content or "", ctx))
+            local title = tostring(evalValue(act.title or "Omni Shortcuts Notification", ctx))
+
+            if url and url ~= "" and msg and msg ~= "" then
+                local httpReq = request or http_request or (syn and syn.request) or (http and http.request)
+                if httpReq then
+                    local isDiscord = url:find("discord%.com/api/webhooks") or url:find("discordapp%.com/api/webhooks")
+                    local payloadData = {}
+                    if isDiscord then
+                        payloadData = {
+                            embeds = {
+                                {
+                                    title = title ~= "" and title or "Omni Notification",
+                                    description = msg,
+                                    color = 5814783,
+                                    footer = { text = "Roblox Omni Scheduler" },
+                                    timestamp = DateTime.now():ToIsoDate()
+                                }
+                            }
+                        }
+                    else
+                        payloadData = {
+                            title = title,
+                            message = msg,
+                            player = LocalPlayer.Name,
+                            userId = LocalPlayer.UserId,
+                            placeId = game.PlaceId,
+                            timestamp = os.time()
+                        }
+                    end
+
+                    task.spawn(function()
+                        pcall(function()
+                            httpReq({
+                                Url = url,
+                                Method = "POST",
+                                Headers = { ["Content-Type"] = "application/json" },
+                                Body = HttpService:JSONEncode(payloadData)
+                            })
+                        end)
+                    end)
+                else
+                    warn("[TaskScheduler] SendWebhook: Executor does not support HTTP requests")
+                end
+            end
+        elseif act.type == "SetClipboard" then
+            local clipText = tostring(evalValue(act.text or act.content or "", ctx))
+            local clipFn = setclipboard or toclipboard or (Clipboard and Clipboard.set)
+            if clipFn then
+                clipFn(clipText)
+            else
+                warn("[TaskScheduler] SetClipboard: setclipboard function unavailable")
+            end
+        elseif act.type == "PlayAnimation" then
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local animator = hum and (hum:FindFirstChildOfClass("Animator") or hum)
+            local animTarget = tostring(evalValue(act.animation or act.name or "dance", ctx)):lower()
+            local subAct = tostring(evalValue(act.action or "play", ctx)):lower()
+
+            if not getgenv()._OmniActiveTracks then getgenv()._OmniActiveTracks = {} end
+
+            if subAct == "stop" then
+                if animator then
+                    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                        pcall(function() track:Stop() end)
+                    end
+                end
+                getgenv()._OmniActiveTracks = {}
+            elseif animator then
+                local builtInEmotes = {
+                    wave = "rbxassetid://507770239",
+                    cheer = "rbxassetid://507770677",
+                    laugh = "rbxassetid://507770818",
+                    point = "rbxassetid://507770453",
+                    dance = "rbxassetid://507771019",
+                    dance1 = "rbxassetid://507771019",
+                    dance2 = "rbxassetid://507776720",
+                    dance3 = "rbxassetid://507777268",
+                    salute = "rbxassetid://3360686498",
+                    stadium = "rbxassetid://3360689775",
+                    tilt = "rbxassetid://3360692915"
+                }
+
+                local animId = builtInEmotes[animTarget]
+                if not animId then
+                    if animTarget:find("^rbxassetid://") then
+                        animId = animTarget
+                    elseif tonumber(animTarget) then
+                        animId = "rbxassetid://" .. animTarget
+                    end
+                end
+
+                if animId then
+                    local anim = Instance.new("Animation")
+                    anim.AnimationId = animId
+                    local track = animator:LoadAnimation(anim)
+                    track:Play()
+                    table.insert(getgenv()._OmniActiveTracks, track)
+                else
+                    pcall(function() hum:PlayEmote(animTarget) end)
+                end
+            end
+        elseif act.type == "Spectate" then
+            local rawTarget = evalValue(act.target or "$nearest", ctx)
+            local cam = workspace.CurrentCamera
+            if cam then
+                if not rawTarget or rawTarget == "" or rawTarget == "me" or rawTarget == "reset" or rawTarget == LocalPlayer.Name then
+                    local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        cam.CameraSubject = hum
+                        cam.CameraType = Enum.CameraType.Custom
+                    end
+                else
+                    local targetInst = nil
+                    if typeof(rawTarget) == "Instance" then
+                        targetInst = rawTarget
+                    elseif type(rawTarget) == "string" then
+                        local p = Players:FindFirstChild(rawTarget)
+                        if p and p.Character then
+                            targetInst = p.Character
+                        else
+                            targetInst = resolveInstance(rawTarget)
+                        end
+                    end
+
+                    if targetInst then
+                        if targetInst:IsA("Player") and targetInst.Character then
+                            targetInst = targetInst.Character
+                        end
+                        local subject = nil
+                        if targetInst:IsA("Humanoid") then
+                            subject = targetInst
+                        elseif targetInst:IsA("Model") then
+                            subject = targetInst:FindFirstChildOfClass("Humanoid") or targetInst.PrimaryPart or targetInst:FindFirstChild("HumanoidRootPart") or targetInst:FindFirstChildWhichIsA("BasePart")
+                        elseif targetInst:IsA("BasePart") then
+                            subject = targetInst
+                        end
+                        if subject then
+                            cam.CameraSubject = subject
+                        end
+                    end
+                end
+            end
+        elseif act.type == "ResetCamera" then
+            local cam = workspace.CurrentCamera
+            local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if cam and hum then
+                cam.CameraSubject = hum
+                cam.CameraType = Enum.CameraType.Custom
+            end
         elseif act.type == "ActivatePrompt" then
             local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
@@ -932,6 +1180,97 @@ local function executeActions(taskObj, triggerArgs)
     taskObj.telemetry.lastRun = os.time()
     taskObj.telemetry.lastResult = ok and "Completed pipeline" or ("Error: " .. tostring(err))
     Storage.save(false)
+end
+
+local function evaluateCondition(taskObj, triggerArgs)
+    local cond = taskObj.condition or { type = "Always" }
+    if not cond.type or cond.type == "Always" then
+        return true
+    elseif cond.type == "InVehicle" then
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.SeatPart and hum.SeatPart:IsA("VehicleSeat") then
+            return true
+        end
+        return false
+    elseif cond.type == "LowHealth" then
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local threshold = tonumber(cond.threshold) or 25
+        return hum and (hum.Health <= threshold)
+    elseif cond.type == "StaffRank" then
+        local player = triggerArgs and triggerArgs[1]
+        if player and typeof(player) == "Instance" and player:IsA("Player") then
+            local grp = tonumber(cond.groupId) or 0
+            local minR = tonumber(cond.minRank) or 100
+            if grp > 0 then
+                local ok, r = pcall(function() return player:GetRankInGroup(grp) end)
+                if ok and r >= minR then return true end
+            else
+                local gi = player:FindFirstChild("GroupInfo")
+                local rank = gi and gi:FindFirstChild("Rank")
+                if rank and rank.Value >= minR then return true end
+            end
+        end
+        return false
+    elseif cond.type == "StatThreshold" then
+        local statName = cond.stat or "Cash"
+        local op = cond.operator or ">="
+        local val = tonumber(cond.value) or 0
+        local ls = LocalPlayer:FindFirstChild("leaderstats")
+        local statObj = ls and ls:FindFirstChild(statName)
+        if statObj then
+            local curVal = tonumber(statObj.Value) or 0
+            if op == ">=" then return curVal >= val
+            elseif op == "<=" then return curVal <= val
+            elseif op == ">" then return curVal > val
+            elseif op == "<" then return curVal < val
+            elseif op == "==" then return curVal == val
+            elseif op == "!=" then return curVal ~= val
+            end
+        end
+        return false
+    elseif cond.type == "ObjectProximity" then
+        local targetName = cond.target or "Door"
+        local maxDist = tonumber(cond.distance) or 25
+        local mode = cond.mode or "within"
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local targetInst = resolveInstance(targetName)
+            if not targetInst then
+                for _, desc in ipairs(workspace:GetDescendants()) do
+                    if desc.Name:lower():find(targetName:lower(), 1, true) and (desc:IsA("BasePart") or desc:IsA("Model")) then
+                        targetInst = desc
+                        break
+                    end
+                end
+            end
+            if targetInst then
+                local tPos = targetInst:IsA("BasePart") and targetInst.Position or targetInst:GetPivot().Position
+                local d = (hrp.Position - tPos).Magnitude
+                if mode == "outside" then
+                    return d > maxDist
+                else
+                    return d <= maxDist
+                end
+            end
+        end
+        return false
+    elseif cond.type == "ClockElapsed" then
+        local threshold = tonumber(cond.threshold) or 0
+        return os.clock() >= threshold
+    elseif cond.type == "CustomLua" then
+        if cond.code and cond.code ~= "" then
+            local fn = loadstring("return function(args) " .. cond.code .. " end")
+            if fn then
+                local ok, res = pcall(fn(), triggerArgs)
+                return ok and (res == true)
+            end
+        end
+        return true
+    end
+    return true
 end
 
 local function fireTask(taskObj, ...)
@@ -1054,6 +1393,18 @@ Engine.bindTask = function(taskObj)
                 table.insert(conns, c)
             end
         end
+    elseif trig.type == "Keybind" then
+        local targetKey = tostring(trig.key or "G"):upper():gsub("%s+", "")
+        local c = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then return end
+            if input.UserInputType == Enum.UserInputType.Keyboard then
+                local kName = input.KeyCode.Name:upper()
+                if kName == targetKey then
+                    fireTask(taskObj, kName)
+                end
+            end
+        end)
+        table.insert(conns, c)
     end
 
     Engine.liveConnections[taskObj.id] = conns
@@ -1180,6 +1531,59 @@ local GALLERY_RECIPES = {
             { type = "Delay", duration = 0.2 },
             { type = "VirtualPoke" },
             { type = "Toast", title = "Anti-Idle", message = "Reset idle state timer" }
+        }
+    },
+    {
+        id = "gallery_nearest_chams",
+        name = "Nearest Player ESP & Spectate",
+        description = "Press [G] to find the nearest player, highlight them with Cyan chams, look at them, and spectate for 8s",
+        icon = "✨",
+        color = "cyan",
+        scope = "universal",
+        trigger = { type = "Keybind", key = "G" },
+        condition = { type = "Always" },
+        actions = {
+            { type = "FindNearest", source = "Players", varName = "targetPlayer", maxDistance = 1000 },
+            { type = "HighlightInstance", target = "$targetPlayer", color = "cyan", duration = 8 },
+            { type = "LookAt", target = "$targetPlayer" },
+            { type = "Spectate", target = "$targetPlayer" },
+            { type = "PlaySound", sound = "Ping", volume = 1.0 },
+            { type = "Toast", title = "ESP & Spectate Active", message = "Tracking $targetPlayer for 8s" },
+            { type = "Wait", duration = 8 },
+            { type = "ResetCamera" }
+        }
+    },
+    {
+        id = "gallery_loot_copier",
+        name = "Loot Spot Webhook & Clipboard",
+        description = "Press [H] to copy your current coordinates and dispatch an alert to your Discord webhook",
+        icon = "📋",
+        color = "amber",
+        scope = "universal",
+        trigger = { type = "Keybind", key = "H" },
+        condition = { type = "Always" },
+        actions = {
+            { type = "SetVariable", varName = "locInfo", value = "Player $player at $position in Place $placeId" },
+            { type = "SetClipboard", text = "$locInfo" },
+            { type = "SendWebhook", url = "https://discord.com/api/webhooks/YOUR_WEBHOOK_URL", message = "$locInfo", title = "Loot Coordinates Logged" },
+            { type = "PlaySound", sound = "Success", volume = 1.0 },
+            { type = "Toast", title = "Coords Copied & Webhook Sent", message = "Saved location to clipboard!" }
+        }
+    },
+    {
+        id = "gallery_celebrate_emote",
+        name = "Victory Dance & Chat Shout",
+        description = "Press [Z] to play a victory celebration dance emote, sound chime, and broadcast celebratory chat",
+        icon = "💃",
+        color = "purple",
+        scope = "universal",
+        trigger = { type = "Keybind", key = "Z" },
+        condition = { type = "Always" },
+        actions = {
+            { type = "PlayAnimation", animation = "dance", action = "play" },
+            { type = "PlaySound", sound = "Chime", volume = 1.0 },
+            { type = "SendChat", message = "Victory! Automated via Omni Shortcuts 🎉" },
+            { type = "Toast", title = "Victory Dance", message = "Celebrating completed task!" }
         }
     }
 }
@@ -2006,6 +2410,8 @@ local function renderShortcutTile(taskObj, idx)
             trigStr = string.format("⏰ clock >= %ds", tonumber(trig.target) or 0)
         elseif trig.type == "Signal" then
             trigStr = string.format("⚡ %s", trig.preset or "Signal")
+        elseif trig.type == "Keybind" then
+            trigStr = string.format("⌨️ Key [%s]", tostring(trig.key or "G"):upper())
         else
             trigStr = "⚡ Custom"
         end
@@ -2478,6 +2884,7 @@ local TRIGGER_OPTIONS = {
     { label = "⚡ Window Focus Lost", type = "Signal", preset = "WindowFocus", placeholder = "No parameter needed", defaultParam = "" },
     { label = "💤 LocalPlayer Idled", type = "Signal", preset = "Idled", placeholder = "No parameter needed", defaultParam = "" },
     { label = "⚙️ Custom Signal Path", type = "CustomSignal", placeholder = "Signal expr (e.g. workspace.ChildAdded)", defaultParam = "workspace.ChildAdded" },
+    { label = "⌨️ Keybind Press", type = "Keybind", placeholder = "Key (e.g. G, H, Z, LeftAlt)", defaultParam = "G" },
 }
 
 local CONDITION_OPTIONS = {
@@ -2626,8 +3033,8 @@ local ACTION_PRIMITIVES = {
     { type = "ActivatePrompt", name = "Activate Prompt", icon = "🎯", cat = "Interaction", def = { target = "nearest", maxDistance = 35 } },
     { type = "VirtualInput", name = "Virtual Keypress", icon = "⌨️", cat = "Interaction", def = { key = "E", duration = 0.1 } },
     { type = "VirtualPoke", name = "Virtual Poke (Anti-AFK)", icon = "👻", cat = "Interaction", def = {} },
-    { type = "FireRemote", name = "Fire Remote Event", icon = "📡", cat = "Network", def = { remote = "ReplicatedStorage.RemoteEvent", args = "["$position"]" } },
-    { type = "InvokeServer", name = "Invoke Remote Func", icon = "📥", cat = "Network", def = { remote = "ReplicatedStorage.RemoteFunction", args = "["$userId"]" } },
+    { type = "FireRemote", name = "Fire Remote Event", icon = "📡", cat = "Network", def = { remote = "ReplicatedStorage.RemoteEvent", args = '["$position"]' } },
+    { type = "InvokeServer", name = "Invoke Remote Func", icon = "📥", cat = "Network", def = { remote = "ReplicatedStorage.RemoteFunction", args = '["$userId"]' } },
     { type = "EquipTool", name = "Equip Tool", icon = "🎒", cat = "Player", def = { toolName = "first" } },
     { type = "UseTool", name = "Use / Click Tool", icon = "✋", cat = "Player", def = { action = "activate" } },
     { type = "ClickGuiButton", name = "Click UI Button", icon = "🖱️", cat = "Interaction", def = { target = "Accept" } },
@@ -2635,6 +3042,12 @@ local ACTION_PRIMITIVES = {
     { type = "SetCharacterState", name = "Set Character State", icon = "⚡", cat = "Player", def = { property = "WalkSpeed", value = "32" } },
     { type = "LookAt", name = "Look At Target", icon = "👀", cat = "Navigation", def = { target = "$nearest" } },
     { type = "PlaySound", name = "Play Sound Chime", icon = "🔊", cat = "Flow", def = { sound = "Success", volume = 1.0 } },
+    { type = "HighlightInstance", name = "Highlight (ESP / Chams)", icon = "✨", cat = "World", def = { target = "$nearest", color = "cyan", duration = 10 } },
+    { type = "SendWebhook", name = "Send Discord Webhook", icon = "🌐", cat = "Network", def = { url = "https://discord.com/api/webhooks/...", message = "Alert from $player", title = "Omni Alert" } },
+    { type = "SetClipboard", name = "Copy to Clipboard", icon = "📋", cat = "Flow", def = { text = "$player at $position" } },
+    { type = "PlayAnimation", name = "Play Emote / Animation", icon = "💃", cat = "Player", def = { animation = "dance", action = "play" } },
+    { type = "Spectate", name = "Spectate Target", icon = "🎥", cat = "Navigation", def = { target = "$nearest" } },
+    { type = "ResetCamera", name = "Reset Camera View", icon = "🔄", cat = "Navigation", def = {} },
     { type = "PauseAllLoops", name = "Pause All Loops", icon = "⏸️", cat = "Flow", def = {} },
     { type = "ResumeAllLoops", name = "Resume All Loops", icon = "▶️", cat = "Flow", def = {} },
     { type = "Rejoin", name = "Rejoin Server", icon = "🔄", cat = "Flow", def = {} },
@@ -3023,6 +3436,63 @@ renderActionStack = function()
             p2.Position = UDim2.new(0.42, 175, 0, 8)
             p2.Text = tostring(act.volume or 1.0)
             p2:GetPropertyChangedSignal("Text"):Connect(function() act.volume = tonumber(p2.Text) or 1.0 end)
+        elseif act.type == "HighlightInstance" then
+            local p1 = createBuilderInput("P1", "Target ($nearest / Player / Part)", UDim2.new(0.32, -10, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.target or "$nearest")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.target = p1.Text end)
+
+            local p2 = createBuilderInput("P2", "Color (cyan/red/gold)", UDim2.new(0.2, -5, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.32, 175, 0, 8)
+            p2.Text = tostring(act.color or "cyan")
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.color = p2.Text end)
+
+            local p3 = createBuilderInput("P3", "Dur s (0=perm)", UDim2.new(0.16, 0, 0, 22), UDim2.new(0, 22), block)
+            p3.Position = UDim2.new(0.52, 175, 0, 8)
+            p3.Text = tostring(act.duration or 10)
+            p3:GetPropertyChangedSignal("Text"):Connect(function() act.duration = tonumber(p3.Text) or 0 end)
+        elseif act.type == "SendWebhook" then
+            local p1 = createBuilderInput("P1", "Webhook URL", UDim2.new(0.36, -10, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.url or "")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.url = p1.Text end)
+
+            local p2 = createBuilderInput("P2", "Message (e.g. Alert $player)", UDim2.new(0.32, 0, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.36, 175, 0, 8)
+            p2.Text = tostring(act.message or "")
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.message = p2.Text end)
+        elseif act.type == "SetClipboard" then
+            local p1 = createBuilderInput("P1", "Text to Copy (e.g. $player at $position)", UDim2.new(0.65, 0, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.text or "")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.text = p1.Text end)
+        elseif act.type == "PlayAnimation" then
+            local p1 = createBuilderInput("P1", "Emote / ID (dance/wave/salute)", UDim2.new(0.42, -10, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.animation or "dance")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.animation = p1.Text end)
+
+            local p2 = createBuilderInput("P2", "Action (play / stop)", UDim2.new(0.23, 0, 0, 22), UDim2.new(0, 22), block)
+            p2.Position = UDim2.new(0.42, 175, 0, 8)
+            p2.Text = tostring(act.action or "play")
+            p2:GetPropertyChangedSignal("Text"):Connect(function() act.action = p2.Text end)
+        elseif act.type == "Spectate" then
+            local p1 = createBuilderInput("P1", "Target ($nearest / Player / reset)", UDim2.new(0.65, 0, 0, 22), UDim2.new(0, 22), block)
+            p1.Position = UDim2.new(0, 180, 0, 8)
+            p1.Text = tostring(act.target or "$nearest")
+            p1:GetPropertyChangedSignal("Text"):Connect(function() act.target = p1.Text end)
+        elseif act.type == "ResetCamera" then
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(0.65, 0, 0, 22)
+            lbl.Position = UDim2.new(0, 180, 0, 8)
+            lbl.BackgroundTransparency = 1
+            lbl.Font = Enum.Font.Gotham
+            lbl.TextSize = 11
+            lbl.TextColor3 = Color3.fromRGB(150, 165, 190)
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.Text = "Resets camera view back to local character"
+            lbl.ZIndex = 203
+            lbl.Parent = block
         elseif act.type == "FollowRoute" then
             local p1 = createBuilderInput("P1", "Target Node (e.g. Yard)", UDim2.new(0.35, -10, 0, 22), UDim2.new(0, 22), block)
             p1.Position = UDim2.new(0, 180, 0, 8)
@@ -3309,6 +3779,8 @@ openShortcutEditor = function(taskObj)
             InputTriggerParam.Text = tostring(trig.target or 120)
         elseif trig.type == "CustomSignal" then
             InputTriggerParam.Text = tostring(trig.path or "workspace.ChildAdded")
+        elseif trig.type == "Keybind" then
+            InputTriggerParam.Text = tostring(trig.key or "G")
         else
             InputTriggerParam.Text = ""
         end
@@ -3401,6 +3873,9 @@ BuilderSaveBtn.MouseButton1Click:Connect(function()
         triggerObj.preset = tOpt.preset
     elseif tOpt.type == "CustomSignal" then
         triggerObj.path = InputTriggerParam.Text ~= "" and InputTriggerParam.Text or "workspace.ChildAdded"
+    elseif tOpt.type == "Keybind" then
+        local rawKey = InputTriggerParam.Text ~= "" and InputTriggerParam.Text or "G"
+        triggerObj.key = rawKey:upper():gsub("%s+", "")
     end
 
     -- Build Condition
