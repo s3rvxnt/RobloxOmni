@@ -154,6 +154,82 @@ local Engine = {
     lastTriggered = {},     -- [taskId] = timestamp
 }
 
+local function resolveInstance(pathStr)
+    if not pathStr or pathStr == "" then return nil end
+    if typeof(pathStr) == "Instance" then return pathStr end
+    local cur = game
+    for seg in string.gmatch(tostring(pathStr), "[^%.]+") do
+        if cur == game and (seg == "game" or seg == "workspace" or seg == "Workspace") then
+            if seg == "workspace" or seg == "Workspace" then cur = workspace end
+        else
+            cur = cur:FindFirstChild(seg)
+        end
+        if not cur then break end
+    end
+    if cur then return cur end
+    local fn = loadstring("return " .. tostring(pathStr))
+    if fn then
+        local ok, res = pcall(fn)
+        if ok and typeof(res) == "Instance" then return res end
+    end
+    return nil
+end
+
+local function resolveCFrame(target)
+    if not target then return nil end
+    if typeof(target) == "CFrame" then return target end
+    if typeof(target) == "Vector3" then return CFrame.new(target) end
+    if type(target) == "table" and target.x and target.y and target.z then
+        return CFrame.new(tonumber(target.x) or 0, tonumber(target.y) or 0, tonumber(target.z) or 0)
+    end
+    if type(target) == "string" then
+        local x, y, z = target:match("([%-%d%.]+)%s*,%s*([%-%d%.]+)%s*,%s*([%-%d%.]+)")
+        if x and y and z and tonumber(x) and tonumber(y) and tonumber(z) then
+            return CFrame.new(tonumber(x), tonumber(y), tonumber(z))
+        end
+        local inst = resolveInstance(target)
+        if inst then
+            if inst:IsA("BasePart") then return inst.CFrame end
+            if inst:IsA("Model") then return inst:GetPivot() end
+            if inst:IsA("Attachment") then return inst.WorldCFrame end
+        end
+        local otherPlayer = Players:FindFirstChild(target)
+        if otherPlayer and otherPlayer.Character then
+            local otherHrp = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if otherHrp then return otherHrp.CFrame end
+        end
+    end
+    return nil
+end
+
+local function substituteArg(arg)
+    if type(arg) == "string" then
+        if arg == "$position" then
+            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            return hrp and hrp.Position or Vector3.zero
+        elseif arg == "$cframe" then
+            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            return hrp and hrp.CFrame or CFrame.identity
+        elseif arg == "$player" or arg == "$localplayer" then
+            return LocalPlayer
+        elseif arg == "$userId" or arg == "$userid" then
+            return LocalPlayer.UserId
+        elseif arg == "$name" or arg == "$username" then
+            return LocalPlayer.Name
+        elseif arg == "$character" or arg == "$char" then
+            return LocalPlayer.Character
+        elseif arg == "$placeId" or arg == "$placeid" then
+            return game.PlaceId
+        elseif arg:find("^$leaderstat:") then
+            local statName = arg:sub(13)
+            local ls = LocalPlayer:FindFirstChild("leaderstats")
+            local st = ls and ls:FindFirstChild(statName)
+            if st then return st.Value end
+        end
+    end
+    return arg
+end
+
 local function evaluateCondition(taskObj, triggerArgs)
     local cond = taskObj.condition or { type = "Always" }
     if cond.type == "Always" then
@@ -174,7 +250,6 @@ local function evaluateCondition(taskObj, triggerArgs)
                 local ok, r = pcall(function() return player:GetRankInGroup(grp) end)
                 if ok and r >= minR then return true end
             else
-                -- Fallback to group info or name check
                 local gi = player:FindFirstChild("GroupInfo")
                 local rank = gi and gi:FindFirstChild("Rank")
                 if rank and rank.Value >= minR then return true end
@@ -189,6 +264,40 @@ local function evaluateCondition(taskObj, triggerArgs)
     elseif cond.type == "ClockElapsed" then
         local threshold = tonumber(cond.threshold) or 0
         return os.clock() >= threshold
+    elseif cond.type == "StatThreshold" then
+        local statName = cond.stat or "Cash"
+        local op = cond.operator or ">="
+        local targetVal = tonumber(cond.value) or 0
+        local curVal = 0
+        local ls = LocalPlayer:FindFirstChild("leaderstats")
+        local st = ls and ls:FindFirstChild(statName)
+        if st and type(st.Value) == "number" then
+            curVal = st.Value
+        else
+            local attr = LocalPlayer:GetAttribute(statName)
+            if type(attr) == "number" then curVal = attr end
+        end
+        if op == ">=" then return curVal >= targetVal
+        elseif op == "<=" then return curVal <= targetVal
+        elseif op == ">" then return curVal > targetVal
+        elseif op == "<" then return curVal < targetVal
+        elseif op == "==" then return curVal == targetVal
+        elseif op == "!=" then return curVal ~= targetVal end
+        return false
+    elseif cond.type == "ObjectProximity" then
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return false end
+        local targetCF = resolveCFrame(cond.target)
+        if not targetCF then return false end
+        local dist = (hrp.Position - targetCF.Position).Magnitude
+        local threshold = tonumber(cond.distance) or 30
+        local mode = cond.mode or "within"
+        if mode == "within" then
+            return dist <= threshold
+        else
+            return dist > threshold
+        end
     elseif cond.type == "CustomLua" then
         if cond.code and cond.code ~= "" then
             local fn, err = loadstring("return function(args) " .. cond.code .. " end")
@@ -214,6 +323,8 @@ local function executeActions(taskObj, triggerArgs)
                 if showToastNotification then
                     showToastNotification(act.title or taskObj.name, act.message or "Triggered", 3.5)
                 end
+            elseif act.type == "Delay" then
+                task.wait(math.max(0.01, tonumber(act.duration) or 1.0))
             elseif act.type == "PauseAllLoops" then
                 if getgenv().PauseAllLoops then getgenv().PauseAllLoops(true) end
             elseif act.type == "ResumeAllLoops" then
@@ -228,11 +339,14 @@ local function executeActions(taskObj, triggerArgs)
                 end
             elseif act.type == "RunLuau" then
                 if act.code and act.code ~= "" then
-                    local fn = loadstring(act.code)
-                    if fn then task.spawn(fn) end
+                    local fn, compileErr = loadstring(act.code)
+                    if fn then
+                        task.spawn(fn, triggerArgs)
+                    else
+                        warn("[TaskScheduler] Luau compilation failed:", compileErr)
+                    end
                 end
             elseif act.type == "VirtualPoke" then
-                -- Anti-AFK Virtual Poke
                 pcall(function()
                     local VirtualUser = game:GetService("VirtualUser")
                     if VirtualUser then
@@ -240,6 +354,141 @@ local function executeActions(taskObj, triggerArgs)
                         VirtualUser:ClickButton2(Vector2.new(10, 10))
                     end
                 end)
+            elseif act.type == "VirtualInput" then
+                local VIM = game:GetService("VirtualInputManager")
+                local kcName = act.key or "E"
+                local kc = Enum.KeyCode[kcName]
+                if VIM and kc then
+                    VIM:SendKeyEvent(true, kc, false, game)
+                    task.wait(math.max(0.05, tonumber(act.duration) or 0.1))
+                    VIM:SendKeyEvent(false, kc, false, game)
+                end
+            elseif act.type == "FollowRoute" then
+                local targetNode = act.targetNode or act.node
+                local routeFile = act.route or act.fileName or "road_network.json"
+                if not _G.RunBot then
+                    if isfile and isfile("prison_follower.lua") then
+                        pcall(function() loadstring(readfile("prison_follower.lua"))() end)
+                    end
+                end
+                if _G.RunBot and targetNode then
+                    _G.RunBot(targetNode, routeFile)
+                else
+                    warn("[TaskScheduler] FollowRoute: _G.RunBot unavailable or targetNode missing")
+                end
+            elseif act.type == "StopRoute" then
+                if _G.StopBot then
+                    _G.StopBot()
+                end
+            elseif act.type == "TweenTo" then
+                local TweenService = game:GetService("TweenService")
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp and act.target then
+                    local targetCF = resolveCFrame(act.target)
+                    if targetCF then
+                        local dist = (hrp.Position - targetCF.Position).Magnitude
+                        local dur = tonumber(act.duration)
+                        if not dur or dur <= 0 then
+                            local spd = tonumber(act.speed) or 50
+                            dur = dist / spd
+                        end
+                        dur = math.clamp(dur, 0.05, 120)
+                        local ti = TweenInfo.new(dur, Enum.EasingStyle.Linear)
+                        local tw = TweenService:Create(hrp, ti, { CFrame = targetCF })
+                        tw:Play()
+                        if act.wait ~= false then
+                            tw.Completed:Wait()
+                        end
+                    end
+                end
+            elseif act.type == "InstantTeleport" then
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if char and hrp and act.target then
+                    local targetCF = resolveCFrame(act.target)
+                    if targetCF then
+                        char:PivotTo(targetCF)
+                        pcall(function()
+                            hrp.AssemblyLinearVelocity = Vector3.zero
+                            hrp.AssemblyAngularVelocity = Vector3.zero
+                        end)
+                    end
+                end
+            elseif act.type == "ActivatePrompt" then
+                local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local bestPrompt = nil
+                    local bestDist = tonumber(act.maxDistance) or 35
+                    local promptName = act.target and act.target:lower() or ""
+                    for _, desc in ipairs(workspace:GetDescendants()) do
+                        if desc:IsA("ProximityPrompt") and desc.Enabled then
+                            local promptPos = nil
+                            if desc.Parent then
+                                if desc.Parent:IsA("BasePart") then
+                                    promptPos = desc.Parent.Position
+                                elseif desc.Parent:IsA("Model") then
+                                    promptPos = desc.Parent:GetPivot().Position
+                                elseif desc.Parent:IsA("Attachment") then
+                                    promptPos = desc.Parent.WorldPosition
+                                end
+                            end
+                            if promptPos then
+                                local d = (hrp.Position - promptPos).Magnitude
+                                if d <= bestDist then
+                                    if promptName == "" or promptName == "nearest" or desc.Name:lower():find(promptName, 1, true) or (desc.Parent and desc.Parent.Name:lower():find(promptName, 1, true)) then
+                                        bestPrompt = desc
+                                        bestDist = d
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    if bestPrompt then
+                        local holdDur = tonumber(act.holdDuration) or bestPrompt.HoldDuration or 0
+                        if type(fireproximityprompt) == "function" then
+                            fireproximityprompt(bestPrompt, holdDur)
+                        else
+                            bestPrompt:InputHoldBegin()
+                            if holdDur > 0 then task.wait(holdDur) end
+                            bestPrompt:InputHoldEnd()
+                        end
+                    end
+                end
+            elseif act.type == "FireRemote" or act.type == "InvokeServer" then
+                local remoteObj = resolveInstance(act.remote)
+                if remoteObj then
+                    local processedArgs = {}
+                    local rawArgs = act.args
+                    if type(rawArgs) == "string" then
+                        if rawArgs:sub(1,1) == "[" then
+                            local okJ, dec = pcall(function() return HttpService:JSONDecode(rawArgs) end)
+                            if okJ and type(dec) == "table" then
+                                rawArgs = dec
+                            else
+                                rawArgs = { rawArgs }
+                            end
+                        else
+                            rawArgs = { rawArgs }
+                        end
+                    elseif type(rawArgs) ~= "table" then
+                        rawArgs = rawArgs and { rawArgs } or {}
+                    end
+
+                    for _, v in ipairs(rawArgs) do
+                        table.insert(processedArgs, substituteArg(v))
+                    end
+
+                    if act.type == "FireRemote" and remoteObj:IsA("RemoteEvent") then
+                        remoteObj:FireServer(unpack(processedArgs))
+                    elseif act.type == "InvokeServer" and remoteObj:IsA("RemoteFunction") then
+                        remoteObj:InvokeServer(unpack(processedArgs))
+                    elseif remoteObj:IsA("RemoteEvent") then
+                        remoteObj:FireServer(unpack(processedArgs))
+                    elseif remoteObj:IsA("RemoteFunction") then
+                        remoteObj:InvokeServer(unpack(processedArgs))
+                    end
+                end
             elseif act.type == "ServerHop" then
                 pcall(function()
                     local TeleportService = game:GetService("TeleportService")
@@ -252,7 +501,11 @@ local function executeActions(taskObj, triggerArgs)
                 end)
             end
         end)
-        if ok then successCount = successCount + 1 end
+        if ok then
+            successCount = successCount + 1
+        else
+            warn("[TaskScheduler] Action failed (" .. tostring(act.type) .. "):", err)
+        end
     end
 
     taskObj.telemetry = taskObj.telemetry or {}
@@ -657,7 +910,7 @@ Ribbon.Parent = MainFrame
 
 local SearchBox = Instance.new("TextBox")
 SearchBox.Name = "SearchBox"
-SearchBox.Size = UDim2.new(0, 240, 0, 30)
+SearchBox.Size = UDim2.new(0, 220, 0, 30)
 SearchBox.Position = UDim2.new(0, 0, 0, 4)
 SearchBox.BackgroundColor3 = Color3.fromRGB(22, 26, 36)
 SearchBox.BorderSizePixel = 0
@@ -677,10 +930,40 @@ local sbPad = Instance.new("UIPadding")
 sbPad.PaddingLeft = UDim.new(0, 10)
 sbPad.Parent = SearchBox
 
+local ExportAllBtn = Instance.new("TextButton")
+ExportAllBtn.Name = "ExportAllBtn"
+ExportAllBtn.Size = UDim2.new(0, 95, 0, 30)
+ExportAllBtn.Position = UDim2.new(1, -315, 0, 4)
+ExportAllBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 80)
+ExportAllBtn.BorderSizePixel = 0
+ExportAllBtn.Font = Enum.Font.GothamBold
+ExportAllBtn.TextSize = 11
+ExportAllBtn.TextColor3 = Color3.fromRGB(160, 210, 255)
+ExportAllBtn.Text = "📤 Export All"
+ExportAllBtn.Parent = Ribbon
+local eabCorner = Instance.new("UICorner")
+eabCorner.CornerRadius = UDim.new(0, 4)
+eabCorner.Parent = ExportAllBtn
+
+local ImportBtn = Instance.new("TextButton")
+ImportBtn.Name = "ImportBtn"
+ImportBtn.Size = UDim2.new(0, 85, 0, 30)
+ImportBtn.Position = UDim2.new(1, -210, 0, 4)
+ImportBtn.BackgroundColor3 = Color3.fromRGB(30, 60, 45)
+ImportBtn.BorderSizePixel = 0
+ImportBtn.Font = Enum.Font.GothamBold
+ImportBtn.TextSize = 11
+ImportBtn.TextColor3 = Color3.fromRGB(120, 235, 170)
+ImportBtn.Text = "📥 Import"
+ImportBtn.Parent = Ribbon
+local ibCorner = Instance.new("UICorner")
+ibCorner.CornerRadius = UDim.new(0, 4)
+ibCorner.Parent = ImportBtn
+
 local NewTaskBtn = Instance.new("TextButton")
 NewTaskBtn.Name = "NewTaskBtn"
-NewTaskBtn.Size = UDim2.new(0, 110, 0, 30)
-NewTaskBtn.Position = UDim2.new(1, -110, 0, 4)
+NewTaskBtn.Size = UDim2.new(0, 95, 0, 30)
+NewTaskBtn.Position = UDim2.new(1, -115, 0, 4)
 NewTaskBtn.BackgroundColor3 = Color3.fromRGB(40, 110, 220)
 NewTaskBtn.BorderSizePixel = 0
 NewTaskBtn.Font = Enum.Font.GothamBold
@@ -726,6 +1009,84 @@ EmptyLbl.Text = "No automation tasks scheduled. Click '+ New Task' to build one.
 EmptyLbl.Visible = false
 EmptyLbl.Parent = ScrollList
 
+-- Export Helpers
+local function exportTaskToJson(taskObj)
+    local exportCopy = {
+        name = taskObj.name,
+        description = taskObj.description,
+        enabled = taskObj.enabled,
+        scope = taskObj.scope,
+        trigger = taskObj.trigger,
+        condition = taskObj.condition,
+        actions = taskObj.actions
+    }
+    local ok, json = pcall(function() return HttpService:JSONEncode(exportCopy) end)
+    if ok and json then
+        pcall(function()
+            if setclipboard then
+                setclipboard(json)
+            elseif toclipboard then
+                toclipboard(json)
+            else
+                writefile("Exported_Workflow.json", json)
+            end
+        end)
+        if showToastNotification then
+            showToastNotification("Workflow Exported", string.format("Copied '%s' JSON to clipboard", taskObj.name), 3.0)
+        end
+    end
+end
+
+local function exportAllTasksToJson()
+    local all = {}
+    for _, t in pairs(Storage.data.universal or {}) do
+        if type(t) == "table" and t.name then
+            table.insert(all, {
+                name = t.name,
+                description = t.description,
+                enabled = t.enabled,
+                scope = t.scope,
+                trigger = t.trigger,
+                condition = t.condition,
+                actions = t.actions
+            })
+        end
+    end
+    local placeIdStr = tostring(game.PlaceId or "0")
+    for _, t in pairs(Storage.data.places[placeIdStr] or {}) do
+        if type(t) == "table" and t.name then
+            table.insert(all, {
+                name = t.name,
+                description = t.description,
+                enabled = t.enabled,
+                scope = t.scope,
+                trigger = t.trigger,
+                condition = t.condition,
+                actions = t.actions
+            })
+        end
+    end
+    local ok, json = pcall(function() return HttpService:JSONEncode(all) end)
+    if ok and json then
+        pcall(function()
+            if setclipboard then
+                setclipboard(json)
+            elseif toclipboard then
+                toclipboard(json)
+            else
+                writefile("Exported_All_Workflows.json", json)
+            end
+        end)
+        if showToastNotification then
+            showToastNotification("All Workflows Exported", string.format("Copied %d workflows to clipboard", #all), 3.0)
+        end
+    end
+end
+
+ExportAllBtn.MouseButton1Click:Connect(exportAllTasksToJson)
+
+local refreshCardList -- forward declaration
+
 -- Render Task Card
 local cachedCards = {}
 
@@ -762,7 +1123,7 @@ local function renderCard(taskObj, idx)
 
         local nameLbl = Instance.new("TextLabel")
         nameLbl.Name = "NameLbl"
-        nameLbl.Size = UDim2.new(0.5, 0, 0, 18)
+        nameLbl.Size = UDim2.new(0.45, 0, 0, 18)
         nameLbl.Position = UDim2.new(0, 30, 0, 11)
         nameLbl.BackgroundTransparency = 1
         nameLbl.Font = Enum.Font.GothamBold
@@ -773,7 +1134,7 @@ local function renderCard(taskObj, idx)
 
         local descLbl = Instance.new("TextLabel")
         descLbl.Name = "DescLbl"
-        descLbl.Size = UDim2.new(0.65, 0, 0, 14)
+        descLbl.Size = UDim2.new(0.55, 0, 0, 14)
         descLbl.Position = UDim2.new(0, 30, 0, 31)
         descLbl.BackgroundTransparency = 1
         descLbl.Font = Enum.Font.Gotham
@@ -828,8 +1189,8 @@ local function renderCard(taskObj, idx)
         -- Right Action Controls
         local ToggleBtn = Instance.new("TextButton")
         ToggleBtn.Name = "ToggleBtn"
-        ToggleBtn.Size = UDim2.new(0, 70, 0, 26)
-        ToggleBtn.Position = UDim2.new(1, -210, 0.5, -13)
+        ToggleBtn.Size = UDim2.new(0, 64, 0, 26)
+        ToggleBtn.Position = UDim2.new(1, -244, 0.5, -13)
         ToggleBtn.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
         ToggleBtn.BorderSizePixel = 0
         ToggleBtn.Font = Enum.Font.GothamBold
@@ -843,7 +1204,7 @@ local function renderCard(taskObj, idx)
         local RunNowBtn = Instance.new("TextButton")
         RunNowBtn.Name = "RunNowBtn"
         RunNowBtn.Size = UDim2.new(0, 70, 0, 26)
-        RunNowBtn.Position = UDim2.new(1, -132, 0.5, -13)
+        RunNowBtn.Position = UDim2.new(1, -172, 0.5, -13)
         RunNowBtn.BackgroundColor3 = Color3.fromRGB(30, 70, 130)
         RunNowBtn.BorderSizePixel = 0
         RunNowBtn.Font = Enum.Font.GothamBold
@@ -854,6 +1215,21 @@ local function renderCard(taskObj, idx)
         local rnCorn = Instance.new("UICorner")
         rnCorn.CornerRadius = UDim.new(0, 4)
         rnCorn.Parent = RunNowBtn
+
+        local CardExportBtn = Instance.new("TextButton")
+        CardExportBtn.Name = "CardExportBtn"
+        CardExportBtn.Size = UDim2.new(0, 32, 0, 26)
+        CardExportBtn.Position = UDim2.new(1, -94, 0.5, -13)
+        CardExportBtn.BackgroundColor3 = Color3.fromRGB(25, 45, 65)
+        CardExportBtn.BorderSizePixel = 0
+        CardExportBtn.Font = Enum.Font.GothamBold
+        CardExportBtn.TextSize = 11
+        CardExportBtn.TextColor3 = Color3.fromRGB(140, 200, 255)
+        CardExportBtn.Text = "📋"
+        CardExportBtn.Parent = card
+        local cebCorn = Instance.new("UICorner")
+        cebCorn.CornerRadius = UDim.new(0, 4)
+        cebCorn.Parent = CardExportBtn
 
         local TrashBtn = Instance.new("TextButton")
         TrashBtn.Name = "TrashBtn"
@@ -886,6 +1262,10 @@ local function renderCard(taskObj, idx)
             renderCard(taskObj, idx)
         end)
 
+        CardExportBtn.MouseButton1Click:Connect(function()
+            exportTaskToJson(taskObj)
+        end)
+
         TrashBtn.MouseButton1Click:Connect(function()
             Engine.unbindTask(taskObj.id)
             -- Remove from data
@@ -901,6 +1281,7 @@ local function renderCard(taskObj, idx)
             Storage.save(true)
             card:Destroy()
             cachedCards[taskObj.id] = nil
+            if refreshCardList then refreshCardList() end
         end)
 
         cachedCards[taskObj.id] = card
@@ -952,6 +1333,10 @@ local function renderCard(taskObj, idx)
             condText = string.format("🛡 HP <= %d", tonumber(cond.threshold) or 25)
         elseif cond.type == "ClockElapsed" then
             condText = string.format("🛡 Clock >= %ds", tonumber(cond.threshold) or 0)
+        elseif cond.type == "StatThreshold" then
+            condText = string.format("🛡 %s %s %s", cond.stat or "Stat", cond.operator or ">=", tostring(cond.value or 0))
+        elseif cond.type == "ObjectProximity" then
+            condText = string.format("🛡 Near %s (%ds)", cond.target or "Object", tonumber(cond.distance) or 30)
         elseif cond.type == "CustomLua" then
             condText = "🛡 Custom Lua"
         end
@@ -970,7 +1355,7 @@ local function renderCard(taskObj, idx)
     return card
 end
 
-local function refreshCardList()
+refreshCardList = function()
     local filter = SearchBox.Text:lower()
     local allTasks = {}
 
@@ -1018,8 +1403,8 @@ SearchBox:GetPropertyChangedSignal("Text"):Connect(refreshCardList)
 -- ==============================================================================
 local WizardModal = Instance.new("Frame")
 WizardModal.Name = "WizardModal"
-WizardModal.Size = UDim2.new(0, 560, 0, 380)
-WizardModal.Position = UDim2.new(0.5, -280, 0.5, -190)
+WizardModal.Size = UDim2.new(0, 580, 0, 410)
+WizardModal.Position = UDim2.new(0.5, -290, 0.5, -205)
 WizardModal.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
 WizardModal.BorderSizePixel = 0
 WizardModal.Visible = false
@@ -1129,7 +1514,7 @@ cndCorn.Parent = ConditionBtn
 
 local InputConditionParam = createInputBox("InputConditionParam", "Always evaluates true", UDim.new(0.5, 6), UDim.new(0, 110), UDim.new(0.5, -22), UDim.new(0, 26))
 
--- Row 4: Action & Scope
+-- Row 4: Action Selector & Action Parameter
 local ActionBtn = Instance.new("TextButton")
 ActionBtn.Name = "ActionBtn"
 ActionBtn.Size = UDim2.new(0.5, -22, 0, 26)
@@ -1146,10 +1531,14 @@ local actCorn = Instance.new("UICorner")
 actCorn.CornerRadius = UDim.new(0, 4)
 actCorn.Parent = ActionBtn
 
+local InputActionParam = createInputBox("InputActionParam", "Toast Message", UDim.new(0.5, 6), UDim.new(0, 142), UDim.new(0.5, -22), UDim.new(0, 26))
+InputActionParam.Text = "Task activated"
+
+-- Row 5: Scope & Action Extra Parameter
 local ScopeBtn = Instance.new("TextButton")
 ScopeBtn.Name = "ScopeBtn"
 ScopeBtn.Size = UDim2.new(0.5, -22, 0, 26)
-ScopeBtn.Position = UDim2.new(0.5, 6, 0, 142)
+ScopeBtn.Position = UDim2.new(0, 16, 0, 174)
 ScopeBtn.BackgroundColor3 = Color3.fromRGB(35, 30, 50)
 ScopeBtn.BorderSizePixel = 0
 ScopeBtn.Font = Enum.Font.GothamBold
@@ -1162,10 +1551,13 @@ local scCorn = Instance.new("UICorner")
 scCorn.CornerRadius = UDim.new(0, 4)
 scCorn.Parent = ScopeBtn
 
--- Row 5: Action Luau Code
+local InputActionExtra = createInputBox("InputActionExtra", "Toast Title", UDim.new(0.5, 6), UDim.new(0, 174), UDim.new(0.5, -22), UDim.new(0, 26))
+InputActionExtra.Text = "Scheduler"
+
+-- Row 6: Action Luau Code
 local CodeHeader = Instance.new("TextLabel")
 CodeHeader.Size = UDim2.new(1, -32, 0, 14)
-CodeHeader.Position = UDim2.new(0, 16, 0, 172)
+CodeHeader.Position = UDim2.new(0, 16, 0, 204)
 CodeHeader.BackgroundTransparency = 1
 CodeHeader.Font = Enum.Font.GothamBold
 CodeHeader.TextSize = 10
@@ -1177,8 +1569,8 @@ CodeHeader.Parent = WizardModal
 
 local InputCode = Instance.new("TextBox")
 InputCode.Name = "InputCode"
-InputCode.Size = UDim2.new(1, -32, 0, 68)
-InputCode.Position = UDim2.new(0, 16, 0, 188)
+InputCode.Size = UDim2.new(1, -32, 0, 56)
+InputCode.Position = UDim2.new(0, 16, 0, 220)
 InputCode.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
 InputCode.BorderSizePixel = 0
 InputCode.Font = Enum.Font.Code
@@ -1203,11 +1595,11 @@ icPad.PaddingRight = UDim.new(0, 8)
 icPad.PaddingTop = UDim.new(0, 6)
 icPad.Parent = InputCode
 
--- Row 6: Summary Banner
+-- Row 7: Summary Banner
 local SummaryBanner = Instance.new("Frame")
 SummaryBanner.Name = "SummaryBanner"
 SummaryBanner.Size = UDim2.new(1, -32, 0, 36)
-SummaryBanner.Position = UDim2.new(0, 16, 0, 262)
+SummaryBanner.Position = UDim2.new(0, 16, 0, 284)
 SummaryBanner.BackgroundColor3 = Color3.fromRGB(22, 27, 40)
 SummaryBanner.BorderSizePixel = 0
 SummaryBanner.ZIndex = 201
@@ -1234,7 +1626,7 @@ SummaryLbl.Parent = SummaryBanner
 local CancelBtn = Instance.new("TextButton")
 CancelBtn.Name = "CancelBtn"
 CancelBtn.Size = UDim2.new(0, 84, 0, 30)
-CancelBtn.Position = UDim2.new(1, -242, 0, 304)
+CancelBtn.Position = UDim2.new(1, -242, 0, 330)
 CancelBtn.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
 CancelBtn.BorderSizePixel = 0
 CancelBtn.Font = Enum.Font.GothamBold
@@ -1250,7 +1642,7 @@ cc.Parent = CancelBtn
 local SaveTaskBtn = Instance.new("TextButton")
 SaveTaskBtn.Name = "SaveTaskBtn"
 SaveTaskBtn.Size = UDim2.new(0, 140, 0, 30)
-SaveTaskBtn.Position = UDim2.new(1, -150, 0, 304)
+SaveTaskBtn.Position = UDim2.new(1, -150, 0, 330)
 SaveTaskBtn.BackgroundColor3 = Color3.fromRGB(40, 120, 240)
 SaveTaskBtn.BorderSizePixel = 0
 SaveTaskBtn.Font = Enum.Font.GothamBold
@@ -1283,18 +1675,29 @@ local CONDITION_OPTIONS = {
     { label = "🛡️ In Vehicle Seat", type = "InVehicle", placeholder = "Must be seated in VehicleSeat", defaultParam = "" },
     { label = "🛡️ Low Health (< Threshold)", type = "LowHealth", placeholder = "Health threshold (default 25)", defaultParam = "25" },
     { label = "🛡️ Staff / Mod Rank", type = "StaffRank", placeholder = "MinRank:GroupId (e.g. 100:0)", defaultParam = "100" },
+    { label = "🛡️ Stat Threshold", type = "StatThreshold", placeholder = "Stat:Op:Val (e.g. Cash:>=:1000)", defaultParam = "Cash:>=:1000" },
+    { label = "🛡️ Object Proximity", type = "ObjectProximity", placeholder = "Target:Dist:within (e.g. Door:25)", defaultParam = "Door:25" },
     { label = "🛡️ Clock Elapsed (os.clock)", type = "ClockElapsed", placeholder = "Clock threshold sec (e.g. 60)", defaultParam = "60" },
     { label = "🛡️ Custom Luau Filter", type = "CustomLua", placeholder = "Luau expr (e.g. args[1] ~= nil)", defaultParam = "return true" },
 }
 
 local ACTION_OPTIONS = {
-    { label = "Toast Alert", type = "Toast" },
-    { label = "Pause All Loops", type = "PauseAllLoops" },
-    { label = "Resume All Loops", type = "ResumeAllLoops" },
-    { label = "Virtual Poke (Anti-AFK)", type = "VirtualPoke" },
-    { label = "Server Hop", type = "ServerHop" },
-    { label = "Rejoin Server", type = "Rejoin" },
-    { label = "Run Luau Code", type = "RunLuau" },
+    { label = "Toast Alert", type = "Toast", p1 = "Toast Message", def1 = "Task activated", p2 = "Toast Title", def2 = "Scheduler" },
+    { label = "Follow Route", type = "FollowRoute", p1 = "Target Node (e.g. Yard)", def1 = "Yard", p2 = "Route File (e.g. road_network.json)", def2 = "road_network.json" },
+    { label = "Stop Route", type = "StopRoute", p1 = "No parameter needed", def1 = "", p2 = "No parameter needed", def2 = "" },
+    { label = "Tween To (CFrame)", type = "TweenTo", p1 = "Target Pos/Part (e.g. 0, 10, 0)", def1 = "0, 10, 0", p2 = "Duration sec (e.g. 2.0)", def2 = "2.0" },
+    { label = "Instant Teleport", type = "InstantTeleport", p1 = "Target Pos/Part (e.g. 0, 10, 0)", def1 = "0, 10, 0", p2 = "No parameter needed", def2 = "" },
+    { label = "Activate Prompt", type = "ActivatePrompt", p1 = "Prompt/Part Name or 'nearest'", def1 = "nearest", p2 = "Max Distance studs (e.g. 35)", def2 = "35" },
+    { label = "Fire Remote Event", type = "FireRemote", p1 = "Remote Path (e.g. ReplicatedStorage.Remote)", def1 = "ReplicatedStorage.RemoteEvent", p2 = "Args array (e.g. [\"$position\"])", def2 = "[\"$position\"]" },
+    { label = "Invoke Remote Func", type = "InvokeServer", p1 = "Remote Path (e.g. ReplicatedStorage.Func)", def1 = "ReplicatedStorage.RemoteFunction", p2 = "Args array (e.g. [\"$userId\"])", def2 = "[\"$userId\"]" },
+    { label = "Virtual Keypress", type = "VirtualInput", p1 = "KeyCode (e.g. E, Space, F)", def1 = "E", p2 = "Hold duration sec (e.g. 0.1)", def2 = "0.1" },
+    { label = "Virtual Poke (Anti-AFK)", type = "VirtualPoke", p1 = "No parameter needed", def1 = "", p2 = "No parameter needed", def2 = "" },
+    { label = "Delay (Pipeline Wait)", type = "Delay", p1 = "Delay duration sec (e.g. 1.0)", def1 = "1.0", p2 = "No parameter needed", def2 = "" },
+    { label = "Pause All Loops", type = "PauseAllLoops", p1 = "No parameter needed", def1 = "", p2 = "No parameter needed", def2 = "" },
+    { label = "Resume All Loops", type = "ResumeAllLoops", p1 = "No parameter needed", def1 = "", p2 = "No parameter needed", def2 = "" },
+    { label = "Server Hop", type = "ServerHop", p1 = "No parameter needed", def1 = "", p2 = "No parameter needed", def2 = "" },
+    { label = "Rejoin Server", type = "Rejoin", p1 = "No parameter needed", def1 = "", p2 = "No parameter needed", def2 = "" },
+    { label = "Run Luau Code", type = "RunLuau", p1 = "Custom Luau (see box below)", def1 = "", p2 = "No parameter needed", def2 = "" },
 }
 
 local curTrigIdx = 1
@@ -1316,6 +1719,8 @@ TriggerBtn.MouseButton1Click:Connect(function()
     InputTriggerParam.PlaceholderText = opt.placeholder
     if opt.defaultParam ~= "" then
         InputTriggerParam.Text = opt.defaultParam
+    else
+        InputTriggerParam.Text = ""
     end
     updateWizardSummary()
 end)
@@ -1327,13 +1732,20 @@ ConditionBtn.MouseButton1Click:Connect(function()
     InputConditionParam.PlaceholderText = opt.placeholder
     if opt.defaultParam ~= "" then
         InputConditionParam.Text = opt.defaultParam
+    else
+        InputConditionParam.Text = ""
     end
     updateWizardSummary()
 end)
 
 ActionBtn.MouseButton1Click:Connect(function()
     curActIdx = (curActIdx % #ACTION_OPTIONS) + 1
-    ActionBtn.Text = "Action: " .. ACTION_OPTIONS[curActIdx].label
+    local opt = ACTION_OPTIONS[curActIdx]
+    ActionBtn.Text = "Action: " .. opt.label
+    InputActionParam.PlaceholderText = opt.p1
+    InputActionParam.Text = opt.def1
+    InputActionExtra.PlaceholderText = opt.p2
+    InputActionExtra.Text = opt.def2
     updateWizardSummary()
 end)
 
@@ -1362,6 +1774,10 @@ NewTaskBtn.MouseButton1Click:Connect(function()
     InputConditionParam.PlaceholderText = CONDITION_OPTIONS[1].placeholder
     InputConditionParam.Text = CONDITION_OPTIONS[1].defaultParam
     ActionBtn.Text = "Action: " .. ACTION_OPTIONS[1].label
+    InputActionParam.PlaceholderText = ACTION_OPTIONS[1].p1
+    InputActionParam.Text = ACTION_OPTIONS[1].def1
+    InputActionExtra.PlaceholderText = ACTION_OPTIONS[1].p2
+    InputActionExtra.Text = ACTION_OPTIONS[1].def2
     updateWizardSummary()
     WizardModal.Visible = true
 end)
@@ -1399,6 +1815,21 @@ SaveTaskBtn.MouseButton1Click:Connect(function()
         local r, g = string.match(InputConditionParam.Text or "", "(%d+):?(%d*)")
         conditionObj.minRank = tonumber(r) or 100
         conditionObj.groupId = tonumber(g) or 0
+    elseif cOpt.type == "StatThreshold" then
+        local st, op, val = string.match(InputConditionParam.Text or "", "([^:]+):?([^:]*):?(.*)")
+        if not op or op == "" then op = ">=" end
+        if tonumber(op) then
+            val = op
+            op = ">="
+        end
+        conditionObj.stat = st or "Cash"
+        conditionObj.operator = op
+        conditionObj.value = tonumber(val) or 0
+    elseif cOpt.type == "ObjectProximity" then
+        local tgt, dist, mode = string.match(InputConditionParam.Text or "", "([^:]+):?([^:]*):?(.*)")
+        conditionObj.target = tgt or "Door"
+        conditionObj.distance = tonumber(dist) or 25
+        conditionObj.mode = (mode == "outside") and "outside" or "within"
     elseif cOpt.type == "ClockElapsed" then
         conditionObj.threshold = tonumber(InputConditionParam.Text) or 60
     elseif cOpt.type == "CustomLua" then
@@ -1408,13 +1839,31 @@ SaveTaskBtn.MouseButton1Click:Connect(function()
     -- Build Actions
     local actions = {}
     if aOpt.type == "Toast" then
-        table.insert(actions, { type = "Toast", title = name, message = "Trigger activated" })
+        table.insert(actions, { type = "Toast", title = InputActionExtra.Text ~= "" and InputActionExtra.Text or name, message = InputActionParam.Text ~= "" and InputActionParam.Text or "Trigger activated" })
+    elseif aOpt.type == "FollowRoute" then
+        table.insert(actions, { type = "FollowRoute", targetNode = InputActionParam.Text ~= "" and InputActionParam.Text or "Yard", route = InputActionExtra.Text ~= "" and InputActionExtra.Text or "road_network.json" })
+    elseif aOpt.type == "StopRoute" then
+        table.insert(actions, { type = "StopRoute" })
+    elseif aOpt.type == "TweenTo" then
+        table.insert(actions, { type = "TweenTo", target = InputActionParam.Text ~= "" and InputActionParam.Text or "0, 10, 0", duration = tonumber(InputActionExtra.Text) or 2.0 })
+    elseif aOpt.type == "InstantTeleport" then
+        table.insert(actions, { type = "InstantTeleport", target = InputActionParam.Text ~= "" and InputActionParam.Text or "0, 10, 0" })
+    elseif aOpt.type == "ActivatePrompt" then
+        table.insert(actions, { type = "ActivatePrompt", target = InputActionParam.Text ~= "" and InputActionParam.Text or "nearest", maxDistance = tonumber(InputActionExtra.Text) or 35 })
+    elseif aOpt.type == "FireRemote" then
+        table.insert(actions, { type = "FireRemote", remote = InputActionParam.Text ~= "" and InputActionParam.Text or "ReplicatedStorage.RemoteEvent", args = InputActionExtra.Text ~= "" and InputActionExtra.Text or "[\"$position\"]" })
+    elseif aOpt.type == "InvokeServer" then
+        table.insert(actions, { type = "InvokeServer", remote = InputActionParam.Text ~= "" and InputActionParam.Text or "ReplicatedStorage.RemoteFunction", args = InputActionExtra.Text ~= "" and InputActionExtra.Text or "[\"$userId\"]" })
+    elseif aOpt.type == "VirtualInput" then
+        table.insert(actions, { type = "VirtualInput", key = InputActionParam.Text ~= "" and InputActionParam.Text or "E", duration = tonumber(InputActionExtra.Text) or 0.1 })
+    elseif aOpt.type == "VirtualPoke" then
+        table.insert(actions, { type = "VirtualPoke" })
+    elseif aOpt.type == "Delay" then
+        table.insert(actions, { type = "Delay", duration = tonumber(InputActionParam.Text) or 1.0 })
     elseif aOpt.type == "PauseAllLoops" then
         table.insert(actions, { type = "PauseAllLoops" })
     elseif aOpt.type == "ResumeAllLoops" then
         table.insert(actions, { type = "ResumeAllLoops" })
-    elseif aOpt.type == "VirtualPoke" then
-        table.insert(actions, { type = "VirtualPoke" })
     elseif aOpt.type == "ServerHop" then
         table.insert(actions, { type = "ServerHop" })
     elseif aOpt.type == "Rejoin" then
@@ -1453,6 +1902,204 @@ SaveTaskBtn.MouseButton1Click:Connect(function()
 
     if showToastNotification then
         showToastNotification("Automation Scheduler", string.format("Activated '%s'", newTask.name), 3.0)
+    end
+end)
+
+-- ==============================================================================
+-- 4.5 IMPORT WORKFLOW MODAL
+-- ==============================================================================
+local ImportModal = Instance.new("Frame")
+ImportModal.Name = "ImportModal"
+ImportModal.Size = UDim2.new(0, 520, 0, 320)
+ImportModal.Position = UDim2.new(0.5, -260, 0.5, -160)
+ImportModal.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+ImportModal.BorderSizePixel = 0
+ImportModal.Visible = false
+ImportModal.ZIndex = 300
+ImportModal.Parent = MainFrame
+
+local imCorner = Instance.new("UICorner")
+imCorner.CornerRadius = UDim.new(0, 8)
+imCorner.Parent = ImportModal
+
+local imStroke = Instance.new("UIStroke")
+imStroke.Thickness = 1.5
+imStroke.Color = Color3.fromRGB(60, 180, 110)
+imStroke.Parent = ImportModal
+
+local imTitle = Instance.new("TextLabel")
+imTitle.Size = UDim2.new(1, -32, 0, 20)
+imTitle.Position = UDim2.new(0, 16, 0, 12)
+imTitle.BackgroundTransparency = 1
+imTitle.Font = Enum.Font.GothamBold
+imTitle.TextSize = 13
+imTitle.TextColor3 = Color3.fromRGB(240, 245, 255)
+imTitle.TextXAlignment = Enum.TextXAlignment.Left
+imTitle.Text = "Import Automation Workflow"
+imTitle.ZIndex = 301
+imTitle.Parent = ImportModal
+
+local imSub = Instance.new("TextLabel")
+imSub.Size = UDim2.new(1, -32, 0, 14)
+imSub.Position = UDim2.new(0, 16, 0, 32)
+imSub.BackgroundTransparency = 1
+imSub.Font = Enum.Font.Gotham
+imSub.TextSize = 10
+imSub.TextColor3 = Color3.fromRGB(140, 155, 180)
+imSub.TextXAlignment = Enum.TextXAlignment.Left
+imSub.Text = "Paste exported JSON workflow data below and click Import"
+imSub.ZIndex = 301
+imSub.Parent = ImportModal
+
+local ImportTextBox = Instance.new("TextBox")
+ImportTextBox.Name = "ImportTextBox"
+ImportTextBox.Size = UDim2.new(1, -32, 0, 180)
+ImportTextBox.Position = UDim2.new(0, 16, 0, 56)
+ImportTextBox.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
+ImportTextBox.BorderSizePixel = 0
+ImportTextBox.Font = Enum.Font.Code
+ImportTextBox.TextSize = 10
+ImportTextBox.TextColor3 = Color3.fromRGB(240, 245, 255)
+ImportTextBox.PlaceholderText = '{\n  "name": "My Shared Task",\n  "trigger": { "type": "Timer", "interval": 10 },\n  "actions": [...]\n}'
+ImportTextBox.PlaceholderColor3 = Color3.fromRGB(100, 115, 135)
+ImportTextBox.TextXAlignment = Enum.TextXAlignment.Left
+ImportTextBox.TextYAlignment = Enum.TextYAlignment.Top
+ImportTextBox.ClearTextOnFocus = false
+ImportTextBox.MultiLine = true
+ImportTextBox.TextWrapped = true
+ImportTextBox.Text = ""
+ImportTextBox.ZIndex = 301
+ImportTextBox.Parent = ImportModal
+
+local itbCorn = Instance.new("UICorner")
+itbCorn.CornerRadius = UDim.new(0, 4)
+itbCorn.Parent = ImportTextBox
+
+local itbPad = Instance.new("UIPadding")
+itbPad.PaddingLeft = UDim.new(0, 8)
+itbPad.PaddingRight = UDim.new(0, 8)
+itbPad.PaddingTop = UDim.new(0, 6)
+itbPad.Parent = ImportTextBox
+
+local CancelImportBtn = Instance.new("TextButton")
+CancelImportBtn.Name = "CancelImportBtn"
+CancelImportBtn.Size = UDim2.new(0, 80, 0, 30)
+CancelImportBtn.Position = UDim2.new(1, -220, 0, 254)
+CancelImportBtn.BackgroundColor3 = Color3.fromRGB(30, 35, 48)
+CancelImportBtn.BorderSizePixel = 0
+CancelImportBtn.Font = Enum.Font.GothamBold
+CancelImportBtn.TextSize = 11
+CancelImportBtn.TextColor3 = Color3.fromRGB(180, 190, 210)
+CancelImportBtn.Text = "Cancel"
+CancelImportBtn.ZIndex = 301
+CancelImportBtn.Parent = ImportModal
+local cibCorn = Instance.new("UICorner")
+cibCorn.CornerRadius = UDim.new(0, 4)
+cibCorn.Parent = CancelImportBtn
+
+local DoImportBtn = Instance.new("TextButton")
+DoImportBtn.Name = "DoImportBtn"
+DoImportBtn.Size = UDim2.new(0, 120, 0, 30)
+DoImportBtn.Position = UDim2.new(1, -132, 0, 254)
+DoImportBtn.BackgroundColor3 = Color3.fromRGB(40, 150, 90)
+DoImportBtn.BorderSizePixel = 0
+DoImportBtn.Font = Enum.Font.GothamBold
+DoImportBtn.TextSize = 11
+DoImportBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+DoImportBtn.Text = "Import Workflow"
+DoImportBtn.ZIndex = 301
+DoImportBtn.Parent = ImportModal
+local dibCorn = Instance.new("UICorner")
+dibCorn.CornerRadius = UDim.new(0, 4)
+dibCorn.Parent = DoImportBtn
+
+CancelImportBtn.MouseButton1Click:Connect(function()
+    ImportModal.Visible = false
+end)
+
+ImportBtn.MouseButton1Click:Connect(function()
+    ImportTextBox.Text = ""
+    ImportModal.Visible = true
+end)
+
+DoImportBtn.MouseButton1Click:Connect(function()
+    local raw = ImportTextBox.Text
+    if raw == "" then
+        if showToastNotification then
+            showToastNotification("Import Error", "Please paste valid JSON text first", 3.0)
+        end
+        return
+    end
+
+    local ok, decoded = pcall(function() return HttpService:JSONDecode(raw) end)
+    if not ok or type(decoded) ~= "table" then
+        if showToastNotification then
+            showToastNotification("Import Error", "Malformed JSON syntax", 3.0)
+        end
+        return
+    end
+
+    local importedCount = 0
+    local placeIdStr = tostring(game.PlaceId or "0")
+
+    local function importSingleTask(taskData)
+        if type(taskData) ~= "table" or not taskData.name then return false end
+        local newId = "task_" .. tostring(os.time()) .. "_" .. tostring(math.random(1000, 9999))
+        local cloned = {
+            id = newId,
+            name = tostring(taskData.name or "Imported Task"),
+            description = tostring(taskData.description or "Imported workflow"),
+            enabled = (taskData.enabled ~= false),
+            scope = (taskData.scope == "universal") and "universal" or "place",
+            trigger = type(taskData.trigger) == "table" and taskData.trigger or { type = "Timer", interval = 60 },
+            condition = type(taskData.condition) == "table" and taskData.condition or { type = "Always" },
+            actions = type(taskData.actions) == "table" and taskData.actions or {},
+            telemetry = { invocations = 0, lastRun = 0, lastResult = "Imported" }
+        }
+
+        if cloned.scope == "universal" then
+            Storage.data.universal = Storage.data.universal or {}
+            table.insert(Storage.data.universal, cloned)
+        else
+            Storage.data.places[placeIdStr] = Storage.data.places[placeIdStr] or {}
+            table.insert(Storage.data.places[placeIdStr], cloned)
+        end
+
+        if cloned.enabled then
+            Engine.bindTask(cloned)
+        end
+        return true
+    end
+
+    if decoded.name and (decoded.trigger or decoded.actions) then
+        if importSingleTask(decoded) then importedCount = 1 end
+    elseif #decoded > 0 then
+        for _, t in ipairs(decoded) do
+            if importSingleTask(t) then importedCount = importedCount + 1 end
+        end
+    elseif decoded.universal or decoded.places then
+        for _, t in ipairs(decoded.universal or {}) do
+            if importSingleTask(t) then importedCount = importedCount + 1 end
+        end
+        for _, placeTasks in pairs(decoded.places or {}) do
+            for _, t in ipairs(placeTasks) do
+                if importSingleTask(t) then importedCount = importedCount + 1 end
+            end
+        end
+    end
+
+    if importedCount > 0 then
+        Storage.save(true)
+        refreshCardList()
+        ImportModal.Visible = false
+        ImportTextBox.Text = ""
+        if showToastNotification then
+            showToastNotification("Import Successful", string.format("Imported %d workflow(s)", importedCount), 3.5)
+        end
+    else
+        if showToastNotification then
+            showToastNotification("Import Failed", "No valid task definitions found in JSON", 3.0)
+        end
     end
 end)
 
