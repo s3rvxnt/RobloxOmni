@@ -508,7 +508,12 @@ executeSingleAction = function(act, ctx)
                 local fn, compileErr = loadstring(act.code)
                 if fn then
                     setfenv(fn, env)
-                    task.spawn(fn, ctx.input, ctx.vars)
+                    if act.async == true then
+                        task.spawn(fn, ctx.input, ctx.vars)
+                    else
+                        local ok, err = pcall(fn, ctx.input, ctx.vars)
+                        if not ok then warn("[TaskScheduler] Luau runtime error:", err) end
+                    end
                 else
                     warn("[TaskScheduler] Luau compilation failed:", compileErr)
                 end
