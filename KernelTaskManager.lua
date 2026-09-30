@@ -313,6 +313,19 @@ local function getLoopOverride(...) return SchedulerPersistence.getLoop(...) end
 
 SchedulerPersistence.load()
 
+local function getNumericTaskPriority(t)
+    if not t then return 50 end
+    local p = (type(t) == "table" and t.priority) or t
+    if type(p) == "number" then return p end
+    if p == "High" then return 80
+    elseif p == "Medium" then return 50
+    elseif p == "Low" then return 25
+    elseif p == "Eco" then return 10
+    elseif p == "Idle" then return 5
+    end
+    return tonumber(p) or 50
+end
+
 local nextTaskId = 0
 local taskStaggerCounter = 0
 local teardownConnections = {}
@@ -390,11 +403,22 @@ local function runTask(taskObj, ...)
                 taskObj.demotions = (taskObj.demotions or 0) + 1
 
                 -- Map semantic priority string based on effectiveHz
-                if taskObj.effectiveHz >= 45 then taskObj.priority = "High"
-                elseif taskObj.effectiveHz >= 25 then taskObj.priority = "Medium"
-                elseif taskObj.effectiveHz >= 10 then taskObj.priority = "Low"
-                elseif taskObj.effectiveHz >= 3 then taskObj.priority = "Eco"
-                else taskObj.priority = "Idle" end
+                if taskObj.effectiveHz >= 45 then
+                    taskObj.priorityBand = "High"
+                    taskObj.priority = 80
+                elseif taskObj.effectiveHz >= 25 then
+                    taskObj.priorityBand = "Medium"
+                    taskObj.priority = 50
+                elseif taskObj.effectiveHz >= 10 then
+                    taskObj.priorityBand = "Low"
+                    taskObj.priority = 25
+                elseif taskObj.effectiveHz >= 3 then
+                    taskObj.priorityBand = "Eco"
+                    taskObj.priority = 10
+                else
+                    taskObj.priorityBand = "Idle"
+                    taskObj.priority = 5
+                end
             end
         elseif durationMs < lightRecoveryMs and ((taskObj.recentAvgMs or 0) < (lightRecoveryMs * 1.25)) then
             taskObj.lightStreak = (taskObj.lightStreak or 0) + 1
@@ -407,11 +431,22 @@ local function runTask(taskObj, ...)
                 taskObj.autoThrottled = (taskObj.effectiveHz < (targetHz * 0.95))
                 taskObj.lightStreak = 0
 
-                if taskObj.effectiveHz >= 45 then taskObj.priority = "High"
-                elseif taskObj.effectiveHz >= 25 then taskObj.priority = "Medium"
-                elseif taskObj.effectiveHz >= 10 then taskObj.priority = "Low"
-                elseif taskObj.effectiveHz >= 3 then taskObj.priority = "Eco"
-                else taskObj.priority = "Idle" end
+                if taskObj.effectiveHz >= 45 then
+                    taskObj.priorityBand = "High"
+                    taskObj.priority = 80
+                elseif taskObj.effectiveHz >= 25 then
+                    taskObj.priorityBand = "Medium"
+                    taskObj.priority = 50
+                elseif taskObj.effectiveHz >= 10 then
+                    taskObj.priorityBand = "Low"
+                    taskObj.priority = 25
+                elseif taskObj.effectiveHz >= 3 then
+                    taskObj.priorityBand = "Eco"
+                    taskObj.priority = 10
+                else
+                    taskObj.priorityBand = "Idle"
+                    taskObj.priority = 5
+                end
             end
         end
     end
@@ -551,8 +586,8 @@ local function processFrame(eventState, ...)
 
     -- Sort eligible tasks: highest priority first (descending 100 -> 1); tie-break on sortOrder, then lower interval, then lower recentAvgMs
     table.sort(eligibleTasks, function(a, b)
-        local priA = tonumber(a.priority) or 50
-        local priB = tonumber(b.priority) or 50
+        local priA = getNumericTaskPriority(a)
+        local priB = getNumericTaskPriority(b)
         if priA ~= priB then
             return priA > priB
         end
@@ -575,8 +610,8 @@ local function processFrame(eventState, ...)
     end
 
     table.sort(workQueue, function(a, b)
-        local priA = tonumber(a.priority) or 50
-        local priB = tonumber(b.priority) or 50
+        local priA = getNumericTaskPriority(a)
+        local priB = getNumericTaskPriority(b)
         if priA ~= priB then
             return priA > priB
         end
@@ -985,8 +1020,8 @@ local function ThrottledConnect(arg1, arg2, arg3, arg4, arg5)
     table.sort(eventState.taskOrder, function(a, b)
         local tA = eventState.tasks[a]
         local tB = eventState.tasks[b]
-        local priA = (tA and tA.priority) or 50
-        local priB = (tB and tB.priority) or 50
+        local priA = getNumericTaskPriority(tA)
+        local priB = getNumericTaskPriority(tB)
         if priA ~= priB then return priA > priB end
         local soA = (tA and tA.sortOrder) or 9999
         local soB = (tB and tB.sortOrder) or 9999
@@ -1045,7 +1080,7 @@ local function ThrottledConnect(arg1, arg2, arg3, arg4, arg5)
             table.sort(ev.taskOrder, function(a, b)
                 local tA = ev.tasks[a]
                 local tB = ev.tasks[b]
-                return ((tA and tA.priority) or 50) > ((tB and tB.priority) or 50)
+                return getNumericTaskPriority(tA) > getNumericTaskPriority(tB)
             end)
         end
         emitProfile()
@@ -2994,8 +3029,8 @@ local function buildProfile()
     end
 
     table.sort(allTasks, function(a, b)
-        local pa = tonumber(a.priority) or 50
-        local pb = tonumber(b.priority) or 50
+        local pa = getNumericTaskPriority(a)
+        local pb = getNumericTaskPriority(b)
         if pa ~= pb then return pa > pb end
         local soA = tonumber(a.sortOrder) or 9999
         local soB = tonumber(b.sortOrder) or 9999
@@ -3327,8 +3362,8 @@ local function SetSchedulerTaskPriority(identifier, newPriority, newSortOrder)
             table.sort(ev.taskOrder, function(a, b)
                 local tA = ev.tasks[a]
                 local tB = ev.tasks[b]
-                local priA = ((tA and tA.priority) or 50)
-                local priB = ((tB and tB.priority) or 50)
+                local priA = getNumericTaskPriority(tA)
+                local priB = getNumericTaskPriority(tB)
                 if priA ~= priB then return priA > priB end
                 local soA = (tA and tA.sortOrder) or 9999
                 local soB = (tB and tB.sortOrder) or 9999

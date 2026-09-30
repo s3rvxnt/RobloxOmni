@@ -19,6 +19,11 @@ while not LocalPlayer do
     LocalPlayer = Players.LocalPlayer
 end
 
+-- Clean up previous instance on reload
+if getgenv()._KernelTaskSchedulerCleanUp then
+    pcall(getgenv()._KernelTaskSchedulerCleanUp)
+end
+
 -- ==============================================================================
 -- 0. THEME PALETTE & GLYPH SYSTEM (Apple Shortcuts)
 -- ==============================================================================
@@ -177,6 +182,8 @@ local function resolveInstance(pathStr)
         if not cur then break end
     end
     if cur then return cur end
+    local wsInst = workspace:FindFirstChild(tostring(pathStr)) or workspace:FindFirstChild(tostring(pathStr), true)
+    if wsInst then return wsInst end
     local fn = loadstring("return " .. tostring(pathStr))
     if fn then
         local ok, res = pcall(fn)
@@ -227,28 +234,7 @@ end
 
 local function substituteArg(arg)
     if type(arg) == "string" then
-        if arg == "$position" then
-            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            return hrp and hrp.Position or Vector3.zero
-        elseif arg == "$cframe" then
-            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            return hrp and hrp.CFrame or CFrame.identity
-        elseif arg == "$player" or arg == "$localplayer" then
-            return LocalPlayer
-        elseif arg == "$userId" or arg == "$userid" then
-            return LocalPlayer.UserId
-        elseif arg == "$name" or arg == "$username" then
-            return LocalPlayer.Name
-        elseif arg == "$character" or arg == "$char" then
-            return LocalPlayer.Character
-        elseif arg == "$placeId" or arg == "$placeid" then
-            return game.PlaceId
-        elseif arg:find("^$leaderstat:") then
-            local statName = arg:sub(13)
-            local ls = LocalPlayer:FindFirstChild("leaderstats")
-            local st = ls and ls:FindFirstChild(statName)
-            if st then return st.Value end
-        end
+        return evalValue(arg)
     end
     return arg
 end
@@ -260,42 +246,80 @@ local function evalValue(expr, ctx)
     ctx = ctx or { vars = {}, inputs = {} }
     ctx.vars = ctx.vars or {}
 
-    -- Direct token matches (preserves object reference)
+    local myChar = LocalPlayer.Character
+    local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
+
+    -- 1. Direct standalone token matches (preserves object reference)
     if expr == "$input" or expr == "$1" or expr == "$arg1" then
         return ctx.input
     elseif expr == "$inputs" then
         return ctx.inputs
-    elseif expr == "$player" or expr == "$localplayer" then
+    elseif expr == "$player" or expr == "$localplayer" or expr == "$username" or expr == "$name" then
         return LocalPlayer.Name
     elseif expr == "$character" or expr == "$char" then
-        return LocalPlayer.Character
+        return myChar
     elseif expr == "$userId" or expr == "$userid" then
         return LocalPlayer.UserId
     elseif expr == "$placeId" or expr == "$placeid" then
         return game.PlaceId
+    elseif expr == "$jobId" or expr == "$jobid" then
+        return game.JobId
+    elseif expr == "$position" or expr == "$pos" then
+        return myHrp and myHrp.Position or Vector3.zero
+    elseif expr == "$cframe" then
+        return myHrp and myHrp.CFrame or CFrame.identity
+    elseif expr == "$health" or expr == "$hp" then
+        return myHum and myHum.Health or 100
+    elseif expr == "$maxHealth" or expr == "$maxHp" then
+        return myHum and myHum.MaxHealth or 100
+    elseif expr:find("^%$leaderstat:") then
+        local statName = expr:match("^%$leaderstat:([%w_]+)$")
+        local ls = LocalPlayer:FindFirstChild("leaderstats")
+        local st = ls and ls:FindFirstChild(statName)
+        return st and st.Value or 0
     end
 
-    -- Direct variable match: "$Owner"
+    -- 2. Direct variable match: "$Owner"
     local singleVar = expr:match("^%$([%w_]+)$")
     if singleVar and ctx.vars[singleVar] ~= nil then
         return ctx.vars[singleVar]
     end
 
-    -- Direct property match: "$input.Name" or "$Car.Position"
+    -- 3. Direct property match: "$input.Name", "$position.X", "$character.HumanoidRootPart", "$Car.Position"
     local objVar, prop = expr:match("^%$([%w_]+)%.([%w_]+)$")
     if objVar and prop then
-        local obj = (objVar == "input") and ctx.input or ctx.vars[objVar]
-        if typeof(obj) == "Instance" then
-            local ok, val = pcall(function() return obj[prop] end)
-            if ok then return val end
-        elseif type(obj) == "table" then
-            return obj[prop]
+        local obj = nil
+        if objVar == "input" then
+            obj = ctx.input
+        elseif objVar == "character" or objVar == "char" then
+            obj = myChar
+        elseif objVar == "position" or objVar == "pos" then
+            obj = myHrp and myHrp.Position or Vector3.zero
+        elseif objVar == "cframe" then
+            obj = myHrp and myHrp.CFrame or CFrame.identity
+        elseif objVar == "player" then
+            obj = LocalPlayer
+        elseif ctx.vars[objVar] ~= nil then
+            obj = ctx.vars[objVar]
+        elseif getgenv()[objVar] ~= nil then
+            obj = getgenv()[objVar]
+        end
+
+        if obj ~= nil then
+            if typeof(obj) == "Instance" then
+                local ok, val = pcall(function() return obj[prop] end)
+                if ok and val ~= nil then return val end
+            elseif typeof(obj) == "Vector3" or typeof(obj) == "CFrame" or type(obj) == "table" then
+                local ok, val = pcall(function() return obj[prop] end)
+                if ok and val ~= nil then return val end
+            end
         end
     end
 
-    -- Check if it contains code operators or parentheses
-    local isCodeExpr = expr:find("%(") or expr:find("%[") or expr:find("%+") or expr:find("%-") or expr:find("%*") or expr:find("/") or expr:find("%.") or expr:find(":")
-    if isCodeExpr then
+    -- 4. Check if it's a code expression (arithmetic/logic)
+    local isCodeExpr = (expr:find("%(") and expr:find("%)")) or expr:find("[%+%-%*/%%]") or expr:find("[><=]=")
+    if isCodeExpr and not expr:find("^https?://") then
         local codeExpr = expr:gsub("%$([%w_]+)", "%1")
         local env = setmetatable({
             input = ctx.input,
@@ -305,6 +329,14 @@ local function evalValue(expr, ctx)
             game = game,
             Players = Players,
             LocalPlayer = LocalPlayer,
+            position = myHrp and myHrp.Position or Vector3.zero,
+            pos = myHrp and myHrp.Position or Vector3.zero,
+            cframe = myHrp and myHrp.CFrame or CFrame.identity,
+            character = myChar,
+            char = myChar,
+            health = myHum and myHum.Health or 100,
+            userId = LocalPlayer.UserId,
+            placeId = game.PlaceId,
             string = string,
             math = math,
             table = table,
@@ -313,6 +345,9 @@ local function evalValue(expr, ctx)
             print = print,
             typeof = typeof,
             type = type,
+            Vector3 = Vector3,
+            CFrame = CFrame,
+            Color3 = Color3,
         }, {
             __index = function(_, k)
                 if ctx.vars[k] ~= nil then return ctx.vars[k] end
@@ -330,15 +365,37 @@ local function evalValue(expr, ctx)
         end
     end
 
-    -- Fallback: String template interpolation (e.g. "Car $Car owned by $Owner")
-    local substituted = expr:gsub("%$([%w_]+)%.?([%w_]*)", function(varName, propName)
+    -- 5. Fallback: String template interpolation (e.g. "Player $player at $position in Place $placeId")
+    -- First expand leaderstats: $leaderstat:Cash
+    local substituted = expr:gsub("%$leaderstat:([%w_]+)", function(statName)
+        local ls = LocalPlayer:FindFirstChild("leaderstats")
+        local st = ls and ls:FindFirstChild(statName)
+        return tostring(st and st.Value or 0)
+    end)
+
+    -- Next expand standard $var or $var.property
+    substituted = substituted:gsub("%$([%w_]+)%.?([%w_]*)", function(varName, propName)
         local val = nil
         if varName == "input" then
             val = ctx.input
-        elseif varName == "player" then
+        elseif varName == "player" or varName == "username" or varName == "name" then
             val = LocalPlayer.Name
-        elseif varName == "userId" then
-            val = LocalPlayer.UserId
+        elseif varName == "userId" or varName == "userid" then
+            val = tostring(LocalPlayer.UserId)
+        elseif varName == "placeId" or varName == "placeid" then
+            val = tostring(game.PlaceId)
+        elseif varName == "jobId" or varName == "jobid" then
+            val = tostring(game.JobId)
+        elseif varName == "position" or varName == "pos" then
+            val = myHrp and string.format("%.1f, %.1f, %.1f", myHrp.Position.X, myHrp.Position.Y, myHrp.Position.Z) or "0, 0, 0"
+        elseif varName == "cframe" then
+            val = myHrp and tostring(myHrp.CFrame) or "0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1"
+        elseif varName == "character" or varName == "char" then
+            val = myChar
+        elseif varName == "health" or varName == "hp" then
+            val = myHum and tostring(math.floor(myHum.Health)) or "0"
+        elseif varName == "maxHealth" or varName == "maxHp" then
+            val = myHum and tostring(math.floor(myHum.MaxHealth)) or "100"
         elseif ctx.vars[varName] ~= nil then
             val = ctx.vars[varName]
         elseif getgenv()[varName] ~= nil then
@@ -349,13 +406,16 @@ local function evalValue(expr, ctx)
             if propName and propName ~= "" then
                 if typeof(val) == "Instance" then
                     local ok, pVal = pcall(function() return val[propName] end)
-                    if ok then return tostring(pVal) end
-                elseif type(val) == "table" then
-                    return tostring(val[propName] or "")
+                    if ok and pVal ~= nil then return tostring(pVal) end
+                elseif typeof(val) == "Vector3" or typeof(val) == "CFrame" or type(val) == "table" then
+                    local ok, pVal = pcall(function() return val[propName] end)
+                    if ok and pVal ~= nil then return tostring(pVal) end
                 end
             end
             if typeof(val) == "Instance" then
                 return val.Name
+            elseif typeof(val) == "Vector3" then
+                return string.format("%.1f, %.1f, %.1f", val.X, val.Y, val.Z)
             end
             return tostring(val)
         end
@@ -525,7 +585,13 @@ executeSingleAction = function(act, ctx)
                     game = game,
                     Players = Players,
                     LocalPlayer = LocalPlayer,
-                }, { __index = function(_, k) return ctx.vars[k] or getgenv()[k] end })
+                }, {
+                    __index = function(_, k) return ctx.vars[k] or getgenv()[k] end,
+                    __newindex = function(_, k, v)
+                        ctx.vars[k] = v
+                        pcall(function() getgenv()[k] = v end)
+                    end,
+                })
                 local fn, compileErr = loadstring(act.code)
                 if fn then
                     setfenv(fn, env)
@@ -612,38 +678,52 @@ executeSingleAction = function(act, ctx)
                 local maxDist = tonumber(evalValue(act.maxDistance, ctx)) or math.huge
                 local sourceVal = evalValue(act.source or "Players", ctx)
                 local varName = (act.varName and act.varName ~= "") and act.varName or "nearest"
+                local nameFilter = tostring(evalValue(act.filter or act.nameFilter or "", ctx)):lower()
                 local candidates = {}
                 if tostring(sourceVal):lower() == "players" or sourceVal == Players then
                     for _, p in ipairs(Players:GetPlayers()) do
                         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                            table.insert(candidates, { obj = p, pos = p.Character.HumanoidRootPart.Position })
+                            if nameFilter == "" or p.Name:lower():find(nameFilter, 1, true) or p.DisplayName:lower():find(nameFilter, 1, true) then
+                                table.insert(candidates, { obj = p, pos = p.Character.HumanoidRootPart.Position })
+                            end
                         end
                     end
                 else
                     local parentObj = typeof(sourceVal) == "Instance" and sourceVal or resolveInstance(sourceVal)
+                    if not parentObj and type(sourceVal) == "string" and sourceVal ~= "" then
+                        parentObj = workspace:FindFirstChild(sourceVal, true)
+                    end
                     if parentObj then
                         for _, ch in ipairs(parentObj:GetChildren()) do
-                            if ch:IsA("BasePart") then
-                                table.insert(candidates, { obj = ch, pos = ch.Position })
-                            elseif ch:IsA("Model") then
-                                local piv = ch:GetPivot()
-                                table.insert(candidates, { obj = ch, pos = piv.Position })
+                            local matchesFilter = (nameFilter == "") or ch.Name:lower():find(nameFilter, 1, true)
+                            if matchesFilter then
+                                if ch:IsA("BasePart") then
+                                    table.insert(candidates, { obj = ch, pos = ch.Position })
+                                elseif ch:IsA("Model") then
+                                    local piv = ch:GetPivot()
+                                    table.insert(candidates, { obj = ch, pos = piv.Position })
+                                end
                             end
                         end
                     end
                 end
                 local closestObj = nil
+                local closestPos = nil
                 local bestDist = maxDist
                 for _, cand in ipairs(candidates) do
                     local d = (myHrp.Position - cand.pos).Magnitude
                     if d < bestDist then
                         bestDist = d
                         closestObj = cand.obj
+                        closestPos = cand.pos
                     end
                 end
                 ctx.vars[varName] = closestObj
                 ctx.vars["nearest"] = closestObj
                 ctx.vars["nearestDistance"] = (closestObj and bestDist or nil)
+                ctx.vars["nearestPosition"] = closestPos
+                ctx.vars[varName .. "Position"] = closestPos
+                ctx.vars["nearestFound"] = (closestObj ~= nil)
             end
         elseif act.type == "PathfindTo" then
             local myChar = LocalPlayer.Character
@@ -757,7 +837,8 @@ executeSingleAction = function(act, ctx)
         elseif act.type == "SendChat" then
             local msg = evalValue(act.message or "", ctx)
             if msg and msg ~= "" then
-                local ok = pcall(function()
+                local sent = false
+                local ok, res = pcall(function()
                     local TCS = game:GetService("TextChatService")
                     if TCS and TCS.ChatVersion == Enum.ChatVersion.TextChatService then
                         local genChan = TCS.TextChannels:FindFirstChild("RBXGeneral")
@@ -768,12 +849,16 @@ executeSingleAction = function(act, ctx)
                     end
                     return false
                 end)
-                if not ok then
+                if ok and res == true then
+                    sent = true
+                end
+                if not sent then
                     pcall(function()
                         local SayMsg = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
                         local SayReq = SayMsg and SayMsg:FindFirstChild("SayMessageRequest")
                         if SayReq then
                             SayReq:FireServer(tostring(msg), "All")
+                            sent = true
                         end
                     end)
                 end
@@ -789,13 +874,44 @@ executeSingleAction = function(act, ctx)
                 elseif prop == "jumppower" or prop == "jump" then
                     hum.UseJumpPower = true
                     hum.JumpPower = tonumber(val) or 50
+                elseif prop == "jumpheight" then
+                    hum.UseJumpPower = false
+                    hum.JumpHeight = tonumber(val) or 7.2
+                elseif prop == "hipheight" then
+                    hum.HipHeight = tonumber(val) or 2.0
                 elseif prop == "sit" then
                     hum.Sit = (tostring(val):lower() == "true" or val == true or val == 1 or val == "1")
+                elseif prop == "gravity" then
+                    workspace.Gravity = tonumber(val) or 196.2
+                elseif prop == "fov" then
+                    local cam = workspace.CurrentCamera
+                    if cam then cam.FieldOfView = tonumber(val) or 70 end
+                elseif prop == "health" then
+                    hum.Health = tonumber(val) or hum.Health
                 elseif prop == "noclip" then
                     local enableNoclip = (tostring(val):lower() == "true" or val == true or val == 1 or val == "1")
-                    for _, part in ipairs(char:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = not enableNoclip
+                    if enableNoclip then
+                        if not getgenv()._OmniNoclipConn then
+                            getgenv()._OmniNoclipConn = RunService.Stepped:Connect(function()
+                                local c = LocalPlayer.Character
+                                if c then
+                                    for _, part in ipairs(c:GetDescendants()) do
+                                        if part:IsA("BasePart") and part.CanCollide then
+                                            part.CanCollide = false
+                                        end
+                                    end
+                                end
+                            end)
+                        end
+                    else
+                        if getgenv()._OmniNoclipConn then
+                            pcall(function() getgenv()._OmniNoclipConn:Disconnect() end)
+                            getgenv()._OmniNoclipConn = nil
+                        end
+                        for _, part in ipairs(char:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                part.CanCollide = true
+                            end
                         end
                     end
                 end
@@ -844,6 +960,11 @@ executeSingleAction = function(act, ctx)
                     pcall(function() hl:Destroy() end)
                 end
                 getgenv()._OmniHighlights = {}
+                for _, desc in ipairs(workspace:GetDescendants()) do
+                    if desc:IsA("Highlight") and desc.Name == "OmniHighlight" then
+                        pcall(function() desc:Destroy() end)
+                    end
+                end
             else
                 local targetInst = nil
                 if typeof(rawTarget) == "Instance" then
@@ -859,6 +980,11 @@ executeSingleAction = function(act, ctx)
 
                 if targetInst and targetInst:IsA("Player") and targetInst.Character then
                     targetInst = targetInst.Character
+                end
+
+                -- If target is a part inside a character model, highlight the character model
+                if targetInst and targetInst:IsA("BasePart") and targetInst.Parent and targetInst.Parent:FindFirstChildOfClass("Humanoid") then
+                    targetInst = targetInst.Parent
                 end
 
                 if targetInst and (targetInst:IsA("Model") or targetInst:IsA("BasePart")) then
@@ -880,14 +1006,26 @@ executeSingleAction = function(act, ctx)
                             magenta = Color3.fromRGB(255, 60, 220),
                             orange = Color3.fromRGB(255, 140, 0),
                             white = Color3.fromRGB(255, 255, 255),
+                            pink = Color3.fromRGB(255, 105, 180),
+                            lime = Color3.fromRGB(50, 255, 50),
+                            teal = Color3.fromRGB(0, 200, 180),
+                            amber = Color3.fromRGB(255, 180, 0),
                         }
                         local mainColor = colorMap[colStr]
                         if not mainColor then
-                            local r, g, b = colStr:match("(%d+)%s*,%s*(%d+)%s*,%s*(%d+)")
-                            if r and g and b then
-                                mainColor = Color3.fromRGB(tonumber(r), tonumber(g), tonumber(b))
+                            local hex = colStr:match("#?([%da-fA-F]{6})")
+                            if hex then
+                                local r = tonumber(hex:sub(1, 2), 16)
+                                local g = tonumber(hex:sub(3, 4), 16)
+                                local b = tonumber(hex:sub(5, 6), 16)
+                                mainColor = Color3.fromRGB(r, g, b)
                             else
-                                mainColor = Color3.fromRGB(0, 255, 255)
+                                local r, g, b = colStr:match("(%d+)%s*,%s*(%d+)%s*,%s*(%d+)")
+                                if r and g and b then
+                                    mainColor = Color3.fromRGB(tonumber(r), tonumber(g), tonumber(b))
+                                else
+                                    mainColor = Color3.fromRGB(0, 255, 255)
+                                end
                             end
                         end
 
@@ -898,17 +1036,20 @@ executeSingleAction = function(act, ctx)
                         end
                         hl.Adornee = targetInst
                         hl.FillColor = mainColor
-                        hl.FillTransparency = 0.5
+                        hl.FillTransparency = tonumber(evalValue(act.fillTransparency, ctx)) or 0.5
                         hl.OutlineColor = mainColor
-                        hl.OutlineTransparency = 0
+                        hl.OutlineTransparency = tonumber(evalValue(act.outlineTransparency, ctx)) or 0
                         hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
                         hl.Parent = targetInst
                         getgenv()._OmniHighlights[targetInst] = hl
 
+                        local token = (hl:GetAttribute("OmniToken") or 0) + 1
+                        hl:SetAttribute("OmniToken", token)
+
                         if dur > 0 then
                             task.delay(dur, function()
-                                if hl and hl.Parent then
-                                    hl:Destroy()
+                                if hl and hl.Parent and hl:GetAttribute("OmniToken") == token then
+                                    pcall(function() hl:Destroy() end)
                                     if getgenv()._OmniHighlights[targetInst] == hl then
                                         getgenv()._OmniHighlights[targetInst] = nil
                                     end
@@ -924,50 +1065,55 @@ executeSingleAction = function(act, ctx)
             local title = tostring(evalValue(act.title or "Omni Shortcuts Notification", ctx))
 
             if url and url ~= "" and msg and msg ~= "" then
-                local httpReq = request or http_request or (syn and syn.request) or (http and http.request)
-                if httpReq then
-                    local isDiscord = url:find("discord%.com/api/webhooks") or url:find("discordapp%.com/api/webhooks")
-                    local payloadData = {}
-                    if isDiscord then
-                        payloadData = {
-                            embeds = {
-                                {
-                                    title = title ~= "" and title or "Omni Notification",
-                                    description = msg,
-                                    color = 5814783,
-                                    footer = { text = "Roblox Omni Scheduler" },
-                                    timestamp = DateTime.now():ToIsoDate()
+                if url:find("YOUR_WEBHOOK_URL") or url:find("discord%.com/api/webhooks/%.%.%.") then
+                    warn("[TaskScheduler] SendWebhook: Dummy webhook URL detected. Configure your Discord webhook in shortcut parameters.")
+                else
+                    local httpReq = request or http_request or (syn and syn.request) or (http and http.request)
+                    if httpReq then
+                        local isDiscord = url:find("discord%.com/api/webhooks") or url:find("discordapp%.com/api/webhooks")
+                        local payloadData = {}
+                        if isDiscord then
+                            payloadData = {
+                                content = msg,
+                                embeds = {
+                                    {
+                                        title = title ~= "" and title or "Omni Notification",
+                                        description = msg,
+                                        color = 5814783,
+                                        footer = { text = "Roblox Omni Scheduler • " .. LocalPlayer.Name },
+                                        timestamp = DateTime.now():ToIsoDate()
+                                    }
                                 }
                             }
-                        }
-                    else
-                        payloadData = {
-                            title = title,
-                            message = msg,
-                            player = LocalPlayer.Name,
-                            userId = LocalPlayer.UserId,
-                            placeId = game.PlaceId,
-                            timestamp = os.time()
-                        }
-                    end
+                        else
+                            payloadData = {
+                                title = title,
+                                message = msg,
+                                player = LocalPlayer.Name,
+                                userId = LocalPlayer.UserId,
+                                placeId = game.PlaceId,
+                                timestamp = os.time()
+                            }
+                        end
 
-                    task.spawn(function()
-                        pcall(function()
-                            httpReq({
-                                Url = url,
-                                Method = "POST",
-                                Headers = { ["Content-Type"] = "application/json" },
-                                Body = HttpService:JSONEncode(payloadData)
-                            })
+                        task.spawn(function()
+                            pcall(function()
+                                httpReq({
+                                    Url = url,
+                                    Method = "POST",
+                                    Headers = { ["Content-Type"] = "application/json" },
+                                    Body = HttpService:JSONEncode(payloadData)
+                                })
+                            end)
                         end)
-                    end)
-                else
-                    warn("[TaskScheduler] SendWebhook: Executor does not support HTTP requests")
+                    else
+                        warn("[TaskScheduler] SendWebhook: Executor does not support HTTP requests")
+                    end
                 end
             end
         elseif act.type == "SetClipboard" then
             local clipText = tostring(evalValue(act.text or act.content or "", ctx))
-            local clipFn = setclipboard or toclipboard or (Clipboard and Clipboard.set)
+            local clipFn = setclipboard or toclipboard or set_clipboard or (Clipboard and Clipboard.set)
             if clipFn then
                 clipFn(clipText)
             else
@@ -976,9 +1122,11 @@ executeSingleAction = function(act, ctx)
         elseif act.type == "PlayAnimation" then
             local char = LocalPlayer.Character
             local hum = char and char:FindFirstChildOfClass("Humanoid")
-            local animator = hum and (hum:FindFirstChildOfClass("Animator") or hum)
+            local animator = hum and (hum:FindFirstChildOfClass("Animator") or Instance.new("Animator", hum))
             local animTarget = tostring(evalValue(act.animation or act.name or "dance", ctx)):lower()
             local subAct = tostring(evalValue(act.action or "play", ctx)):lower()
+            local dur = tonumber(evalValue(act.duration, ctx)) or 0
+            local spd = tonumber(evalValue(act.speed, ctx)) or 1.0
 
             if not getgenv()._OmniActiveTracks then getgenv()._OmniActiveTracks = {} end
 
@@ -1017,8 +1165,14 @@ executeSingleAction = function(act, ctx)
                     local anim = Instance.new("Animation")
                     anim.AnimationId = animId
                     local track = animator:LoadAnimation(anim)
+                    if spd ~= 1.0 then track:AdjustSpeed(spd) end
                     track:Play()
                     table.insert(getgenv()._OmniActiveTracks, track)
+                    if dur > 0 then
+                        task.delay(dur, function()
+                            pcall(function() track:Stop() end)
+                        end)
+                    end
                 else
                     pcall(function() hum:PlayEmote(animTarget) end)
                 end
@@ -1029,8 +1183,9 @@ executeSingleAction = function(act, ctx)
             if cam then
                 if not rawTarget or rawTarget == "" or rawTarget == "me" or rawTarget == "reset" or rawTarget == LocalPlayer.Name then
                     local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                    if hum then
-                        cam.CameraSubject = hum
+                    local fallback = LocalPlayer.Character and (LocalPlayer.Character:FindFirstChild("HumanoidRootPart") or LocalPlayer.Character.PrimaryPart)
+                    if hum or fallback then
+                        cam.CameraSubject = hum or fallback
                         cam.CameraType = Enum.CameraType.Custom
                     end
                 else
@@ -1056,7 +1211,11 @@ executeSingleAction = function(act, ctx)
                         elseif targetInst:IsA("Model") then
                             subject = targetInst:FindFirstChildOfClass("Humanoid") or targetInst.PrimaryPart or targetInst:FindFirstChild("HumanoidRootPart") or targetInst:FindFirstChildWhichIsA("BasePart")
                         elseif targetInst:IsA("BasePart") then
-                            subject = targetInst
+                            if targetInst.Parent and targetInst.Parent:FindFirstChildOfClass("Humanoid") then
+                                subject = targetInst.Parent:FindFirstChildOfClass("Humanoid")
+                            else
+                                subject = targetInst
+                            end
                         end
                         if subject then
                             cam.CameraSubject = subject
@@ -1066,9 +1225,10 @@ executeSingleAction = function(act, ctx)
             end
         elseif act.type == "ResetCamera" then
             local cam = workspace.CurrentCamera
-            local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-            if cam and hum then
-                cam.CameraSubject = hum
+            local char = LocalPlayer.Character
+            local subject = char and (char:FindFirstChildOfClass("Humanoid") or char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
+            if cam and subject then
+                cam.CameraSubject = subject
                 cam.CameraType = Enum.CameraType.Custom
             end
         elseif act.type == "ActivatePrompt" then
@@ -1189,7 +1349,7 @@ local function evaluateCondition(taskObj, triggerArgs)
     elseif cond.type == "InVehicle" then
         local char = LocalPlayer.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if hum and hum.SeatPart and hum.SeatPart:IsA("VehicleSeat") then
+        if hum and hum.SeatPart and (hum.SeatPart:IsA("VehicleSeat") or hum.SeatPart:IsA("Seat")) then
             return true
         end
         return false
@@ -1202,6 +1362,9 @@ local function evaluateCondition(taskObj, triggerArgs)
         local player = triggerArgs and triggerArgs[1]
         if player and typeof(player) == "Instance" and player:IsA("Player") then
             local grp = tonumber(cond.groupId) or 0
+            if grp == 0 and game.CreatorType == Enum.CreatorType.Group then
+                grp = game.CreatorId
+            end
             local minR = tonumber(cond.minRank) or 100
             if grp > 0 then
                 local ok, r = pcall(function() return player:GetRankInGroup(grp) end)
@@ -1395,11 +1558,16 @@ Engine.bindTask = function(taskObj)
         end
     elseif trig.type == "Keybind" then
         local targetKey = tostring(trig.key or "G"):upper():gsub("%s+", "")
+        local digitToWord = {
+            ["0"] = "ZERO", ["1"] = "ONE", ["2"] = "TWO", ["3"] = "THREE", ["4"] = "FOUR",
+            ["5"] = "FIVE", ["6"] = "SIX", ["7"] = "SEVEN", ["8"] = "EIGHT", ["9"] = "NINE"
+        }
         local c = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-            if gameProcessed then return end
+            if UserInputService:GetFocusedTextBox() ~= nil then return end
             if input.UserInputType == Enum.UserInputType.Keyboard then
                 local kName = input.KeyCode.Name:upper()
-                if kName == targetKey then
+                local matches = (kName == targetKey) or (digitToWord[targetKey] == kName)
+                if matches then
                     fireTask(taskObj, kName)
                 end
             end
@@ -1613,7 +1781,7 @@ local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "WindowsTaskSchedulerGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.Enabled = false
+ScreenGui.Enabled = true
 ScreenGui.Parent = parentContainer
 
 -- Toast Notification System
@@ -1710,6 +1878,7 @@ MainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.ClipsDescendants = true
 MainFrame.Active = true
+MainFrame.Visible = false
 MainFrame.Parent = ScreenGui
 
 local mCorner = Instance.new("UICorner")
@@ -1819,7 +1988,7 @@ cbCorner.CornerRadius = UDim.new(1, 0)
 cbCorner.Parent = CloseBtn
 
 CloseBtn.MouseButton1Click:Connect(function()
-    ScreenGui.Enabled = false
+    MainFrame.Visible = false
 end)
 
 -- Top Control Ribbon (Segmented Pills, Search, Export, Import, + New Shortcut)
@@ -4190,8 +4359,8 @@ end)
 -- 7. HOTKEY & GLOBAL EXPORTS
 -- ==============================================================================
 local function toggleSchedulerHUD()
-    ScreenGui.Enabled = not ScreenGui.Enabled
-    if ScreenGui.Enabled then
+    MainFrame.Visible = not MainFrame.Visible
+    if MainFrame.Visible then
         refreshShortcutsGrid()
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
         UserInputService.MouseIconEnabled = true
@@ -4245,6 +4414,10 @@ getgenv()._KernelTaskSchedulerCleanUp = function()
     if keybindConnection then
         pcall(function() keybindConnection:Disconnect() end)
         keybindConnection = nil
+    end
+    if getgenv()._OmniNoclipConn then
+        pcall(function() getgenv()._OmniNoclipConn:Disconnect() end)
+        getgenv()._OmniNoclipConn = nil
     end
     getgenv().UnloadAllScheduledTasks()
     if ScreenGui then
