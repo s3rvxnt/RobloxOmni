@@ -1,0 +1,527 @@
+--[[
+    Adaptive Frame-Budgeted Autoexec Bootloader (4-Tier Ring Architecture)
+    ----------------------------------------------------------------------
+    - Ring 0: Bootloader & Kernel (autoexec/kernel/) -> Frame 0, NO yields, purely environment & hooks
+    - Ring 1: DataModel Level (game ~= nil) -> PreInit / Universal / PlaceId / UniverseId (nodelay)
+    - Ring 2: Network Client Level (game.Players ~= nil) -> GameLoaded (IsLoaded, 6ms budget)
+    - Ring 3: UserSpace Level (game.Players.LocalPlayer ~= nil) -> Account-scoped, CharacterReady, Deferred
+    - Adaptive Frame Budgeting: yields to Heartbeat if a frame exceeds TARGET_BUDGET_MS (6ms)
+    - Deterministic load order: Priority descending, then Alphabetical ascending
+    - Multi-scope routing: Universal, UniverseId, PlaceId, Account-scoped
+    - Ignores: Off/, Disabled/, .ignore/, and non-script extensions (.json, .png, .bak, .off)
+    - Fault-tolerant: xpcall error boundaries per script with full stack traces
+    - Non-blocking: Coroutine-isolated execution prevents top-level loops from freezing bootloader
+    - Telemetry: Emits Bootloader_Status.json with per-script timing and status
+]]
+
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+
+local TARGET_BUDGET_MS = 6.0 -- Max Lua ms per frame before yielding to host engine
+
+if type(isfolder) ~= "function" or type(listfiles) ~= "function" then
+    print("[Bootloader]: Incompatible exploit environment.")
+    return
+end
+
+-- Ensure baseline directories exist
+if not isfolder("autoexec") then makefolder("autoexec") end
+if not isfolder("autoexec/kernel") then makefolder("autoexec/kernel") end
+if not isfolder("autoexec/preinit") and not isfolder("autoexec/nodelay") then makefolder("autoexec/preinit") end
+
+-- ==============================================================================
+-- GITHUB KERNEL AUTO-MIRRORING & BOOTSTRAPPER
+-- ==============================================================================
+-- Automatically provisions and mirrors KernelTaskManager and KernelTaskScheduler from GitHub
+local KERNEL_MIRRORS = {
+    {
+        path = "autoexec/kernel/KernelTaskManager.lua",
+        url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/refs/heads/main/KernelTaskManager.lua",
+        name = "KernelTaskManager",
+        desc = "Windows 11 Task Manager (Shift + F8)"
+    },
+    {
+        path = "autoexec/kernel/KernelTaskScheduler.lua",
+        url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/refs/heads/main/KernelTaskScheduler.lua",
+        name = "KernelTaskScheduler",
+        desc = "Automation Scheduler (Shift + F7)"
+    }
+}
+
+local function fetchGithubScript(url)
+    local ok, content = pcall(function()
+        if type(game.HttpGet) == "function" then
+            return game:HttpGet(url)
+        elseif type(httpget) == "function" then
+            return httpget(url)
+        elseif type(request) == "function" then
+            local res = request({ Url = url, Method = "GET" })
+            return res and res.Body
+        end
+    end)
+    if ok and content and type(content) == "string" and #content > 100 and not content:find("404: Not Found") and not content:find("400: Invalid Request") then
+        return content
+    end
+    return nil
+end
+
+for _, mirror in ipairs(KERNEL_MIRRORS) do
+    local fileExists = isfile(mirror.path)
+    local shouldDownload = not fileExists
+    if fileExists then
+        local ok, existing = pcall(readfile, mirror.path)
+        if not ok or not existing or #existing < 100 then
+            shouldDownload = true
+        end
+    end
+
+    if shouldDownload or getgenv()._ForceSyncKernelMirrors then
+        print(string.format("[Bootloader]: Mirroring %s from GitHub...", mirror.name))
+        local content = fetchGithubScript(mirror.url)
+        if content then
+            local writeOk, writeErr = pcall(writefile, mirror.path, content)
+            if writeOk then
+                print(string.format("[Bootloader]: Successfully provisioned %s -> %s", mirror.name, mirror.path))
+            else
+                warn(string.format("[Bootloader]: Failed to write %s to disk: %s", mirror.path, tostring(writeErr)))
+            end
+        else
+            if not fileExists then
+                warn(string.format("[Bootloader]: Could not fetch %s from GitHub (%s). Check connection or repository.", mirror.name, mirror.url))
+            end
+        end
+    end
+end
+
+local PlaceIdStr = tostring(game.PlaceId)
+local GameIdStr = tostring(game.GameId or 0)
+
+-- Stage normalization lookup table
+local STAGES = {
+    kernel = "Kernel",
+    preinit = "PreInit",
+    gameloaded = "GameLoaded",
+    characterready = "CharacterReady",
+    deferred = "Deferred"
+}
+
+-- Queue buckets
+local Queues = {
+    Kernel = {},
+    PreInit = {},
+    GameLoaded = {},
+    CharacterReady = {},
+    Deferred = {}
+}
+
+local Telemetry = {
+    timestamp = os.time(),
+    placeId = game.PlaceId,
+    gameId = game.GameId,
+    account = "Pending Replicating",
+    discovered = 0,
+    executed = 0,
+    success = 0,
+    errors = 0,
+    stages = {
+        Kernel = 0,
+        PreInit = 0,
+        GameLoaded = 0,
+        CharacterReady = 0,
+        Deferred = 0
+    },
+    scripts = {}
+}
+
+-- Emit structured telemetry to workspace
+local function emitTelemetry()
+    pcall(function()
+        if writefile and HttpService then
+            writefile("Bootloader_Status.json", HttpService:JSONEncode(Telemetry))
+        end
+    end)
+end
+
+-- Helpers
+local function isIgnoredFolder(folderName)
+    if not folderName then return true end
+    local lower = folderName:lower()
+    return lower == "off" or lower == "disabled" or lower == ".ignore" 
+        or folderName:sub(1, 1) == "_" or folderName:sub(1, 1) == "."
+end
+
+local function isScriptFile(path)
+    if not path or isfolder(path) then return false end
+    local lower = path:lower()
+    if lower:match("%.off$") or lower:match("%.disabled$") or lower:match("%.bak$") or lower:match("%.tmp$") then
+        return false
+    end
+    return lower:match("%.luau$") ~= nil or lower:match("%.lua$") ~= nil or lower:match("%.txt$") ~= nil
+end
+
+local function parsePragmas(filePath)
+    local meta = {
+        file = filePath,
+        name = filePath:match("[^/\\]+$") or filePath,
+        stage = nil,
+        priority = 0
+    }
+    
+    pcall(function()
+        if isfile(filePath) then
+            local header = readfile(filePath)
+            -- Read up to first 4000 characters for pragmas
+            local snippet = header:sub(1, 4000)
+            for line in snippet:gmatch("[^\r\n]+") do
+                local trimmed = line:match("^%s*(.-)%s*$")
+                if trimmed and trimmed:sub(1, 3) == "--!" then
+                    local pragma, sep, val = trimmed:match("^%-%-!([%w_]+)([:%s=]+)(.-)%s*$")
+                    if pragma and val then
+                        val = val:match("^%s*(.-)%s*$")
+                        local lowerPragma = pragma:lower()
+                        if lowerPragma == "stage" then
+                            local stageKey = val:lower():gsub("[%s_]+", "")
+                            if STAGES[stageKey] then
+                                meta.stage = STAGES[stageKey]
+                            end
+                        elseif lowerPragma == "priority" and tonumber(val) then
+                            meta.priority = tonumber(val)
+                        elseif lowerPragma == "name" and val ~= "" then
+                            meta.name = val
+                        end
+                    end
+                elseif trimmed and trimmed:sub(1, 2) ~= "--" and trimmed ~= "" then
+                    -- Reached non-comment code
+                    break
+                end
+            end
+        end
+    end)
+    return meta
+end
+
+local registeredBasenames = {}
+local executedFiles = {}
+
+local function registerScript(filePath, defaultStage)
+    if not isScriptFile(filePath) then return end
+    local meta = parsePragmas(filePath)
+    meta.stage = meta.stage or defaultStage or "GameLoaded"
+
+    -- Deduplicate scripts by stage + canonical basename (e.g. KernelTaskManager.lua vs KernelTaskManager.txt)
+    local rawName = meta.name:gsub("%.%w+$", ""):lower()
+    local dedupKey = meta.stage .. ":" .. rawName
+    if registeredBasenames[dedupKey] then
+        -- Prefer .lua over .txt if both exist
+        if meta.file:lower():match("%.lua$") or meta.file:lower():match("%.luau$") then
+            for idx, existing in ipairs(Queues[meta.stage]) do
+                local existingRaw = existing.name:gsub("%.%w+$", ""):lower()
+                if existingRaw == rawName then
+                    Queues[meta.stage][idx] = meta
+                    break
+                end
+            end
+        end
+        return
+    end
+    registeredBasenames[dedupKey] = true
+
+    table.insert(Queues[meta.stage], meta)
+    Telemetry.discovered = Telemetry.discovered + 1
+    Telemetry.stages[meta.stage] = (Telemetry.stages[meta.stage] or 0) + 1
+end
+
+local function scanDirectory(dirPath, defaultStage)
+    if not isfolder(dirPath) then return end
+    for _, item in ipairs(listfiles(dirPath)) do
+        if isfolder(item) then
+            local folderName = item:match("[^/\\]+$")
+            if not isIgnoredFolder(folderName) then
+                local lowerFolder = folderName:lower()
+                if lowerFolder == "kernel" or lowerFolder == "root" then
+                    scanDirectory(item, "Kernel")
+                elseif lowerFolder == "preinit" or lowerFolder == "nodelay" then
+                    scanDirectory(item, "PreInit")
+                else
+                    scanDirectory(item, defaultStage)
+                end
+            end
+        else
+            registerScript(item, defaultStage)
+        end
+    end
+end
+
+-- ==========================================
+-- SCRIPT EXECUTION ENGINE
+-- ==========================================
+
+local function executeScript(meta)
+    local file = meta.file
+    if executedFiles[file] then return end
+    executedFiles[file] = true
+
+    local scriptName = meta.name
+    local compileStart = os.clock()
+    local compiledFn, syntaxErr = nil, nil
+    
+    if type(readfile) == "function" and isfile(file) then
+        local ok, content = pcall(readfile, file)
+        if ok and content then
+            compiledFn, syntaxErr = loadstring(content, "@" .. scriptName)
+        else
+            syntaxErr = "Failed to read file from disk."
+        end
+    elseif type(loadfile) == "function" then
+        compiledFn, syntaxErr = loadfile(file)
+    end
+    
+    local compileMs = (os.clock() - compileStart) * 1000
+    local execMs = 0
+    local status = "SUCCESS"
+    local errorMsg = nil
+    
+    local scriptEntry = {
+        name = scriptName,
+        file = file,
+        stage = meta.stage,
+        priority = meta.priority,
+        status = "PENDING",
+        compileMs = math.floor(compileMs * 100) / 100,
+        execMs = 0,
+        error = nil
+    }
+
+    if compiledFn then
+        local execStart = os.clock()
+        -- Coroutine-isolated execution: prevents top-level yields or loops from freezing the bootloader
+        local thread = coroutine.create(function()
+            local success, runtimeErr = xpcall(compiledFn, debug.traceback)
+            if not success then
+                errorMsg = tostring(runtimeErr)
+                warn(string.format("[Bootloader | RUNTIME ERROR]: %s\n%s", scriptName, errorMsg))
+                if scriptEntry.status ~= "RUNTIME_ERROR" then
+                    if scriptEntry.status == "SUCCESS" then
+                        Telemetry.success = math.max(0, Telemetry.success - 1)
+                    end
+                    scriptEntry.status = "RUNTIME_ERROR"
+                    scriptEntry.error = errorMsg
+                    Telemetry.errors = Telemetry.errors + 1
+                    emitTelemetry()
+                end
+            end
+        end)
+        
+        local ok, resumeErr = coroutine.resume(thread)
+        execMs = (os.clock() - execStart) * 1000
+        scriptEntry.execMs = math.floor(execMs * 100) / 100
+        
+        if not ok or errorMsg then
+            status = "RUNTIME_ERROR"
+            errorMsg = errorMsg or tostring(resumeErr)
+            if scriptEntry.status ~= "RUNTIME_ERROR" then
+                Telemetry.errors = Telemetry.errors + 1
+            end
+            scriptEntry.status = status
+            scriptEntry.error = errorMsg
+        else
+            status = "SUCCESS"
+            scriptEntry.status = status
+            Telemetry.success = Telemetry.success + 1
+        end
+    else
+        status = "SYNTAX_ERROR"
+        errorMsg = tostring(syntaxErr or "Unknown compilation error")
+        scriptEntry.status = status
+        scriptEntry.error = errorMsg
+        Telemetry.errors = Telemetry.errors + 1
+        warn(string.format("[Bootloader | SYNTAX ERROR]: %s\n%s", scriptName, errorMsg))
+    end
+    
+    Telemetry.executed = Telemetry.executed + 1
+    table.insert(Telemetry.scripts, scriptEntry)
+end
+
+local function sortQueue(queue)
+    table.sort(queue, function(a, b)
+        if a.priority ~= b.priority then
+            return a.priority > b.priority
+        end
+        return a.name:lower() < b.name:lower()
+    end)
+end
+
+local function runStageWithBudget(stageName, queue)
+    if #queue == 0 then return end
+    local frameStart = os.clock()
+    
+    for _, meta in ipairs(queue) do
+        if not executedFiles[meta.file] then
+            -- Frame budget check: if frame exceeded TARGET_BUDGET_MS (6ms), yield to next engine heartbeat
+            if (os.clock() - frameStart) * 1000 >= TARGET_BUDGET_MS then
+                RunService.Heartbeat:Wait()
+                frameStart = os.clock()
+            end
+            executeScript(meta)
+        end
+    end
+end
+
+-- ==============================================================================
+-- RING 0: KERNEL (Tier 1 - System Hooks, Scheduler & Loop Governor)
+-- ==============================================================================
+-- Frame 0, NO yields, NO task.wait(), purely environment & hooks.
+local bootStart = os.clock()
+
+if isfolder("autoexec/kernel") and not getgenv()._KernelTaskManagerLoaded then
+    scanDirectory("autoexec/kernel", "Kernel")
+end
+
+sortQueue(Queues.Kernel)
+
+for _, meta in ipairs(Queues.Kernel) do
+    executeScript(meta)
+end
+emitTelemetry()
+
+-- ==============================================================================
+-- RING 1: DATAMODEL LEVEL (game ~= nil) - PreInit & Non-Account Discovery
+-- ==============================================================================
+-- Frame 0, DataModel is valid. game.PlaceId and game.GameId are accessible.
+
+for _, item in ipairs(listfiles("autoexec")) do
+    if isfolder(item) then
+        local folderName = item:match("[^/\\]+$")
+        if not isIgnoredFolder(folderName) then
+            local lowerFolder = folderName:lower()
+            if lowerFolder == "kernel" or lowerFolder == "root" then
+                -- Handled in Ring 0
+            elseif lowerFolder == "preinit" or lowerFolder == "nodelay" then
+                -- Universal Frame-0 PreInit (RemoteExecute, utilities, etc.)
+                scanDirectory(item, "PreInit")
+            elseif lowerFolder == "universal" or lowerFolder == "common" or lowerFolder == "shared" then
+                -- Universal folder
+                scanDirectory(item, "GameLoaded")
+            elseif folderName == PlaceIdStr 
+                or folderName:sub(1, #PlaceIdStr + 3) == PlaceIdStr .. " - " 
+                or folderName:sub(1, #PlaceIdStr + 1) == PlaceIdStr .. "_"
+                or lowerFolder == "place_" .. PlaceIdStr 
+                or lowerFolder:sub(1, #PlaceIdStr + 7) == "place_" .. PlaceIdStr .. " - "
+                or lowerFolder:sub(1, #PlaceIdStr + 7) == "place_" .. PlaceIdStr .. "_"
+                or lowerFolder == "place" .. PlaceIdStr then
+                -- Place-specific folder (scans nodelay/ as PreInit, others as GameLoaded)
+                scanDirectory(item, "GameLoaded")
+            elseif (GameIdStr ~= "0" and (folderName == GameIdStr 
+                or folderName:sub(1, #GameIdStr + 3) == GameIdStr .. " - " 
+                or folderName:sub(1, #GameIdStr + 1) == GameIdStr .. "_"
+                or lowerFolder == "universe_" .. GameIdStr 
+                or lowerFolder:sub(1, #GameIdStr + 10) == "universe_" .. GameIdStr .. " - "
+                or lowerFolder == "game_" .. GameIdStr
+                or lowerFolder:sub(1, #GameIdStr + 6) == "game_" .. GameIdStr .. " - ")) then
+                -- Universe-specific folder
+                scanDirectory(item, "GameLoaded")
+            end
+        end
+    else
+        registerScript(item, "GameLoaded")
+    end
+end
+
+sortQueue(Queues.PreInit)
+sortQueue(Queues.GameLoaded)
+sortQueue(Queues.CharacterReady)
+sortQueue(Queues.Deferred)
+
+-- Execute PreInit concurrently at Frame 0 (nodelay, e.g. RemoteExecute)
+for _, meta in ipairs(Queues.PreInit) do
+    task.spawn(executeScript, meta)
+end
+emitTelemetry()
+
+-- ==============================================================================
+-- RINGS 2 & 3: NETWORK CLIENT & USERSPACE LIFECYCLE (Async)
+-- ==============================================================================
+
+task.spawn(function()
+    -- RING 2: NETWORK CLIENT LEVEL (game:GetService("Players") ~= nil & game:IsLoaded())
+    if not game:IsLoaded() then
+        game.Loaded:Wait()
+    end
+    
+    local Players = game:GetService("Players")
+    while not Players do
+        task.wait()
+        Players = game:GetService("Players")
+    end
+
+    -- Settle render frames after join
+    RunService.RenderStepped:Wait()
+
+    -- Execute initial GameLoaded queue with 6ms adaptive budget
+    runStageWithBudget("GameLoaded", Queues.GameLoaded)
+    emitTelemetry()
+
+    -- RING 3: USERSPACE LEVEL (game.Players.LocalPlayer ~= nil)
+    while not Players.LocalPlayer do
+        task.wait()
+    end
+    local LocalPlayer = Players.LocalPlayer
+    local AccountName = LocalPlayer.Name
+    Telemetry.account = AccountName
+
+    -- Discover and register Account-scoped directory
+    local initialDiscovered = Telemetry.discovered
+    for _, item in ipairs(listfiles("autoexec")) do
+        if isfolder(item) then
+            local folderName = item:match("[^/\\]+$")
+            if not isIgnoredFolder(folderName) then
+                local lowerFolder = folderName:lower()
+                if lowerFolder == "account_" .. AccountName:lower() 
+                    or lowerFolder == AccountName:lower() 
+                    or lowerFolder == "user_" .. AccountName:lower()
+                    or lowerFolder:sub(1, #AccountName + 9) == "account_" .. AccountName:lower() .. " - "
+                    or lowerFolder:sub(1, #AccountName + 6) == "user_" .. AccountName:lower() .. " - " then
+                    
+                    scanDirectory(item, "GameLoaded")
+                end
+            end
+        end
+    end
+
+    if Telemetry.discovered > initialDiscovered then
+        sortQueue(Queues.GameLoaded)
+        sortQueue(Queues.CharacterReady)
+        sortQueue(Queues.Deferred)
+        -- Run any newly added GameLoaded scripts from the account folder
+        runStageWithBudget("GameLoaded", Queues.GameLoaded)
+        emitTelemetry()
+    end
+
+    -- STAGE 3: CharacterReady (Waits for character spawn)
+    if #Queues.CharacterReady > 0 then
+        if not LocalPlayer.Character then
+            LocalPlayer.CharacterAdded:Wait()
+        end
+        RunService.Heartbeat:Wait()
+        runStageWithBudget("CharacterReady", Queues.CharacterReady)
+    end
+    emitTelemetry()
+
+    -- STAGE 4: Deferred (Background / Telemetry)
+    if #Queues.Deferred > 0 then
+        task.wait(0.5)
+        for _, meta in ipairs(Queues.Deferred) do
+            if not executedFiles[meta.file] then
+                executeScript(meta)
+                RunService.Heartbeat:Wait()
+            end
+        end
+    end
+
+    local totalBootMs = (os.clock() - bootStart) * 1000
+    Telemetry.totalDurationMs = math.floor(totalBootMs * 100) / 100
+    emitTelemetry()
+
+    print(string.format("[Bootloader]: Boot completed in %.1fms | Discovered: %d | Executed: %d | Success: %d | Errors: %d",
+        totalBootMs, Telemetry.discovered, Telemetry.executed, Telemetry.success, Telemetry.errors))
+end)

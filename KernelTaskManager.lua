@@ -3960,7 +3960,7 @@ local function createTabBtn(name, text, order)
     return btn
 end
 
-local TabTasksBtn = createTabBtn("TabTasksBtn", "⚡ Tasks", 1)
+local TabTasksBtn = createTabBtn("TabTasksBtn", "⚡ Runtime", 1)
 local TabLoopsBtn = createTabBtn("TabLoopsBtn", "🔄 Loops", 2)
 local TabPerfBtn = createTabBtn("TabPerfBtn", "📈 Performance", 3)
 local TabStartupBtn = createTabBtn("TabStartupBtn", "🚀 Startup", 4)
