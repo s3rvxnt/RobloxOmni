@@ -2739,16 +2739,19 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
         end
         local durationUs = math.max(0, (now - (loop.iterationStart or now)) * 1000000)
         local durationMs = durationUs / 1000
+        -- If durationMs > 50ms, the coroutine yielded on an RBXScriptSignal / event (:Wait()) between task.waits
+        -- Clamp cpuMs to prevent idle event wait time from inflating Lua execution load
+        local cpuMs = math.min(durationMs, 10.0)
         loop.lastDurationUs = durationUs
         loop.lastTimeMs = durationMs
-        loop.avgTimeMs = (loop.avgTimeMs * 0.85) + (durationMs * 0.15)
+        loop.avgTimeMs = (loop.avgTimeMs * 0.85) + (cpuMs * 0.15)
         loop.recentAvgMs = math.floor(loop.avgTimeMs * 1000) / 1000
-        if durationMs > (loop.peakTimeMs or 0) then
-            loop.peakTimeMs = durationMs
+        if cpuMs > (loop.peakTimeMs or 0) then
+            loop.peakTimeMs = cpuMs
         end
 
-        -- Autonomous Auto-Throttler: downshift if loop burns > 2.5ms and isn't locked (executor loops only)
-        if loop.isExecutor and not loop.locked and loop.avgTimeMs > 2.5 and not loop.autoThrottled then
+        -- Autonomous Auto-Throttler: only downshift rapid tight loops (frequencyHz >= 15) that burn > 2.5ms per frame
+        if loop.isExecutor and not loop.locked and loop.avgTimeMs > 2.5 and (loop.frequencyHz or 0) >= 15 and not loop.autoThrottled then
             loop.autoThrottled = true
             loop.targetHz = 15
             loop.minDelay = 1 / 15
