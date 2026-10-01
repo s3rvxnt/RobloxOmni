@@ -24,21 +24,31 @@ if type(isfolder) ~= "function" or type(listfiles) ~= "function" then
     return
 end
 
--- Ensure baseline directories exist
-if not isfolder("autoexec") then makefolder("autoexec") end
-if not isfolder("autoexec/kernel") then makefolder("autoexec/kernel") end
-if not isfolder("autoexec/preinit") and not isfolder("autoexec/nodelay") then makefolder("autoexec/preinit") end
+-- Ensure baseline stage directories exist
+local BASE_STAGE_DIRS = {
+    "autoexec",
+    "autoexec/kernel",
+    "autoexec/preinit",
+    "autoexec/gameloaded",
+    "autoexec/characterloaded",
+    "autoexec/deferred"
+}
+for _, dir in ipairs(BASE_STAGE_DIRS) do
+    if not isfolder(dir) then pcall(makefolder, dir) end
+end
 
 -- ==============================================================================
--- GITHUB KERNEL AUTO-MIRRORING & AUTO-UPDATER
+-- GITHUB STAGE AUTO-MIRRORING & DYNAMIC SYNC
 -- ==============================================================================
--- Automatically provisions and updates KernelTaskManager from GitHub
-local KERNEL_MIRRORS = {
+local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
+local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
+
+local DEFAULT_STAGE_MIRRORS = {
     {
-        path = "autoexec/kernel/KernelTaskManager.lua",
-        url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/KernelTaskManager.lua",
+        repoPath = "kernel/KernelTaskManager.lua",
+        localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        desc = "Kernel Task Manager (Shift + F8)"
+        desc = "Kernel Task Manager & Runtime Micro-Kernel (Shift + F8)"
     }
 }
 
@@ -59,41 +69,67 @@ local function fetchGithubScript(url)
     return nil
 end
 
-for _, mirror in ipairs(KERNEL_MIRRORS) do
-    local fileExists = isfile(mirror.path)
+-- Try fetching dynamic manifest from GitHub
+local activeMirrors = DEFAULT_STAGE_MIRRORS
+local manifestRaw = fetchGithubScript(MANIFEST_URL .. "?v=" .. tostring(os.time()))
+if manifestRaw and HttpService then
+    local ok, parsed = pcall(function() return HttpService:JSONDecode(manifestRaw) end)
+    if ok and parsed and type(parsed.stages) == "table" and #parsed.stages > 0 then
+        activeMirrors = parsed.stages
+    end
+end
+
+for _, mirror in ipairs(activeMirrors) do
+    local localPath = mirror.localPath or mirror.path
+    local repoPath = mirror.repoPath or mirror.url
+    local mirrorName = mirror.name or localPath:match("[^/\\]+$") or "Component"
+
+    -- Ensure parent folder exists
+    local parentFolder = localPath:match("^(.*)[/\\][^/\\]+$")
+    if parentFolder and not isfolder(parentFolder) then
+        pcall(makefolder, parentFolder)
+    end
+
+    local fileExists = isfile(localPath)
     local existingContent = nil
     if fileExists then
-        local ok, data = pcall(readfile, mirror.path)
+        local ok, data = pcall(readfile, localPath)
         if ok and data and #data > 100 then
             existingContent = data
         end
     end
 
-    -- Check GitHub for updates
-    local latestContent = fetchGithubScript(mirror.url .. "?v=" .. tostring(os.time()))
+    -- Construct remote URL (handles relative repoPath or full URL)
+    local remoteUrl = repoPath
+    if not remoteUrl:find("^https?://") then
+        remoteUrl = GITHUB_REPO_RAW .. remoteUrl
+    end
+
+    -- Check GitHub for updates with cache-busting timestamp
+    local latestContent = fetchGithubScript(remoteUrl .. "?v=" .. tostring(os.time()))
     if latestContent then
         if not existingContent then
-            local writeOk, writeErr = pcall(writefile, mirror.path, latestContent)
+            local writeOk, writeErr = pcall(writefile, localPath, latestContent)
             if writeOk then
-                print(string.format("[Bootloader]: Successfully installed %s -> %s", mirror.name, mirror.path))
+                print(string.format("[Bootloader]: Successfully installed %s -> %s", mirrorName, localPath))
             else
-                warn(string.format("[Bootloader]: Failed to write %s: %s", mirror.path, tostring(writeErr)))
+                warn(string.format("[Bootloader]: Failed to write %s: %s", localPath, tostring(writeErr)))
             end
         elseif existingContent ~= latestContent then
-            local writeOk, writeErr = pcall(writefile, mirror.path, latestContent)
+            local writeOk, writeErr = pcall(writefile, localPath, latestContent)
             if writeOk then
-                print(string.format("[Bootloader]: Auto-updated %s to latest version from GitHub!", mirror.name))
+                print(string.format("[Bootloader]: Auto-updated %s to latest version from GitHub!", mirrorName))
             else
-                warn(string.format("[Bootloader]: Failed to update %s: %s", mirror.path, tostring(writeErr)))
+                warn(string.format("[Bootloader]: Failed to update %s: %s", localPath, tostring(writeErr)))
             end
         else
-            print(string.format("[Bootloader]: %s is up-to-date.", mirror.name))
+            print(string.format("[Bootloader]: %s is up-to-date.", mirrorName))
         end
     else
         if fileExists then
-            print(string.format("[Bootloader]: GitHub unreachable. Using cached %s.", mirror.name))
+            print(string.format("[Bootloader]: GitHub unreachable. Using cached %s.", mirrorName))
         else
-            warn(string.format("[Bootloader]: Could not fetch %s from GitHub and no local cache exists.", mirror.name))
+            warn(string.format("[Bootloader]: Could not fetch %s from GitHub and no local cache exists.", mirrorName))
         end
     end
 end
@@ -105,9 +141,13 @@ local GameIdStr = tostring(game.GameId or 0)
 local STAGES = {
     kernel = "Kernel",
     preinit = "PreInit",
+    nodelay = "PreInit",
     gameloaded = "GameLoaded",
+    gameload = "GameLoaded",
     characterready = "CharacterReady",
-    deferred = "Deferred"
+    characterloaded = "CharacterReady",
+    deferred = "Deferred",
+    deffered = "Deferred"
 }
 
 -- Queue buckets
@@ -249,6 +289,12 @@ local function scanDirectory(dirPath, defaultStage)
                     scanDirectory(item, "Kernel")
                 elseif lowerFolder == "preinit" or lowerFolder == "nodelay" then
                     scanDirectory(item, "PreInit")
+                elseif lowerFolder == "gameloaded" or lowerFolder == "game_loaded" then
+                    scanDirectory(item, "GameLoaded")
+                elseif lowerFolder == "characterready" or lowerFolder == "characterloaded" or lowerFolder == "character_loaded" or lowerFolder == "character_ready" then
+                    scanDirectory(item, "CharacterReady")
+                elseif lowerFolder == "deferred" or lowerFolder == "deffered" then
+                    scanDirectory(item, "Deferred")
                 else
                     scanDirectory(item, defaultStage)
                 end

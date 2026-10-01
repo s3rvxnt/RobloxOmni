@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "stages": [
+    {
+      "repoPath": "kernel/KernelTaskManager.lua",
+      "localPath": "autoexec/kernel/KernelTaskManager.lua",
+      "stage": "Kernel",
+      "name": "KernelTaskManager",
+      "desc": "Kernel Task Manager & Runtime Micro-Kernel (Shift + F8)"
+    }
+  ]
+}
