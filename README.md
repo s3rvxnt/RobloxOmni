@@ -15,18 +15,21 @@ Omni changes that. It meters execution at 6.0ms per frame, dynamically throttles
 
 ### Get Started
 
-#### 1-Click Setup (Recommended)
-Paste into Windows PowerShell:
+#### Option 1: 1-Click Setup *(Recommended)*
+Download and double-click **[`install.bat`](install.bat)**.
 
-```powershell
-irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/install.ps1 | iex
+* Automatically detects every executor on your machine (Potassium, Solara, Wave, etc.)
+* Migrates your existing loose scripts from `autoexec/` to `workspace/autoexec/`
+* Deploys `Bootloader.lua` into place in under a second
+
+#### Option 2: In-Game Session *(Zero Install)*
+Paste into your executor and hit **Execute**:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()
 ```
 
-* Auto-detects every executor installed on your machine (Potassium, Solara, Wave, etc.)
-* Migrates existing loose scripts from `autoexec/` to `workspace/autoexec/`
-* Deploys `Bootloader.lua` instantly
-
-#### Or Manual Setup:
+#### Option 3: Manual Setup
 Drop **[`Bootloader.lua`](Bootloader.lua)** into your executor's `autoexec` folder (right next to your `workspace` folder).
 
 ```text
@@ -34,14 +37,6 @@ YourExecutor/
 ├── autoexec/
 │   └── Bootloader.lua
 └── workspace/
-```
-
-**That's it.** Omni builds its own directories, fetches the latest kernel, and keeps everything up to date forever.
-
-#### Or run it live:
-
-```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()
 ```
 
 ---
