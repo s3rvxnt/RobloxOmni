@@ -47,6 +47,7 @@ YourExecutor/
 * **6.0ms Adaptive Budget** — Smoothly yields to the host engine. 20+ scripts load with zero frame drops.
 * **Silent Auto-Updates** — Checks GitHub on boot and updates the kernel seamlessly. Zero maintenance.
 * **Panic Switch** — `getgenv().UnloadAllTasks()`. Every task, disconnected cleanly in one click.
+* **4-Tier Stage Organization** — Drop scripts into `kernel/`, `preinit/`, `gameloaded/`, `characterloaded/`, or `deferred/` for automatic priority execution.
 
 ---
 
