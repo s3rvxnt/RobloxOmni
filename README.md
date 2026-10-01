@@ -6,85 +6,75 @@
 [![Status: Production](https://img.shields.io/badge/Status-Release%20v1.0-brightgreen.svg)](#)
 
 > **The first all-in-one adaptive, frame-budgeted autoexec bootloader and Windows 11 Task Manager for Roblox.**  
-> Built as a single, self-contained Luau script. Eliminates startup client freezes, caps background task CPU load, and provides microsecond-precision task profiling with zero dependencies.
+> Built as a **single, self-contained Luau script**. Eliminates startup client freezes, caps background task CPU load, and provides microsecond-precision task profiling with zero dependencies and zero runtime downloads.
 
 ---
 
-## ⚡ Quick Start
+## 🚀 Installation (One Script)
 
-### Option 1: One-Click Autoexec Installer *(Recommended)*
-Run this in your executor to automatically download and install `OmniBootloader.lua` directly into your `autoexec/` folder:
+Because all Roblox executors strictly sandbox Luau file I/O (`readfile`, `writefile`, `listfiles`) to the `workspace/` folder, the executor's native `autoexec/` directory cannot be written to from inside a game. 
 
-```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/install.lua"))()
-```
-*Writes `autoexec/OmniBootloader.lua` and immediately boots the kernel.*
+Omni Bootloader is designed as **ONE standalone script** that you place directly into your executor's root `autoexec/` directory:
 
-### Option 2: Instant 1-Line Launch (No Installation)
-Run the bootloader and Task Manager in memory for your current session without touching your files:
-
-```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/OmniBootloader.lua"))()
-```
-
-### Option 3: Manual Autoexec Drop-In
-1. Download [`OmniBootloader.lua`](OmniBootloader.lua).
-2. Place it into your executor's `autoexec/` directory:
+1. Download **[`CustomAutoExec.lua`](CustomAutoExec.lua)** (or `OmniBootloader.lua`).
+2. Move it into your executor's `autoexec/` directory:
    ```text
    Potassium/
    └── autoexec/
-       └── OmniBootloader.lua
+       └── CustomAutoExec.lua
    ```
+3. Launch Roblox. That's it!
 
-* **Toggle Hotkey:** `Shift + F8` (or call `getgenv().ToggleTaskManagerHUD()`)
-* **Panic Switch:** `getgenv().UnloadAllTasks()` to cleanly disconnect all background tasks instantly.
+* **In-Game Hotkey:** Press **`Shift + F8`** (or call `getgenv().ToggleTaskManagerHUD()`) to open the Windows 11 Task Manager.
+* **Panic Switch:** Call `getgenv().UnloadAllTasks()` to cleanly disconnect all background tasks instantly.
 
 ---
 
 ## 💎 What Makes Omni Bootloader Different?
 
-Traditional autoexec setups execute all scripts simultaneously as soon as the game opens. Heavy scripts, infinite loops, and unthrottled `RenderStepped` connections cause **micro-stutters, FPS drops, and full game freezes**.
+Traditional autoexec setups execute all scripts simultaneously as soon as the client injects. Heavy scripts, unthrottled loops, and simultaneous asset loading cause **micro-stutters, FPS drops, and complete client freezes on launch**.
 
 Omni Bootloader solves this in **ONE single script**:
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                    Roblox Engine (RunService)                 │
-└──────────────────────────────┬────────────────────────────────┘
-                               │ (Intercepted Hook)
-┌──────────────────────────────▼────────────────────────────────┐
-│             Omni Runtime Micro-Kernel (8.0ms Budget)           │
-│  ├─ Auto-Throttler: Demotes heavy loops (>2.5ms) from 60Hz     │
-│  ├─ Phase Protection: Eliminates Heartbeat starvation          │
-│  └─ Error Boundary: xpcall + coroutine crash containment       │
-└──────┬───────────────────────┬───────────────────────┬────────┘
-       │ (High: 60Hz)          │ (Medium: 30Hz)        │ (Low: 15Hz)
-┌──────▼──────────────┐ ┌──────▼──────────────┐ ┌──────▼──────────────┐
-│  Physics & Movement │ │   Visuals & ESPs    │ │ Stat Loggers & Farms │
-└─────────────────────┘ └─────────────────────┘ └─────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Roblox Engine (RunService)                      │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ (Intercepted Hook)
+┌───────────────────────────────────▼────────────────────────────────────┐
+│                    Omni Bootloader & Runtime Micro-Kernel              │
+│  ├─ Ring 0: Embedded Virtual Scheduler & Windows 11 Task Manager (F8)   │
+│  ├─ Auto-Throttler: Demotes heavy loops (>2.5ms) from 60Hz             │
+│  ├─ Adaptive 6ms Budget: Smoothly yields to Heartbeat during startup   │
+│  └─ Error Boundary: xpcall + coroutine crash containment               │
+└───────────┬───────────────────────┬───────────────────────┬────────────┘
+            │ (High: 60Hz)          │ (Medium: 30Hz)        │ (Low: 15Hz)
+┌───────────▼───────────┐ ┌─────────▼───────────┐ ┌─────────▼────────────┐
+│  Physics & Movement   │ │   Visuals & ESPs    │ │ Stat Loggers & Farms │
+└───────────────────────┘ └─────────────────────┘ └──────────────────────┘
 ```
 
-### 1. Unified Single-File Deployment
-No multi-folder setup. No external dependencies. No GitHub network requests required at runtime. The entire micro-kernel, auto-throttler, Windows 11 Task Manager GUI, and adaptive bootloader engine live together in **[`OmniBootloader.lua`](OmniBootloader.lua)**.
+### 1. Truly Self-Contained (One File)
+No separate loaders. No multi-folder setup. No runtime GitHub downloads that fail when offline or rate-limited. The entire micro-kernel, auto-throttler, Windows 11 Task Manager GUI, and adaptive bootloader engine live together in that single script.
 
-### 2. Adaptive 6.0ms Frame-Budgeting
-Grants up to **6.0ms** of script execution per frame during startup, smoothly yielding to `Heartbeat` so Roblox never drops frames or freezes while loading your scripts.
+### 2. 4-Tier Ring Lifecycle Organization
+Omni Bootloader automatically organizes any scripts you place in your sandboxed `workspace/autoexec/` directory into deterministic execution rings:
+* **Ring 0 (Kernel):** Built directly into Omni Bootloader, boots on Frame 0 before any game code runs.
+* **Ring 1 (PreInit / DataModel):** Executed as soon as `game` exists (`workspace/autoexec/preinit/`).
+* **Ring 2 (GameLoaded / Network):** Executed when `game:IsLoaded()` passes (`workspace/autoexec/GameLoaded/`).
+* **Ring 3 (CharacterReady & Deferred):** Executed when your character spawns and network idle completes.
 
-### 3. Transparent `RunService` Interception
+### 3. Adaptive 6.0ms Frame Budgeting
+Grants up to **6.0ms** of script execution per frame during startup, smoothly yielding to `Heartbeat` so Roblox never drops frames or freezes while loading 20+ autoexec scripts.
+
+### 4. Transparent `RunService` Interception
 Hooks `RunService.__index` and `RunService.__namecall`. Any third-party script calling `RunService.Heartbeat:Connect(...)` or `RenderStepped:Connect(...)` is **automatically routed into the virtual scheduler without modifying a single line of their code**.
 
-### 4. Windows 11 Fluent Task Manager GUI (`Shift + F8`)
+### 5. Windows 11 Fluent Task Manager GUI (`Shift + F8`)
 A modern, dark-mode administrative dashboard right inside Roblox:
 * **Microsecond CPU Profiling:** Live meters showing exact CPU time per task, peak spike tracking, and invocation rates.
 * **Live Process Controls:** Pause, resume, kill, or lock task priority live.
 * **Panic Controls:** Instant "Kill All Tasks", "Purge Drawings", and "Mute Remotes".
-
-### 5. 4-Tier Ring Bootloader Architecture
-Automatically organizes your other scripts into deterministic lifecycle stages:
-* **Ring 0 (Kernel):** Embedded in OmniBootloader, boots on Frame 0.
-* **Ring 1 (PreInit / DataModel):** Executed as soon as `game` exists (`autoexec/preinit/`).
-* **Ring 2 (GameLoaded / Network):** Executed when `game:IsLoaded()` passes (`autoexec/GameLoaded/`).
-* **Ring 3 (CharacterReady & Deferred):** Executed when your character spawns and network idle completes.
 
 ---
 
