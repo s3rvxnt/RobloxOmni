@@ -81,12 +81,8 @@ if not getgenv()._KernelLoadstringShimInstalled then
     end
 end
 
-local _KernelExemptScripts = {
-    ["dooroptimizer"] = true,
-    ["doorsoptimizer"] = true,
-    ["washiezdoor"] = true,
-    ["door_optimizer"] = true,
-}
+-- Universal Scheduler Exemption Registry (API for external scripts/addons to opt out of loop management)
+local _KernelExemptScripts = {}
 getgenv()._KernelExemptScripts = _KernelExemptScripts
 getgenv().ExemptScriptFromScheduler = function(pattern)
     if pattern and type(pattern) == "string" and pattern ~= "" then
@@ -106,11 +102,7 @@ local function isSelfOrKernel(name)
         or lower:find("utils", 1, true) ~= nil
         or lower:find("remoteexecute", 1, true) ~= nil
         or lower:find("customautoexec", 1, true) ~= nil
-        or lower:find("bootloader", 1, true) ~= nil
-        or lower:find("dooroptimizer", 1, true) ~= nil
-        or lower:find("doorsoptimizer", 1, true) ~= nil
-        or lower:find("washiezdoor", 1, true) ~= nil
-        or lower:find("door_optimizer", 1, true) ~= nil then
+        or lower:find("bootloader", 1, true) ~= nil then
         return true
     end
     if _KernelExemptScripts then
