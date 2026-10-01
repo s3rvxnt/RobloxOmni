@@ -15,6 +15,18 @@ Omni changes that. It meters execution at 6.0ms per frame, dynamically throttles
 
 ### Get Started
 
+#### 1-Click Setup (Recommended)
+Paste into Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/install.ps1 | iex
+```
+
+* Automatically migrates any existing `autoexec` scripts into `workspace/autoexec/`
+* Drops `Bootloader.lua` into your autoexec directory
+* Takes less than a second
+
+#### Or Manual Setup:
 Drop **[`Bootloader.lua`](Bootloader.lua)** into your executor's `autoexec` folder.
 
 ```text
