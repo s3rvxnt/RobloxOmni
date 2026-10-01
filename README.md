@@ -22,17 +22,18 @@ Paste into Windows PowerShell:
 irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/install.ps1 | iex
 ```
 
-* Automatically migrates any existing `autoexec` scripts into `workspace/autoexec/`
-* Drops `Bootloader.lua` into your autoexec directory
-* Takes less than a second
+* Auto-detects every executor installed on your machine (Potassium, Solara, Wave, etc.)
+* Migrates existing loose scripts from `autoexec/` to `workspace/autoexec/`
+* Deploys `Bootloader.lua` instantly
 
 #### Or Manual Setup:
-Drop **[`Bootloader.lua`](Bootloader.lua)** into your executor's `autoexec` folder.
+Drop **[`Bootloader.lua`](Bootloader.lua)** into your executor's `autoexec` folder (right next to your `workspace` folder).
 
 ```text
-Potassium/
-└── autoexec/
-    └── Bootloader.lua
+YourExecutor/
+├── autoexec/
+│   └── Bootloader.lua
+└── workspace/
 ```
 
 **That's it.** Omni builds its own directories, fetches the latest kernel, and keeps everything up to date forever.

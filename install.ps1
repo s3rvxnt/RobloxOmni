@@ -1,5 +1,7 @@
-# Omni 1-Click Installer
+# Omni Universal 1-Click Installer
 # Run: irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/install.ps1 | iex
+
+param([string]$Path)
 
 $ErrorActionPreference = 'Stop'
 
@@ -8,49 +10,116 @@ Write-Host "  Omni" -ForegroundColor Cyan
 Write-Host "  Zero lag. Adaptive budgeting. Silent auto-updates." -ForegroundColor DarkGray
 Write-Host ""
 
-# Target paths for Potassium
-$potassiumDir = Join-Path $env:LOCALAPPDATA "Potassium"
-if (-not (Test-Path $potassiumDir)) {
-    Write-Host "[-] Potassium directory not found at $potassiumDir" -ForegroundColor Red
-    return
-}
+$detectedRoots = [System.Collections.Generic.List[string]]::new()
 
-$autoexecDir = Join-Path $potassiumDir "autoexec"
-$workspaceDir = Join-Path $potassiumDir "workspace"
-$targetAutoexec = Join-Path $workspaceDir "autoexec"
+# If user provided an explicit path
+if ($Path -and (Test-Path $Path)) {
+    $detectedRoots.Add((Get-Item $Path).FullName)
+} else {
+    # Scan standard executor locations across the system
+    # Universal Invariant: Every Roblox executor places 'autoexec' and 'workspace' as sibling folders in its root.
+    $searchRoots = @(
+        (Get-Location).Path,
+        $env:LOCALAPPDATA,
+        $env:APPDATA,
+        (Join-Path $env:USERPROFILE 'Desktop'),
+        (Join-Path $env:USERPROFILE 'Downloads'),
+        (Join-Path $env:USERPROFILE 'Documents')
+    )
 
-if (-not (Test-Path $autoexecDir)) { 
-    New-Item -ItemType Directory -Path $autoexecDir -Force | Out-Null 
-}
-if (-not (Test-Path $targetAutoexec)) { 
-    New-Item -ItemType Directory -Path $targetAutoexec -Force | Out-Null 
-}
+    foreach ($searchRoot in $searchRoots) {
+        if (-not (Test-Path $searchRoot)) { continue }
 
-# Migrate existing scripts from root autoexec to workspace/autoexec
-# Exclude Bootloader.lua and system scripts like que_on_teleport
-$excludeList = @("Bootloader.lua", "CustomAutoExec.lua", "que_on_teleport.lua", "OmniBootloader.lua")
-$existingScripts = Get-ChildItem -Path $autoexecDir -File | Where-Object {
-    $excludeList -notcontains $_.Name -and ($_.Extension -in @(".lua", ".luau", ".txt"))
-}
+        # Check the search root itself
+        $hasWs = Test-Path (Join-Path $searchRoot 'workspace')
+        $hasAe = Test-Path (Join-Path $searchRoot 'autoexec')
+        if ($hasWs -and $hasAe) {
+            $full = (Get-Item $searchRoot).FullName
+            if (-not $detectedRoots.Contains($full)) { $detectedRoots.Add($full) }
+        }
 
-if ($existingScripts.Count -gt 0) {
-    Write-Host "[+] Migrating $($existingScripts.Count) existing script(s) to workspace/autoexec/..." -ForegroundColor Yellow
-    foreach ($file in $existingScripts) {
-        $destPath = Join-Path $targetAutoexec $file.Name
-        Move-Item -Path $file.FullName -Destination $destPath -Force
-        Write-Host "    -> Migrated: $($file.Name)" -ForegroundColor DarkGray
+        # Check 1-level deep subdirectories
+        Get-ChildItem -Path $searchRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $subWs = Test-Path (Join-Path $_.FullName 'workspace')
+            $subAe = Test-Path (Join-Path $_.FullName 'autoexec')
+            if ($subWs -and ($subAe -or (Get-ChildItem -Path $_.FullName -Filter '*.exe' -File -ErrorAction SilentlyContinue))) {
+                if (-not $detectedRoots.Contains($_.FullName)) {
+                    $detectedRoots.Add($_.FullName)
+                }
+            }
+        }
     }
 }
 
-# Download latest Bootloader.lua directly into root autoexec
-Write-Host "[+] Installing latest Bootloader.lua..." -ForegroundColor Cyan
+# If still not found, prompt interactively
+if ($detectedRoots.Count -eq 0) {
+    Write-Host "[?] No executor directory automatically detected." -ForegroundColor Yellow
+    $userPath = Read-Host "    Enter your executor folder path (e.g. C:\Executors\Solara)"
+    if ($userPath -and (Test-Path $userPath)) {
+        $detectedRoots.Add((Get-Item $userPath).FullName)
+    } else {
+        Write-Host "[-] Invalid directory path. Installation aborted." -ForegroundColor Red
+        return
+    }
+}
+
+Write-Host "[+] Discovered $($detectedRoots.Count) executor installation(s):" -ForegroundColor Cyan
+foreach ($root in $detectedRoots) {
+    $execName = Split-Path $root -Leaf
+    Write-Host "    -> $execName ($root)" -ForegroundColor DarkGray
+}
+Write-Host ""
+
+# Fetch latest Bootloader.lua once into memory
+Write-Host "[+] Fetching latest Bootloader.lua from GitHub..." -ForegroundColor Cyan
 $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 $bootloaderUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua?v=$timestamp"
-$bootloaderDest = Join-Path $autoexecDir "Bootloader.lua"
+$bootloaderContent = (Invoke-RestMethod -Uri $bootloaderUrl)
 
-Invoke-RestMethod -Uri $bootloaderUrl -OutFile $bootloaderDest
+$excludeList = @("Bootloader.lua", "CustomAutoExec.lua", "OmniBootloader.lua", "que_on_teleport.lua")
+
+# Deploy to each detected executor
+foreach ($root in $detectedRoots) {
+    $execName = Split-Path $root -Leaf
+    $autoexecDir = Join-Path $root "autoexec"
+    $workspaceDir = Join-Path $root "workspace"
+    $targetWorkspaceAutoexec = Join-Path $workspaceDir "autoexec"
+
+    if (-not (Test-Path $autoexecDir)) {
+        New-Item -ItemType Directory -Path $autoexecDir -Force | Out-Null
+    }
+    if (-not (Test-Path $workspaceDir)) {
+        New-Item -ItemType Directory -Path $workspaceDir -Force | Out-Null
+    }
+    if (-not (Test-Path $targetWorkspaceAutoexec)) {
+        New-Item -ItemType Directory -Path $targetWorkspaceAutoexec -Force | Out-Null
+    }
+
+    # Universal migration: move loose scripts from real autoexec into workspace/autoexec
+    $legacyFiles = Get-ChildItem -Path $autoexecDir -File -ErrorAction SilentlyContinue | Where-Object {
+        $excludeList -notcontains $_.Name -and ($_.Extension -in @(".lua", ".luau", ".txt"))
+    }
+
+    $migratedCount = 0
+    if ($legacyFiles) {
+        foreach ($file in $legacyFiles) {
+            $dest = Join-Path $targetWorkspaceAutoexec $file.Name
+            Move-Item -Path $file.FullName -Destination $dest -Force
+            $migratedCount++
+        }
+    }
+
+    # Deploy Bootloader.lua
+    $bootloaderDest = Join-Path $autoexecDir "Bootloader.lua"
+    Set-Content -Path $bootloaderDest -Value $bootloaderContent -NoNewline
+
+    Write-Host "[OK] $execName" -ForegroundColor Green
+    if ($migratedCount -gt 0) {
+        Write-Host "     -> Migrated $migratedCount script(s) to workspace/autoexec/" -ForegroundColor Yellow
+    }
+    Write-Host "     -> Deployed Bootloader.lua to autoexec/" -ForegroundColor Gray
+}
 
 Write-Host ""
-Write-Host "[OK] Omni installed successfully." -ForegroundColor Green
-Write-Host "     Launch Roblox to start." -ForegroundColor Gray
+Write-Host "All set. Launch Roblox to start." -ForegroundColor Green
 Write-Host ""
