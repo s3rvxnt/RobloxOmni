@@ -22,7 +22,7 @@
     - Clean Teardown & Panic Switch: getgenv().UnloadAllTasks() + auto-teardown on Close.
     - Live Performance Profiling: microsecond tracking emitted to workspace/Scheduler_Profile.json every 2s.
 
-    [ SECTION 2: WINDOWS 11 FLUENT TASK MANAGER GUI ]
+    [ SECTION 2: FLUENT TASK MANAGER HUD ]
     - Admin Hotkey: Shift + F8 (or getgenv().ToggleTaskManagerHUD())
     - Real-Time Process Monitoring: Per-task CPU (ms), Spike (ms), Priority, Invocations
     - Interactive Context Controls: Pause/Resume, Lock Priority, Kill Task
@@ -3619,7 +3619,7 @@ getgenv()._VirtualSchedulerLoaded = true
 
 
 -- ==============================================================================
--- SECTION 2: WINDOWS 11 FLUENT TASK MANAGER GUI (HUD)
+-- SECTION 2: FLUENT TASK MANAGER HUD
 -- ==============================================================================
 
 local function initHUD()

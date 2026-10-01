@@ -100,7 +100,7 @@ Grants up to **6.0ms** of script execution per frame during startup, smoothly yi
 ### 4. Transparent `RunService` Interception
 Hooks `RunService.__index` and `RunService.__namecall`. Third-party scripts calling `RunService.Heartbeat:Connect(...)` or `RenderStepped:Connect(...)` are **automatically routed into the virtual scheduler without modifying a single line of their code**. If an unmodded loop consumes excessive CPU time (>2.5ms), the auto-throttler demotes it to 30Hz or 15Hz.
 
-### 5. Windows 11 Fluent Task Manager GUI (`Shift + F8`)
+### 5. Fluent Task Manager HUD (`Shift + F8`)
 A modern, dark-mode administrative dashboard right inside Roblox:
 * **Microsecond CPU Profiling:** Live meters showing exact CPU time per task, peak spike tracking, and invocation rates.
 * **Live Process Controls:** Pause, resume, kill, or lock task priority live.
@@ -137,7 +137,7 @@ conn:Disconnect()
 
 ## 🗺️ Release Roadmap
 
-* [x] **v1.0 (Current Release):** **Omni Bootloader & Task Manager** — Modular auto-updating bootloader with transparent virtual scheduling and Windows Task Manager GUI.
+* [x] **v1.0 (Current Release):** **Omni Bootloader & Task Manager** — Modular auto-updating bootloader with transparent virtual scheduling and real-time Task Manager HUD.
 * [ ] **v2.0 (Next Release):** **Omni Shortcuts Automation Suite** — Zero-code visual automation pipelines with parameter cards, native triggers, and action gallery.
 
 ---
