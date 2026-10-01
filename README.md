@@ -1,5 +1,7 @@
 # Omni
 
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-orange.svg)](LICENSE)
+
 > **Zero lag. Adaptive budgeting. Silent auto-updates.**  
 > The intelligent bootloader and task manager for Roblox.
 
@@ -73,4 +75,5 @@ end)
 
 ### License
 
-MIT
+Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).  
+Free to use, modify, and share for personal, non-commercial use. Commercial resale, monetization gates, and paid key systems are strictly prohibited.
