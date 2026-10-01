@@ -1584,6 +1584,36 @@ end
 -- ==============================================================================
 local GALLERY_RECIPES = {
     {
+        id = "gallery_bounty_hunter",
+        name = "Bounty Hunter Protocol",
+        description = "Target lock nearest player, drone spectate, pathfind sprint, announce, emote & log to clipboard [Hotkey: Z]",
+        icon = "🎯",
+        color = "red",
+        scope = "universal",
+        trigger = { type = "Keybind", key = "Z" },
+        condition = { type = "Always" },
+        actions = {
+            { type = "PlaySound", sound = "Alert", volume = 1.0 },
+            { type = "FindNearest", source = "Players", varName = "bounty", maxDistance = 1000 },
+            { type = "HighlightInstance", target = "$bounty", color = "gold", duration = 15 },
+            { type = "Toast", title = "TARGET LOCKED", message = "Bounty: $bounty.Name ($nearestDistance studs away)" },
+            { type = "Spectate", target = "$bounty" },
+            { type = "Wait", duration = 1.5 },
+            { type = "ResetCamera" },
+            { type = "SetCharacterState", property = "WalkSpeed", value = "32" },
+            { type = "PathfindTo", target = "$bounty", stopDistance = 5 },
+            { type = "LookAt", target = "$bounty" },
+            { type = "EquipTool", toolName = "first" },
+            { type = "SendChat", message = "Target spotted: $bounty.Name! Identified by $player." },
+            { type = "PlaySound", sound = "Success", volume = 1.0 },
+            { type = "PlayAnimation", animation = "dance", action = "play" },
+            { type = "SetClipboard", text = "Target: $bounty.Name | Pos: $position | Server: $placeId" },
+            { type = "Toast", title = "INTERCEPTION COMPLETE", message = "Dossier copied to clipboard! Standing down." },
+            { type = "Wait", duration = 2.0 },
+            { type = "SetCharacterState", property = "WalkSpeed", value = "16" }
+        }
+    },
+    {
         id = "gallery_anti_afk",
         name = "Anti-AFK Ghost",
         description = "Periodically pokes virtual mouse input to bypass Roblox's 20-minute idle disconnect",
