@@ -3047,6 +3047,10 @@ local function buildProfile()
     end)
 
         local loopProf = buildLoopProfile()
+        local tasksCpuMs = math.floor(totalCpuMs * 1000) / 1000
+        local loopsCpuMs = math.floor((loopProf.totalLoopCpuMs or 0) * 1000) / 1000
+        local combinedCpuMs = math.floor((tasksCpuMs + loopsCpuMs) * 1000) / 1000
+        local budgetPct = math.floor((combinedCpuMs / (currentBudgetMs or 8.0)) * 10000) / 100
         return {
             account = (Players.LocalPlayer and Players.LocalPlayer.Name) or "Unknown",
             placeId = game.PlaceId,
@@ -3058,8 +3062,9 @@ local function buildProfile()
             globalForceMode = "Off",
             totalActiveTasks = activeCount,
             totalTasks = #allTasks,
-            totalCpuMs = math.floor(totalCpuMs * 1000) / 1000,
-            budgetUsedPercent = math.floor((totalCpuMs / currentBudgetMs) * 10000) / 100,
+            taskCpuMs = tasksCpuMs,
+            totalCpuMs = combinedCpuMs,
+            budgetUsedPercent = budgetPct,
             totalErrors = totalErrors,
             events = {
                 Heartbeat = {
@@ -3944,7 +3949,7 @@ local function createMetricCard(name, order, title, primaryDefault, subDefault)
 end
 
 local CardFps, LblFps, LblBudget = createMetricCard("CardFps", 1, "ENGINE REFRESH", "60 FPS", "Budget: 3.40ms")
-local CardCpu, LblCpu, LblBudgetPct = createMetricCard("CardCpu", 2, "EXECUTOR · CPU LOAD", "0.00ms", "0.0% of Frame Budget")
+local CardCpu, LblCpu, LblBudgetPct = createMetricCard("CardCpu", 2, "TOTAL CPU LOAD", "0.00ms", "0.0% of Frame Budget")
 local CardMem, LblMem, LblGc = createMetricCard("CardMem", 3, "LUAU HEAP", "0.0 MB", "0 KB GC")
 local CardTasks, LblTasks, LblTaskSub = createMetricCard("CardTasks", 4, "ACTIVE WORKLOAD", "0 Tasks", "0 Loops Tracked")
 
@@ -4097,11 +4102,12 @@ local function createScrollList(name)
 
     local empty = Instance.new("TextLabel")
     empty.Name = "EmptyLabel"
-    empty.Size = UDim2.new(1, 0, 0, 80)
+    empty.Size = UDim2.new(1, 0, 0, 100)
     empty.BackgroundTransparency = 1
     empty.Font = Enum.Font.Gotham
     empty.TextSize = 13
     empty.TextColor3 = Color3.fromRGB(110, 125, 150)
+    empty.TextWrapped = true
     empty.Text = "No active data."
     empty.Parent = list
 
@@ -4486,7 +4492,7 @@ local BtnPauseAllLoops = createFooterBtn("BtnPauseAllLoops", "⏸ Pause All Loop
 local BtnKillAllLoops = createFooterBtn("BtnKillAllLoops", "🛑 Kill All Loops", -100, 95, Color3.fromRGB(60, 25, 30), Color3.fromRGB(255, 120, 120))
 
 -- Tasks Footer Controls
-local BtnAdvanced = createFooterBtn("BtnAdvanced", "⚙ Advanced", -305, 100, Color3.fromRGB(28, 38, 55), Color3.fromRGB(120, 180, 255))
+local BtnAdvanced = createFooterBtn("BtnAdvanced", "🌐 Native Tasks", -345, 140, Color3.fromRGB(28, 38, 55), Color3.fromRGB(120, 180, 255))
 local BtnPauseAll = createFooterBtn("BtnPauseAll", "⏸ Pause All", -200, 95, Color3.fromRGB(28, 45, 70), Color3.fromRGB(100, 180, 255))
 local BtnKillAll = createFooterBtn("BtnKillAll", "🛑 Kill All", -100, 92, Color3.fromRGB(60, 25, 30), Color3.fromRGB(255, 120, 120))
 
@@ -4657,9 +4663,9 @@ local function updateTasksSubView()
         BtnEjectAllGame.Size = UDim2.new(0, 95, 0, 26)
         BtnEjectAllGame.Visible = true
 
-        BtnAdvanced.Text = "◀ Back"
-        BtnAdvanced.Position = UDim2.new(1, -95, 0.5, -13)
-        BtnAdvanced.Size = UDim2.new(0, 88, 0, 26)
+        BtnAdvanced.Text = "◀ Active Tasks"
+        BtnAdvanced.Position = UDim2.new(1, -112, 0.5, -13)
+        BtnAdvanced.Size = UDim2.new(0, 108, 0, 26)
         BtnAdvanced.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
         BtnAdvanced.TextColor3 = Color3.fromRGB(140, 185, 255)
         BtnAdvanced.Visible = true
@@ -4677,9 +4683,10 @@ local function updateTasksSubView()
         BtnSourceFilter.Visible = true
         BtnSourceFilter.Position = UDim2.new(0, 192, 0.5, -13)
 
-        BtnAdvanced.Text = "⚙ Advanced"
-        BtnAdvanced.Position = UDim2.new(1, -305, 0.5, -13)
-        BtnAdvanced.Size = UDim2.new(0, 100, 0, 26)
+        local count = #DiscoveredGameTaskOrder
+        BtnAdvanced.Text = (count > 0) and string.format("🌐 Native Tasks (%d)", count) or "🌐 Native Tasks"
+        BtnAdvanced.Position = UDim2.new(1, -345, 0.5, -13)
+        BtnAdvanced.Size = UDim2.new(0, 140, 0, 26)
         BtnAdvanced.BackgroundColor3 = Color3.fromRGB(28, 38, 55)
         BtnAdvanced.TextColor3 = Color3.fromRGB(120, 180, 255)
         BtnAdvanced.Visible = true
@@ -8111,6 +8118,7 @@ end
 -- UPDATE TICK (10Hz)
 -- ==============================================================================
 
+local lastGameScanTime = 0
 local running = true
 task.spawn(function()
     while running do
@@ -8153,9 +8161,22 @@ task.spawn(function()
 
                 local activeTasks = profile.totalActiveTasks or 0
                 local totalTasks = profile.totalTasks or 0
+                local activeLoops = profile.totalActiveLoops or profile.totalLoops or 0
                 local totalLoops = profile.totalLoops or 0
-                LblTasks.Text = string.format("%d Active / %d Total", activeTasks, totalTasks)
-                LblTaskSub.Text = string.format("%d Loops Tracked", totalLoops)
+                local combinedActive = activeTasks + activeLoops
+                local combinedTotal = totalTasks + totalLoops
+                LblTasks.Text = string.format("%d Active / %d Total", combinedActive, combinedTotal)
+                LblTaskSub.Text = string.format("%d Tasks • %d Loops", totalTasks, totalLoops)
+
+                -- Periodic game tasks scan (every 2.5s) to keep native task count updated
+                if tick() - lastGameScanTime >= 2.5 then
+                    lastGameScanTime = tick()
+                    pcall(ScanGameTasks)
+                    if tasksSubMode == "active" and BtnAdvanced then
+                        local c = #DiscoveredGameTaskOrder
+                        BtnAdvanced.Text = (c > 0) and string.format("🌐 Native Tasks (%d)", c) or "🌐 Native Tasks"
+                    end
+                end
 
                 -- Record performance sample every 0.5s for rolling sparkline graphs
                 if tick() - perfHistory.lastSampleTime >= 0.5 then
@@ -8240,6 +8261,7 @@ task.spawn(function()
                             end
                             EmptyTasks.Visible = (visibleCount == 0)
                             if visibleCount == 0 then
+                                local nativeCount = #DiscoveredGameTaskOrder
                                 if filterText ~= "" and currentSourceFilter ~= "all" then
                                     EmptyTasks.Text = string.format("No %s tasks match filter '%s'.", currentSourceFilter, SearchBox.Text)
                                 elseif filterText ~= "" then
@@ -8247,7 +8269,11 @@ task.spawn(function()
                                 elseif currentSourceFilter ~= "all" then
                                     EmptyTasks.Text = string.format("No active %s tasks registered in Virtual Scheduler.", currentSourceFilter)
                                 else
-                                    EmptyTasks.Text = "No active tasks registered in Virtual Scheduler."
+                                    if nativeCount > 0 then
+                                        EmptyTasks.Text = string.format("No Virtual Scheduler tasks registered yet.\n\nClick '🌐 Native Tasks (%d)' below to inspect and throttle Roblox engine connections,\nor switch to the 'Loops' tab to monitor running while/repeat loops.", nativeCount)
+                                    else
+                                        EmptyTasks.Text = "No active tasks registered in Virtual Scheduler.\nSwitch to the 'Loops' tab to monitor running while/repeat loops."
+                                    end
                                 end
                             end
                         end
