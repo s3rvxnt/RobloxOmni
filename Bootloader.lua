@@ -14,14 +14,85 @@
     - Telemetry: Emits Bootloader_Status.json with per-script timing and status
 ]]
 
+local bootStart = os.clock()
+
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
+local UserInputService = game:GetService("UserInputService")
 
 local TARGET_BUDGET_MS = 6.0 -- Max Lua ms per frame before yielding to host engine
 
 if type(isfolder) ~= "function" or type(listfiles) ~= "function" then
     print("[Bootloader]: Incompatible exploit environment.")
     return
+end
+
+-- ==============================================================================
+-- SAFE MODE & CRASH SENTINEL (Zero-Delay Fault Recovery)
+-- ==============================================================================
+local SAFE_MODE_LOCK = "SAFE_MODE.lock"
+local RUNNING_LOCK = "Bootloader_Running.lock"
+
+local SafeMode = false
+local SafeModeReason = nil
+
+-- Check 1: Manual safe mode lockfile (from RejoinSafeMode() or install.bat)
+if isfile and isfile(SAFE_MODE_LOCK) then
+    SafeMode = true
+    SafeModeReason = "ManualLock"
+    pcall(delfile, SAFE_MODE_LOCK)
+-- Check 2: Crash sentinel (previous launch terminated before boot completed)
+elseif isfile and isfile(RUNNING_LOCK) then
+    SafeMode = true
+    SafeModeReason = "CrashSentinel"
+    pcall(delfile, RUNNING_LOCK)
+    warn("[Bootloader]: ⚠️ PREVIOUS LAUNCH CRASH DETECTED — Activating Safe Mode!")
+-- Check 3: Shift key pre-held at Frame 0 (zero millisecond delay added)
+else
+    pcall(function()
+        if UserInputService and UserInputService.IsKeyDown then
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) then
+                SafeMode = true
+                SafeModeReason = "ShiftKey"
+            end
+        end
+    end)
+end
+
+if SafeMode then
+    print(string.format("[Bootloader]: ⚠️ SAFE MODE ENGAGED (Reason: %s) — Bypassing user autoexec scripts.", tostring(SafeModeReason)))
+else
+    -- Write running lockfile for crash detection
+    pcall(writefile, RUNNING_LOCK, tostring(os.time()))
+end
+
+-- Global Rejoin in Safe Mode helper
+getgenv().RejoinSafeMode = function()
+    pcall(writefile, SAFE_MODE_LOCK, "true")
+    local TeleportService = game:GetService("TeleportService")
+    local Players = game:GetService("Players")
+    local lp = Players and Players.LocalPlayer
+    if TeleportService and game.PlaceId then
+        print("[Bootloader]: Rejoining into Safe Mode...")
+        if lp and game.JobId and game.JobId ~= "" then
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, lp)
+        else
+            TeleportService:Teleport(game.PlaceId, lp)
+        end
+    end
+end
+
+-- Timeout helper for resilient engine waits
+local function waitFor(predicate, timeoutSec, pollInterval)
+    local start = os.clock()
+    pollInterval = pollInterval or 0.1
+    while not predicate() do
+        if (os.clock() - start) >= timeoutSec then
+            return false
+        end
+        task.wait(pollInterval)
+    end
+    return true
 end
 
 -- Ensure baseline stage directories exist
@@ -164,6 +235,8 @@ local Telemetry = {
     placeId = game.PlaceId,
     gameId = game.GameId,
     account = "Pending Replicating",
+    safeMode = SafeMode,
+    safeModeReason = SafeModeReason,
     discovered = 0,
     executed = 0,
     success = 0,
@@ -442,52 +515,56 @@ emitTelemetry()
 -- ==============================================================================
 -- Frame 0, DataModel is valid. game.PlaceId and game.GameId are accessible.
 
-for _, item in ipairs(listfiles("autoexec")) do
-    if isfolder(item) then
-        local folderName = item:match("[^/\\]+$")
-        if not isIgnoredFolder(folderName) then
-            local lowerFolder = folderName:lower()
-            if lowerFolder == "kernel" or lowerFolder == "root" then
-                -- Handled in Ring 0
-            elseif lowerFolder == "preinit" or lowerFolder == "nodelay" then
-                -- Universal Frame-0 PreInit (RemoteExecute, utilities, etc.)
-                scanDirectory(item, "PreInit")
-            elseif lowerFolder == "universal" or lowerFolder == "common" or lowerFolder == "shared" then
-                -- Universal folder
-                scanDirectory(item, "GameLoaded")
-            elseif folderName == PlaceIdStr 
-                or folderName:sub(1, #PlaceIdStr + 3) == PlaceIdStr .. " - " 
-                or folderName:sub(1, #PlaceIdStr + 1) == PlaceIdStr .. "_"
-                or lowerFolder == "place_" .. PlaceIdStr 
-                or lowerFolder:sub(1, #PlaceIdStr + 7) == "place_" .. PlaceIdStr .. " - "
-                or lowerFolder:sub(1, #PlaceIdStr + 7) == "place_" .. PlaceIdStr .. "_"
-                or lowerFolder == "place" .. PlaceIdStr then
-                -- Place-specific folder (scans nodelay/ as PreInit, others as GameLoaded)
-                scanDirectory(item, "GameLoaded")
-            elseif (GameIdStr ~= "0" and (folderName == GameIdStr 
-                or folderName:sub(1, #GameIdStr + 3) == GameIdStr .. " - " 
-                or folderName:sub(1, #GameIdStr + 1) == GameIdStr .. "_"
-                or lowerFolder == "universe_" .. GameIdStr 
-                or lowerFolder:sub(1, #GameIdStr + 10) == "universe_" .. GameIdStr .. " - "
-                or lowerFolder == "game_" .. GameIdStr
-                or lowerFolder:sub(1, #GameIdStr + 6) == "game_" .. GameIdStr .. " - ")) then
-                -- Universe-specific folder
-                scanDirectory(item, "GameLoaded")
+if not SafeMode then
+    for _, item in ipairs(listfiles("autoexec")) do
+        if isfolder(item) then
+            local folderName = item:match("[^/\\]+$")
+            if not isIgnoredFolder(folderName) then
+                local lowerFolder = folderName:lower()
+                if lowerFolder == "kernel" or lowerFolder == "root" then
+                    -- Handled in Ring 0
+                elseif lowerFolder == "preinit" or lowerFolder == "nodelay" then
+                    -- Universal Frame-0 PreInit (RemoteExecute, utilities, etc.)
+                    scanDirectory(item, "PreInit")
+                elseif lowerFolder == "universal" or lowerFolder == "common" or lowerFolder == "shared" then
+                    -- Universal folder
+                    scanDirectory(item, "GameLoaded")
+                elseif folderName == PlaceIdStr 
+                    or folderName:sub(1, #PlaceIdStr + 3) == PlaceIdStr .. " - " 
+                    or folderName:sub(1, #PlaceIdStr + 1) == PlaceIdStr .. "_"
+                    or lowerFolder == "place_" .. PlaceIdStr 
+                    or lowerFolder:sub(1, #PlaceIdStr + 7) == "place_" .. PlaceIdStr .. " - "
+                    or lowerFolder:sub(1, #PlaceIdStr + 7) == "place_" .. PlaceIdStr .. "_"
+                    or lowerFolder == "place" .. PlaceIdStr then
+                    -- Place-specific folder (scans nodelay/ as PreInit, others as GameLoaded)
+                    scanDirectory(item, "GameLoaded")
+                elseif (GameIdStr ~= "0" and (folderName == GameIdStr 
+                    or folderName:sub(1, #GameIdStr + 3) == GameIdStr .. " - " 
+                    or folderName:sub(1, #GameIdStr + 1) == GameIdStr .. "_"
+                    or lowerFolder == "universe_" .. GameIdStr 
+                    or lowerFolder:sub(1, #GameIdStr + 10) == "universe_" .. GameIdStr .. " - "
+                    or lowerFolder == "game_" .. GameIdStr
+                    or lowerFolder:sub(1, #GameIdStr + 6) == "game_" .. GameIdStr .. " - ")) then
+                    -- Universe-specific folder
+                    scanDirectory(item, "GameLoaded")
+                end
             end
+        else
+            registerScript(item, "GameLoaded")
         end
-    else
-        registerScript(item, "GameLoaded")
     end
-end
 
-sortQueue(Queues.PreInit)
-sortQueue(Queues.GameLoaded)
-sortQueue(Queues.CharacterReady)
-sortQueue(Queues.Deferred)
+    sortQueue(Queues.PreInit)
+    sortQueue(Queues.GameLoaded)
+    sortQueue(Queues.CharacterReady)
+    sortQueue(Queues.Deferred)
 
--- Execute PreInit concurrently at Frame 0 (nodelay, e.g. RemoteExecute)
-for _, meta in ipairs(Queues.PreInit) do
-    task.spawn(executeScript, meta)
+    -- Execute PreInit concurrently at Frame 0 (nodelay, e.g. RemoteExecute)
+    for _, meta in ipairs(Queues.PreInit) do
+        task.spawn(executeScript, meta)
+    end
+else
+    print("[Bootloader]: Safe Mode Active — Bypassing Ring 1 (PreInit).")
 end
 emitTelemetry()
 
@@ -496,15 +573,25 @@ emitTelemetry()
 -- ==============================================================================
 
 task.spawn(function()
+    if SafeMode then
+        print("[Bootloader]: Safe Mode Active — Bypassing Ring 2 (GameLoaded), Ring 3 (CharacterReady), and Ring 4 (Deferred).")
+        local totalBootMs = (os.clock() - bootStart) * 1000
+        Telemetry.totalDurationMs = math.floor(totalBootMs * 100) / 100
+        emitTelemetry()
+        return
+    end
+
     -- RING 2: NETWORK CLIENT LEVEL (game:GetService("Players") ~= nil & game:IsLoaded())
     if not game:IsLoaded() then
-        game.Loaded:Wait()
+        local loadedOk = waitFor(function() return game:IsLoaded() end, 8.0)
+        if not loadedOk then
+            warn("[Bootloader]: game:IsLoaded() timed out after 8s — proceeding with GameLoaded stage.")
+        end
     end
     
     local Players = game:GetService("Players")
-    while not Players do
-        task.wait()
-        Players = game:GetService("Players")
+    if not Players then
+        waitFor(function() Players = game:GetService("Players"); return Players ~= nil end, 5.0)
     end
 
     -- Settle render frames after join
@@ -515,50 +602,55 @@ task.spawn(function()
     emitTelemetry()
 
     -- RING 3: USERSPACE LEVEL (game.Players.LocalPlayer ~= nil)
-    while not Players.LocalPlayer do
-        task.wait()
-    end
-    local LocalPlayer = Players.LocalPlayer
-    local AccountName = LocalPlayer.Name
-    Telemetry.account = AccountName
+    local playerOk = waitFor(function() return Players and Players.LocalPlayer ~= nil end, 10.0)
+    if not playerOk then
+        warn("[Bootloader]: Players.LocalPlayer timed out after 10s — skipping userspace account stage.")
+    else
+        local LocalPlayer = Players.LocalPlayer
+        local AccountName = LocalPlayer.Name
+        Telemetry.account = AccountName
 
-    -- Discover and register Account-scoped directory
-    local initialDiscovered = Telemetry.discovered
-    for _, item in ipairs(listfiles("autoexec")) do
-        if isfolder(item) then
-            local folderName = item:match("[^/\\]+$")
-            if not isIgnoredFolder(folderName) then
-                local lowerFolder = folderName:lower()
-                if lowerFolder == "account_" .. AccountName:lower() 
-                    or lowerFolder == AccountName:lower() 
-                    or lowerFolder == "user_" .. AccountName:lower()
-                    or lowerFolder:sub(1, #AccountName + 9) == "account_" .. AccountName:lower() .. " - "
-                    or lowerFolder:sub(1, #AccountName + 6) == "user_" .. AccountName:lower() .. " - " then
-                    
-                    scanDirectory(item, "GameLoaded")
+        -- Discover and register Account-scoped directory
+        local initialDiscovered = Telemetry.discovered
+        for _, item in ipairs(listfiles("autoexec")) do
+            if isfolder(item) then
+                local folderName = item:match("[^/\\]+$")
+                if not isIgnoredFolder(folderName) then
+                    local lowerFolder = folderName:lower()
+                    if lowerFolder == "account_" .. AccountName:lower() 
+                        or lowerFolder == AccountName:lower() 
+                        or lowerFolder == "user_" .. AccountName:lower()
+                        or lowerFolder:sub(1, #AccountName + 9) == "account_" .. AccountName:lower() .. " - "
+                        or lowerFolder:sub(1, #AccountName + 6) == "user_" .. AccountName:lower() .. " - " then
+                        
+                        scanDirectory(item, "GameLoaded")
+                    end
                 end
             end
         end
-    end
 
-    if Telemetry.discovered > initialDiscovered then
-        sortQueue(Queues.GameLoaded)
-        sortQueue(Queues.CharacterReady)
-        sortQueue(Queues.Deferred)
-        -- Run any newly added GameLoaded scripts from the account folder
-        runStageWithBudget("GameLoaded", Queues.GameLoaded)
+        if Telemetry.discovered > initialDiscovered then
+            sortQueue(Queues.GameLoaded)
+            sortQueue(Queues.CharacterReady)
+            sortQueue(Queues.Deferred)
+            -- Run any newly added GameLoaded scripts from the account folder
+            runStageWithBudget("GameLoaded", Queues.GameLoaded)
+            emitTelemetry()
+        end
+
+        -- STAGE 3: CharacterReady (Waits for character spawn with 12s timeout)
+        if #Queues.CharacterReady > 0 then
+            if not LocalPlayer.Character or not LocalPlayer.Character.Parent then
+                local charOk = waitFor(function() return LocalPlayer.Character and LocalPlayer.Character.Parent ~= nil end, 12.0)
+                if not charOk then
+                    warn("[Bootloader]: Character spawn timed out after 12s — executing CharacterReady queue with timeout guard.")
+                end
+            end
+            RunService.Heartbeat:Wait()
+            runStageWithBudget("CharacterReady", Queues.CharacterReady)
+        end
         emitTelemetry()
     end
-
-    -- STAGE 3: CharacterReady (Waits for character spawn)
-    if #Queues.CharacterReady > 0 then
-        if not LocalPlayer.Character then
-            LocalPlayer.CharacterAdded:Wait()
-        end
-        RunService.Heartbeat:Wait()
-        runStageWithBudget("CharacterReady", Queues.CharacterReady)
-    end
-    emitTelemetry()
 
     -- STAGE 4: Deferred (Background / Telemetry)
     if #Queues.Deferred > 0 then
@@ -574,6 +666,9 @@ task.spawn(function()
     local totalBootMs = (os.clock() - bootStart) * 1000
     Telemetry.totalDurationMs = math.floor(totalBootMs * 100) / 100
     emitTelemetry()
+
+    -- Normal boot completed successfully without crashes: delete running lockfile
+    pcall(delfile, RUNNING_LOCK)
 
     print(string.format("[Bootloader]: Boot completed in %.1fms | Discovered: %d | Executed: %d | Success: %d | Errors: %d",
         totalBootMs, Telemetry.discovered, Telemetry.executed, Telemetry.success, Telemetry.errors))
