@@ -3781,7 +3781,7 @@ TitleLabel.Font = Enum.Font.GothamBold
 TitleLabel.TextSize = 13
 TitleLabel.TextColor3 = Color3.fromRGB(64, 196, 255)
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-TitleLabel.Text = "⚡ KERNEL TASK MANAGER"
+TitleLabel.Text = "⚡ OMNI TASK MANAGER"
 TitleLabel.Parent = TitleBar
 
 local KeybindBadge = Instance.new("TextLabel")
@@ -4561,9 +4561,9 @@ local BtnPauseAll = createFooterBtn("BtnPauseAll", "⏸ Pause All", -200, 95, Co
 local BtnKillAll = createFooterBtn("BtnKillAll", "🛑 Kill All", -100, 92, Color3.fromRGB(60, 25, 30), Color3.fromRGB(255, 120, 120))
 
 -- Game Tasks Footer Controls (shown in Advanced sub-mode)
-local BtnRescanGame = createFooterBtn("BtnRescanGame", "🔄 Rescan", -393, 90, Color3.fromRGB(28, 45, 70), Color3.fromRGB(100, 180, 255))
-local BtnIngestAllGame = createFooterBtn("BtnIngestAllGame", "📥 Ingest All", -298, 98, Color3.fromRGB(25, 50, 35), Color3.fromRGB(100, 240, 150))
-local BtnEjectAllGame = createFooterBtn("BtnEjectAllGame", "📤 Eject All", -195, 95, Color3.fromRGB(60, 25, 30), Color3.fromRGB(255, 120, 120))
+local BtnRescanGame = createFooterBtn("BtnRescanGame", "🔄 Rescan", -418, 85, Color3.fromRGB(28, 45, 70), Color3.fromRGB(100, 180, 255))
+local BtnIngestAllGame = createFooterBtn("BtnIngestAllGame", "📥 Ingest All", -325, 98, Color3.fromRGB(25, 50, 35), Color3.fromRGB(100, 240, 150))
+local BtnEjectAllGame = createFooterBtn("BtnEjectAllGame", "📤 Eject All", -219, 95, Color3.fromRGB(60, 25, 30), Color3.fromRGB(255, 120, 120))
 
 -- Performance Footer Controls
 local BtnResetGraphs = createFooterBtn("BtnResetGraphs", "🔄 Reset History", -125, 120, Color3.fromRGB(28, 45, 70), Color3.fromRGB(100, 180, 255))
@@ -4715,20 +4715,20 @@ local function updateTasksSubView()
         BtnPauseAll.Visible = false
         BtnKillAll.Visible = false
 
-        BtnRescanGame.Position = UDim2.new(1, -393, 0.5, -13)
-        BtnRescanGame.Size = UDim2.new(0, 90, 0, 26)
+        BtnRescanGame.Position = UDim2.new(1, -418, 0.5, -13)
+        BtnRescanGame.Size = UDim2.new(0, 85, 0, 26)
         BtnRescanGame.Visible = true
 
-        BtnIngestAllGame.Position = UDim2.new(1, -298, 0.5, -13)
+        BtnIngestAllGame.Position = UDim2.new(1, -325, 0.5, -13)
         BtnIngestAllGame.Size = UDim2.new(0, 98, 0, 26)
         BtnIngestAllGame.Visible = true
 
-        BtnEjectAllGame.Position = UDim2.new(1, -195, 0.5, -13)
+        BtnEjectAllGame.Position = UDim2.new(1, -219, 0.5, -13)
         BtnEjectAllGame.Size = UDim2.new(0, 95, 0, 26)
         BtnEjectAllGame.Visible = true
 
         BtnAdvanced.Text = "◀ Active Tasks"
-        BtnAdvanced.Position = UDim2.new(1, -112, 0.5, -13)
+        BtnAdvanced.Position = UDim2.new(1, -116, 0.5, -13)
         BtnAdvanced.Size = UDim2.new(0, 108, 0, 26)
         BtnAdvanced.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
         BtnAdvanced.TextColor3 = Color3.fromRGB(140, 185, 255)
