@@ -81,6 +81,21 @@ if not getgenv()._KernelLoadstringShimInstalled then
     end
 end
 
+local _KernelExemptScripts = {
+    ["dooroptimizer"] = true,
+    ["doorsoptimizer"] = true,
+    ["washiezdoor"] = true,
+    ["door_optimizer"] = true,
+}
+getgenv()._KernelExemptScripts = _KernelExemptScripts
+getgenv().ExemptScriptFromScheduler = function(pattern)
+    if pattern and type(pattern) == "string" and pattern ~= "" then
+        _KernelExemptScripts[pattern:lower()] = true
+        return true
+    end
+    return false
+end
+
 local function isSelfOrKernel(name)
     if not name or name == "" or name == "KernelInternal" then return true end
     local lower = tostring(name):lower()
@@ -91,8 +106,19 @@ local function isSelfOrKernel(name)
         or lower:find("utils", 1, true) ~= nil
         or lower:find("remoteexecute", 1, true) ~= nil
         or lower:find("customautoexec", 1, true) ~= nil
-        or lower:find("bootloader", 1, true) ~= nil then
+        or lower:find("bootloader", 1, true) ~= nil
+        or lower:find("dooroptimizer", 1, true) ~= nil
+        or lower:find("doorsoptimizer", 1, true) ~= nil
+        or lower:find("washiezdoor", 1, true) ~= nil
+        or lower:find("door_optimizer", 1, true) ~= nil then
         return true
+    end
+    if _KernelExemptScripts then
+        for pattern, _ in pairs(_KernelExemptScripts) do
+            if lower:find(pattern, 1, true) ~= nil then
+                return true
+            end
+        end
     end
     if SELF_SRC and SELF_SRC ~= "" and lower:find(SELF_SRC:lower(), 1, true) ~= nil then
         return true
@@ -259,9 +285,25 @@ SchedulerPersistence.load = function()
     if decOk and type(data) == "table" then
         if type(data.places) == "table" then
             SchedulerPersistence.data.places = data.places
+            for _, pData in pairs(SchedulerPersistence.data.places) do
+                if type(pData) == "table" and type(pData.loops) == "table" then
+                    for lKey, _ in pairs(pData.loops) do
+                        if isSelfOrKernel(lKey) then
+                            pData.loops[lKey] = nil
+                        end
+                    end
+                end
+            end
         end
         if type(data.global) == "table" then
             SchedulerPersistence.data.global = data.global
+            if type(SchedulerPersistence.data.global.loops) == "table" then
+                for lKey, _ in pairs(SchedulerPersistence.data.global.loops) do
+                    if isSelfOrKernel(lKey) then
+                        SchedulerPersistence.data.global.loops[lKey] = nil
+                    end
+                end
+            end
         end
     end
 end
@@ -285,8 +327,15 @@ SchedulerPersistence.getTask = function(taskName, eventName)
 end
 
 SchedulerPersistence.getLoop = function(callerStr, loopName)
-    local placeKey = tostring(game.PlaceId or "0")
+    if isSelfOrKernel(callerStr) or isSelfOrKernel(loopName) then
+        return nil
+    end
     local callerFile = callerStr and callerStr:match("^([^:]+)")
+    if callerFile and isSelfOrKernel(callerFile) then
+        return nil
+    end
+
+    local placeKey = tostring(game.PlaceId or "0")
 
     local placeData = SchedulerPersistence.data.places[placeKey]
     if placeData and placeData.loops then
@@ -2487,7 +2536,7 @@ local function buildLoopProfile()
             isDead = true
         end
 
-        if isDead or not loop.alive then
+        if isDead or not loop.alive or isSelfOrKernel(loop.caller) or isSelfOrKernel(loop.file) then
             table.insert(deadThreads, thread)
         else
             if not loop.paused then
@@ -2575,6 +2624,15 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
 
     if not loop then
         local callerStr = caller or "UnknownScript:0"
+        if isSelfOrKernel(callerStr) then
+            ignoredThreads[thread] = true
+            return nil
+        end
+        local callerFile = callerStr:match("^([^:]+)") or callerStr
+        if isSelfOrKernel(callerFile) then
+            ignoredThreads[thread] = true
+            return nil
+        end
 
         -- CULL STALE DUPLICATES: If an older thread from the same caller hasn't yielded in > 2.0s, prune it immediately
         for oldThread, oldLoop in pairs(loopRegistry) do
@@ -3146,18 +3204,29 @@ SchedulerPersistence.save = function(immediate)
         end
     end
 
-    -- Persist active loops across thread registry
+    -- Persist active loops across thread registry (filter out exempt scripts & transient single yields)
     if loopRegistry then
-        for _, loop in pairs(loopRegistry) do
+        for thread, loop in pairs(loopRegistry) do
+            local isAlive = loop.alive
+            if isAlive then
+                pcall(function()
+                    if coroutine.status(thread) == "dead" then
+                        isAlive = false
+                    end
+                end)
+            end
             local loopKey = (loop.caller and loop.caller ~= "UnknownScript:0" and loop.caller) or loop.name
-            if loopKey and loopKey ~= "" then
-                placeData.loops[loopKey] = {
-                    priority = loop.priority,
-                    sortOrder = loop.sortOrder,
-                    targetHz = loop.targetHz,
-                    locked = loop.locked,
-                    paused = loop.paused,
-                }
+            if loopKey and loopKey ~= "" and not isSelfOrKernel(loopKey) and not isSelfOrKernel(loop.file or "") then
+                -- Only persist verified recurring loops (iterations >= 2) or explicitly configured overrides
+                if (loop.iterations and loop.iterations >= 2) or loop.locked or loop.targetHz or loop.sortOrder then
+                    placeData.loops[loopKey] = {
+                        priority = loop.priority,
+                        sortOrder = loop.sortOrder,
+                        targetHz = loop.targetHz,
+                        locked = loop.locked,
+                        paused = loop.paused,
+                    }
+                end
             end
         end
     end
