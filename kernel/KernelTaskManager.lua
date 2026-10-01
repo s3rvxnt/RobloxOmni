@@ -4791,6 +4791,7 @@ setTab("Tasks")
 
 local cachedTaskRows = {}
 local cachedStartupRows = {}
+local cachedLoopRows = {}
 
 local TaskDrag = {
     pending = nil,
@@ -6836,45 +6837,49 @@ table.insert(hudWindowConnections, UserInputService.InputEnded:Connect(function(
         end
 
         local draggedTask = TaskDrag.active.task
-        local profile = (getgenv().GetSchedulerProfile and getgenv().GetSchedulerProfile()) or {}
-        local allTasks = profile.tasks or {}
-        local remaining = {}
-        for _, t in ipairs(allTasks) do
-            if t.id ~= draggedTask.id then
-                table.insert(remaining, t)
-            end
-        end
-
-        local slot = math.clamp(TaskDrag.targetIndex or (#remaining + 1), 1, #remaining + 1)
-        table.insert(remaining, slot, draggedTask)
-
-        local totalTasks = #remaining
-        local basePri = 100
-        local minPri = 10
-        local step = (totalTasks > 1) and ((basePri - minPri) / (totalTasks - 1)) or 0
-
-        for i, t in ipairs(remaining) do
-            local assignedPri = math.clamp(math.round(basePri - (i - 1) * step), 5, 100)
-            t.priority = assignedPri
-            t.sortOrder = i
-            local taskObj = findTask(t.id)
-            if taskObj then
-                taskObj.sortOrder = i
-            end
-            if getgenv().SetSchedulerTaskPriority then
-                getgenv().SetSchedulerTaskPriority(t.id, assignedPri, i)
-            end
-        end
-
-        saveSchedulerOverrides(true)
-
-        for k, r in pairs(cachedTaskRows) do
-            r:Destroy()
-            cachedTaskRows[k] = nil
-        end
-
+        local targetSlot = TaskDrag.targetIndex
         TaskDrag.active = nil
         TaskDrag.targetIndex = nil
+
+        pcall(function()
+            local profile = (getgenv().GetSchedulerProfile and getgenv().GetSchedulerProfile()) or {}
+            local allTasks = profile.tasks or {}
+            local remaining = {}
+            for _, t in ipairs(allTasks) do
+                if t.id ~= draggedTask.id then
+                    table.insert(remaining, t)
+                end
+            end
+
+            local slot = math.clamp(targetSlot or (#remaining + 1), 1, #remaining + 1)
+            table.insert(remaining, slot, draggedTask)
+
+            local totalTasks = #remaining
+            local basePri = 100
+            local minPri = 10
+            local step = (totalTasks > 1) and ((basePri - minPri) / (totalTasks - 1)) or 0
+
+            for i, t in ipairs(remaining) do
+                local assignedPri = math.clamp(math.round(basePri - (i - 1) * step), 5, 100)
+                t.priority = assignedPri
+                t.sortOrder = i
+                local taskObj = findTask(t.id)
+                if taskObj then
+                    taskObj.sortOrder = i
+                    taskObj.priority = assignedPri
+                end
+                local r = cachedTaskRows[t.id]
+                if r then
+                    r.LayoutOrder = i * 10
+                end
+                if getgenv().SetSchedulerTaskPriority then
+                    getgenv().SetSchedulerTaskPriority(t.id, assignedPri, i)
+                end
+            end
+
+            saveSchedulerOverrides(true)
+            emitProfile()
+        end)
     end
 
     if LoopDrag.isDragging and LoopDrag.active then
@@ -6886,48 +6891,51 @@ table.insert(hudWindowConnections, UserInputService.InputEnded:Connect(function(
         end
 
         local draggedLoop = LoopDrag.active.loop
-        local profile = (getgenv().GetLoopProfile and getgenv().GetLoopProfile()) or {}
-        local allLoops = profile.loops or {}
-        local remaining = {}
-        for _, l in ipairs(allLoops) do
-            if l.id ~= draggedLoop.id then
-                table.insert(remaining, l)
-            end
-        end
-
-        local slot = math.clamp(LoopDrag.targetIndex or (#remaining + 1), 1, #remaining + 1)
-        table.insert(remaining, slot, draggedLoop)
-
-        local totalLoops = #remaining
-        local basePri = 100
-        local minPri = 10
-        local step = (totalLoops > 1) and ((basePri - minPri) / (totalLoops - 1)) or 0
-
-        for i, l in ipairs(remaining) do
-            local assignedPri = math.clamp(math.round(basePri - (i - 1) * step), 5, 100)
-            l.priority = assignedPri
-            l.sortOrder = i
-            for _, loop in pairs(loopRegistry) do
-                if loop.id == l.id then
-                    loop.sortOrder = i
-                    loop.priority = assignedPri
-                    break
-                end
-            end
-            if getgenv().SetLoopPriority then
-                getgenv().SetLoopPriority(l.id, assignedPri, i)
-            end
-        end
-
-        saveSchedulerOverrides(true)
-
-        for k, r in pairs(cachedLoopRows) do
-            r:Destroy()
-            cachedLoopRows[k] = nil
-        end
-
+        local targetSlot = LoopDrag.targetIndex
         LoopDrag.active = nil
         LoopDrag.targetIndex = nil
+
+        pcall(function()
+            local profile = (getgenv().GetLoopProfile and getgenv().GetLoopProfile()) or {}
+            local allLoops = profile.loops or {}
+            local remaining = {}
+            for _, l in ipairs(allLoops) do
+                if l.id ~= draggedLoop.id then
+                    table.insert(remaining, l)
+                end
+            end
+
+            local slot = math.clamp(targetSlot or (#remaining + 1), 1, #remaining + 1)
+            table.insert(remaining, slot, draggedLoop)
+
+            local totalLoops = #remaining
+            local basePri = 100
+            local minPri = 10
+            local step = (totalLoops > 1) and ((basePri - minPri) / (totalLoops - 1)) or 0
+
+            for i, l in ipairs(remaining) do
+                local assignedPri = math.clamp(math.round(basePri - (i - 1) * step), 5, 100)
+                l.priority = assignedPri
+                l.sortOrder = i
+                for _, loop in pairs(loopRegistry) do
+                    if loop.id == l.id then
+                        loop.sortOrder = i
+                        loop.priority = assignedPri
+                        break
+                    end
+                end
+                local r = cachedLoopRows[l.id]
+                if r then
+                    r.LayoutOrder = i * 10
+                end
+                if getgenv().SetLoopPriority then
+                    getgenv().SetLoopPriority(l.id, assignedPri, i)
+                end
+            end
+
+            saveSchedulerOverrides(true)
+            emitProfile()
+        end)
     end
 end))
 
@@ -7597,7 +7605,6 @@ refreshStartupTab = function(force)
 end
 
 -- Row 4: Loop Row (Placed after getHzColor so all helper routines are defined)
-local cachedLoopRows = {}
 local loopRowDragging = {}
 local LOOP_HZ_CYCLE = {
     [0] = 60,
