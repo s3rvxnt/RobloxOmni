@@ -3698,7 +3698,7 @@ getgenv()._VirtualSchedulerLoaded = true
 -- ==============================================================================
 
 local function initUpdateGate(guiParent, UpdateBadge)
-    local CURRENT_OMNI_VERSION = "1.1.0"
+    local CURRENT_OMNI_VERSION = "1.2.0"
     local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
     local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
     local LEDGER_PATH = "Omni_Ledger.json"
@@ -4395,7 +4395,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
             -- Fetch remote content if needed
             local remoteContent = fetchedStageCodes[stageIdx]
             if not remoteContent then
-                local shaToUse = (currentUpdateData and currentUpdateData.sha) or "main"
+                local shaToUse = getLatestCommitSha()
                 local url = repoPath
                 if not url:find("^https?://") then
                     url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. shaToUse .. "/" .. url
@@ -4678,14 +4678,15 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
     local function closeUpdateModal()
         ModalBackdrop.Visible = false
-        -- Keep PillToast visible so user can easily reopen the modal!
-        if not getgenv()._OmniUpdateDismissed and currentUpdateData then
-            PillToast.Visible = true
-        end
     end
 
     -- Event Wiring
-    ModalCloseBtn.MouseButton1Click:Connect(closeUpdateModal)
+    ModalCloseBtn.MouseButton1Click:Connect(function()
+        closeUpdateModal()
+        if not getgenv()._OmniUpdateDismissed and currentUpdateData then
+            PillToast.Visible = true
+        end
+    end)
 
     -- Smooth Modal Header Dragging
     local isDraggingModal, dragStartPos, frameStartPos
@@ -4801,7 +4802,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
             local anySuccess = false
             local lastCode = nil
-            local shaToUse = (currentUpdateData and currentUpdateData.sha) or "main"
+            local shaToUse = getLatestCommitSha()
             local ledger = loadLedger()
 
             for idx, stage in ipairs(stages) do
@@ -4852,9 +4853,11 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 end
             end
 
+            ledger.version = currentUpdateData.version
             saveLedger(ledger)
 
             if anySuccess then
+                getgenv()._OmniUpdateDismissed = true
                 ApplyUpdateBtn.Text = "✓ Applied! Reloading Omni..."
                 task.wait(0.7)
                 closeUpdateModal()
