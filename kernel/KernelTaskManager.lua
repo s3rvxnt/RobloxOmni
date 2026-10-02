@@ -3698,7 +3698,7 @@ getgenv()._VirtualSchedulerLoaded = true
 -- ==============================================================================
 
 local function initUpdateGate(guiParent, UpdateBadge)
-    local CURRENT_OMNI_VERSION = "1.1.0"
+    local CURRENT_OMNI_VERSION = "1.2.0"
     local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
     local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
     local LEDGER_PATH = "Omni_Ledger.json"

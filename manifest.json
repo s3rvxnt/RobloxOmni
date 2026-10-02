@@ -1,13 +1,13 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "releaseDate": "2026-10-02",
-  "title": "OMNI Release 1.1.0",
+  "title": "OMNI Release 1.2.0",
   "changelog": [
-    "Rebranded to OMNI Task Manager with unified system telemetry",
-    "Physical door contact & ragdoll faceplant recovery integration",
-    "Dynamic CPU throttle cap (10ms sleep threshold guard)",
-    "Pixel-perfect 8px button spacing & Fluent UI alignment",
-    "Security & Transparency Gate: In-game changelog viewer with user consent for updates"
+    "Omni Core Kernel v1.2.0: Interactive Update Gate with git diff inspector",
+    "Security Heuristics: Real-time static auditing for loadstring(), webhooks, network, and file I/O",
+    "Linear time Luau diff engine with monospaced code viewer and line-by-line +/- highlighting",
+    "User Sovereignty: Deletion-respecting bootloader with persistent Omni_Ledger.json",
+    "Shift + F7 direct hotkey to open Update & Transparency Gate anytime"
   ],
   "stages": [
     {

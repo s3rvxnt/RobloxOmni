@@ -134,7 +134,10 @@ local function fetchGithubScript(url)
             return res and res.Body
         end
     end)
-    if ok and content and type(content) == "string" and #content > 100 and not content:find("404: Not Found") and not content:find("400: Invalid Request") then
+    if ok and content and type(content) == "string" and #content > 50 then
+        if #content < 150 and (content:find("404: Not Found") or content:find("400: Invalid Request")) then
+            return nil
+        end
         return content
     end
     return nil
