@@ -16,6 +16,13 @@
       "stage": "Kernel",
       "name": "KernelTaskManager",
       "desc": "Kernel Task Manager & Runtime Micro-Kernel (Shift + F8)"
+    },
+    {
+      "repoPath": "gameloaded/OmniEnhancementSuite.lua",
+      "localPath": "autoexec/gameloaded/OmniEnhancementSuite.lua",
+      "stage": "GameLoaded",
+      "name": "OmniEnhancementSuite",
+      "desc": "Omni Enhancement Suite (Streamer Mode, Space Bubble, Player ESP, Anti-AFK)"
     }
   ]
 }

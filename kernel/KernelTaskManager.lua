@@ -1631,7 +1631,9 @@ end
 
 local function isStartupRelevantFolder(folderName)
     local l = folderName:lower()
-    if l == "kernel" or l == "root" or l == "preinit" or l == "nodelay" or l == "universal" or l == "common" or l == "shared" or l == "off" or l == "disabled" then
+    if l == "kernel" or l == "root" or l == "preinit" or l == "nodelay"
+        or l == "gameloaded" or l == "characterloaded" or l == "characterready" or l == "deferred"
+        or l == "universal" or l == "common" or l == "shared" or l == "off" or l == "disabled" then
         return true
     end
     local placeIdStr = tostring(game.PlaceId)
