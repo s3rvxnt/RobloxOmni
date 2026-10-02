@@ -1218,7 +1218,9 @@ local function initUpdateGate(guiParent, UpdateBadge)
             }
         end
 
-        DiffCurrent.Text = "Installed: v" .. CURRENT_OMNI_VERSION
+        local ledger = loadLedger()
+        local installedVersion = (ledger and ledger.version) or CURRENT_OMNI_VERSION
+        DiffCurrent.Text = "Installed: v" .. tostring(installedVersion)
         DiffAvailable.Text = "Available: v" .. tostring(currentUpdateData.version)
         DiffDate.Text = tostring(currentUpdateData.releaseDate or "Latest")
         populateChangelog(currentUpdateData.changelog or { "Performance improvements and bug fixes" })
@@ -1443,8 +1445,9 @@ local function initUpdateGate(guiParent, UpdateBadge)
         local ledger = loadLedger()
         local hasUpdate = false
         local missingAvailable = {}
+        local installedVersion = (ledger and ledger.version) or CURRENT_OMNI_VERSION
 
-        if isNewerVersion(parsed.version, CURRENT_OMNI_VERSION) then
+        if isNewerVersion(parsed.version, installedVersion) then
             hasUpdate = true
         end
 
@@ -1484,7 +1487,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
             -- Show floating Pill Toast if not dismissed
             if not getgenv()._OmniUpdateDismissed then
                 if hasUpdate then
-                    PillSubtitle.Text = "v" .. CURRENT_OMNI_VERSION .. " ➔ v" .. tostring(parsed.version)
+                    PillSubtitle.Text = "v" .. tostring(installedVersion) .. " ➔ v" .. tostring(parsed.version)
                 else
                     PillSubtitle.Text = #missingAvailable .. " new component(s) available"
                 end
