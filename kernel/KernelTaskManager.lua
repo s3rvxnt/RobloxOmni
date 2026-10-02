@@ -3,7 +3,7 @@
 --!priority 1000
 --[[
     ==============================================================================
-    ANTIGRAVITY KERNEL TASK MANAGER & RUNTIME MICRO-KERNEL (v1.0 Standalone)
+    OMNI KERNEL TASK MANAGER & RUNTIME MICRO-KERNEL (v1.1.0 Standalone)
     ==============================================================================
     A unified, single-file developer execution engine and administrative task manager.
     Zero external dependencies. Works out-of-the-box via loadstring or autoexec.
@@ -3688,6 +3688,631 @@ getgenv()._VirtualSchedulerLoaded = true
 
 
 -- ==============================================================================
+-- OMNI UPDATE & SECURITY GATE (Transparency & Changelog Consent)
+-- ==============================================================================
+
+local function initUpdateGate(guiParent, UpdateBadge)
+    local CURRENT_OMNI_VERSION = "1.1.0"
+    local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
+    local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
+
+    local function fetchGithubScript(url)
+        local ok, content = pcall(function()
+            if type(game.HttpGet) == "function" then
+                return game:HttpGet(url)
+            elseif type(httpget) == "function" then
+                return httpget(url)
+            elseif type(request) == "function" then
+                local res = request({ Url = url, Method = "GET" })
+                return res and res.Body
+            end
+        end)
+        if ok and content and type(content) == "string" and #content > 50 and not content:find("404: Not Found") and not content:find("400: Invalid Request") then
+            return content
+        end
+        return nil
+    end
+
+    local function parseVersion(vStr)
+        local parts = {}
+        for num in tostring(vStr):gmatch("%d+") do
+            table.insert(parts, tonumber(num))
+        end
+        while #parts < 3 do table.insert(parts, 0) end
+        return parts
+    end
+
+    local function isNewerVersion(remote, current)
+        local r = parseVersion(remote)
+        local c = parseVersion(current)
+        for i = 1, math.max(#r, #c) do
+            local rVal = r[i] or 0
+            local cVal = c[i] or 0
+            if rVal > cVal then return true end
+            if rVal < cVal then return false end
+        end
+        return false
+    end
+
+    local existingUpdateGui = guiParent:FindFirstChild("OmniUpdateGate_Protected")
+    if existingUpdateGui then
+        pcall(function() existingUpdateGui:Destroy() end)
+    end
+
+    -- Update Gate GUI Container
+    local UpdateScreenGui = Instance.new("ScreenGui")
+    UpdateScreenGui.Name = "OmniUpdateGate_Protected"
+    UpdateScreenGui.ResetOnSpawn = false
+    UpdateScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    UpdateScreenGui.DisplayOrder = 1000000
+    UpdateScreenGui.Enabled = true
+    UpdateScreenGui.Parent = guiParent
+
+    -- 1. Floating Pill Toast (Top-Right)
+    local PillToast = Instance.new("Frame")
+    PillToast.Name = "PillToast"
+    PillToast.Size = UDim2.new(0, 320, 0, 52)
+    PillToast.Position = UDim2.new(1, -336, 0, 16)
+    PillToast.BackgroundColor3 = Color3.fromRGB(16, 20, 28)
+    PillToast.BorderSizePixel = 0
+    PillToast.Visible = false
+    PillToast.Parent = UpdateScreenGui
+
+    local PillCorner = Instance.new("UICorner")
+    PillCorner.CornerRadius = UDim.new(0, 8)
+    PillCorner.Parent = PillToast
+
+    local PillStroke = Instance.new("UIStroke")
+    PillStroke.Thickness = 1
+    PillStroke.Color = Color3.fromRGB(45, 75, 120)
+    PillStroke.Parent = PillToast
+
+    local PillIcon = Instance.new("TextLabel")
+    PillIcon.Size = UDim2.new(0, 24, 0, 24)
+    PillIcon.Position = UDim2.new(0, 10, 0.5, -12)
+    PillIcon.BackgroundTransparency = 1
+    PillIcon.Font = Enum.Font.GothamBold
+    PillIcon.TextSize = 16
+    PillIcon.TextColor3 = Color3.fromRGB(64, 196, 255)
+    PillIcon.Text = "⚡"
+    PillIcon.Parent = PillToast
+
+    local PillTitle = Instance.new("TextLabel")
+    PillTitle.Size = UDim2.new(0, 160, 0, 16)
+    PillTitle.Position = UDim2.new(0, 38, 0, 10)
+    PillTitle.BackgroundTransparency = 1
+    PillTitle.Font = Enum.Font.GothamBold
+    PillTitle.TextSize = 12
+    PillTitle.TextColor3 = Color3.fromRGB(240, 245, 255)
+    PillTitle.TextXAlignment = Enum.TextXAlignment.Left
+    PillTitle.Text = "Omni Update Available"
+    PillTitle.Parent = PillToast
+
+    local PillSubtitle = Instance.new("TextLabel")
+    PillSubtitle.Name = "PillSubtitle"
+    PillSubtitle.Size = UDim2.new(0, 160, 0, 14)
+    PillSubtitle.Position = UDim2.new(0, 38, 0, 27)
+    PillSubtitle.BackgroundTransparency = 1
+    PillSubtitle.Font = Enum.Font.Gotham
+    PillSubtitle.TextSize = 10
+    PillSubtitle.TextColor3 = Color3.fromRGB(120, 170, 210)
+    PillSubtitle.TextXAlignment = Enum.TextXAlignment.Left
+    PillSubtitle.Text = "v1.0.0 ➔ v1.1.0"
+    PillSubtitle.Parent = PillToast
+
+    local PillReviewBtn = Instance.new("TextButton")
+    PillReviewBtn.Name = "PillReviewBtn"
+    PillReviewBtn.Size = UDim2.new(0, 76, 0, 26)
+    PillReviewBtn.Position = UDim2.new(1, -104, 0.5, -13)
+    PillReviewBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+    PillReviewBtn.Font = Enum.Font.GothamBold
+    PillReviewBtn.TextSize = 10
+    PillReviewBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    PillReviewBtn.Text = "Review"
+    PillReviewBtn.Parent = PillToast
+
+    local PillReviewCorner = Instance.new("UICorner")
+    PillReviewCorner.CornerRadius = UDim.new(0, 5)
+    PillReviewCorner.Parent = PillReviewBtn
+
+    local PillDismissBtn = Instance.new("TextButton")
+    PillDismissBtn.Name = "PillDismissBtn"
+    PillDismissBtn.Size = UDim2.new(0, 20, 0, 20)
+    PillDismissBtn.Position = UDim2.new(1, -24, 0.5, -10)
+    PillDismissBtn.BackgroundTransparency = 1
+    PillDismissBtn.Font = Enum.Font.GothamBold
+    PillDismissBtn.TextSize = 11
+    PillDismissBtn.TextColor3 = Color3.fromRGB(140, 155, 175)
+    PillDismissBtn.Text = "✕"
+    PillDismissBtn.Parent = PillToast
+
+    -- 2. Modal Backdrop & Centered Modal Frame
+    local ModalBackdrop = Instance.new("TextButton")
+    ModalBackdrop.Name = "ModalBackdrop"
+    ModalBackdrop.Size = UDim2.new(1, 0, 1, 0)
+    ModalBackdrop.Position = UDim2.new(0, 0, 0, 0)
+    ModalBackdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    ModalBackdrop.BackgroundTransparency = 0.6
+    ModalBackdrop.Text = ""
+    ModalBackdrop.AutoButtonColor = false
+    ModalBackdrop.Visible = false
+    ModalBackdrop.Parent = UpdateScreenGui
+
+    local ModalFrame = Instance.new("Frame")
+    ModalFrame.Name = "ModalFrame"
+    ModalFrame.Size = UDim2.new(0, 540, 0, 440)
+    ModalFrame.Position = UDim2.new(0.5, -270, 0.5, -220)
+    ModalFrame.BackgroundColor3 = Color3.fromRGB(15, 18, 25)
+    ModalFrame.BorderSizePixel = 0
+    ModalFrame.ClipsDescendants = true
+    ModalFrame.Active = true
+    ModalFrame.Parent = ModalBackdrop
+
+    local ModalCorner = Instance.new("UICorner")
+    ModalCorner.CornerRadius = UDim.new(0, 10)
+    ModalCorner.Parent = ModalFrame
+
+    local ModalStroke = Instance.new("UIStroke")
+    ModalStroke.Thickness = 1.5
+    ModalStroke.Color = Color3.fromRGB(35, 110, 180)
+    ModalStroke.Parent = ModalFrame
+
+    -- Modal Header
+    local ModalHeader = Instance.new("Frame")
+    ModalHeader.Name = "ModalHeader"
+    ModalHeader.Size = UDim2.new(1, 0, 0, 52)
+    ModalHeader.BackgroundColor3 = Color3.fromRGB(20, 25, 35)
+    ModalHeader.BorderSizePixel = 0
+    ModalHeader.Parent = ModalFrame
+
+    local ModalHeaderCorner = Instance.new("UICorner")
+    ModalHeaderCorner.CornerRadius = UDim.new(0, 10)
+    ModalHeaderCorner.Parent = ModalHeader
+
+    local ModalHeaderCover = Instance.new("Frame")
+    ModalHeaderCover.Size = UDim2.new(1, 0, 0, 10)
+    ModalHeaderCover.Position = UDim2.new(0, 0, 1, -10)
+    ModalHeaderCover.BackgroundColor3 = Color3.fromRGB(20, 25, 35)
+    ModalHeaderCover.BorderSizePixel = 0
+    ModalHeaderCover.Parent = ModalHeader
+
+    local ModalTitle = Instance.new("TextLabel")
+    ModalTitle.Size = UDim2.new(1, -60, 0, 22)
+    ModalTitle.Position = UDim2.new(0, 16, 0, 8)
+    ModalTitle.BackgroundTransparency = 1
+    ModalTitle.Font = Enum.Font.GothamBold
+    ModalTitle.TextSize = 14
+    ModalTitle.TextColor3 = Color3.fromRGB(64, 196, 255)
+    ModalTitle.TextXAlignment = Enum.TextXAlignment.Left
+    ModalTitle.Text = "⚡ OMNI UPDATE & SECURITY GATE"
+    ModalTitle.Parent = ModalHeader
+
+    local ModalSubtitle = Instance.new("TextLabel")
+    ModalSubtitle.Size = UDim2.new(1, -60, 0, 14)
+    ModalSubtitle.Position = UDim2.new(0, 16, 0, 30)
+    ModalSubtitle.BackgroundTransparency = 1
+    ModalSubtitle.Font = Enum.Font.Gotham
+    ModalSubtitle.TextSize = 10
+    ModalSubtitle.TextColor3 = Color3.fromRGB(150, 165, 185)
+    ModalSubtitle.TextXAlignment = Enum.TextXAlignment.Left
+    ModalSubtitle.Text = "Verified code changes • Complete transparency before updating local files"
+    ModalSubtitle.Parent = ModalHeader
+
+    local ModalCloseBtn = Instance.new("TextButton")
+    ModalCloseBtn.Size = UDim2.new(0, 28, 0, 28)
+    ModalCloseBtn.Position = UDim2.new(1, -38, 0.5, -14)
+    ModalCloseBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 46)
+    ModalCloseBtn.Font = Enum.Font.GothamBold
+    ModalCloseBtn.TextSize = 13
+    ModalCloseBtn.TextColor3 = Color3.fromRGB(200, 210, 225)
+    ModalCloseBtn.Text = "✕"
+    ModalCloseBtn.Parent = ModalHeader
+
+    local ModalCloseCorner = Instance.new("UICorner")
+    ModalCloseCorner.CornerRadius = UDim.new(0, 6)
+    ModalCloseCorner.Parent = ModalCloseBtn
+
+    -- Version Diff Card
+    local DiffCard = Instance.new("Frame")
+    DiffCard.Name = "DiffCard"
+    DiffCard.Size = UDim2.new(1, -32, 0, 44)
+    DiffCard.Position = UDim2.new(0, 16, 0, 62)
+    DiffCard.BackgroundColor3 = Color3.fromRGB(22, 27, 38)
+    DiffCard.BorderSizePixel = 0
+    DiffCard.Parent = ModalFrame
+
+    local DiffCorner = Instance.new("UICorner")
+    DiffCorner.CornerRadius = UDim.new(0, 6)
+    DiffCorner.Parent = DiffCard
+
+    local DiffStroke = Instance.new("UIStroke")
+    DiffStroke.Thickness = 1
+    DiffStroke.Color = Color3.fromRGB(38, 50, 72)
+    DiffStroke.Parent = DiffCard
+
+    local DiffCurrent = Instance.new("TextLabel")
+    DiffCurrent.Name = "DiffCurrent"
+    DiffCurrent.Size = UDim2.new(0, 150, 1, 0)
+    DiffCurrent.Position = UDim2.new(0, 12, 0, 0)
+    DiffCurrent.BackgroundTransparency = 1
+    DiffCurrent.Font = Enum.Font.GothamMedium
+    DiffCurrent.TextSize = 11
+    DiffCurrent.TextColor3 = Color3.fromRGB(140, 175, 155)
+    DiffCurrent.TextXAlignment = Enum.TextXAlignment.Left
+    DiffCurrent.Text = "Installed: v" .. CURRENT_OMNI_VERSION
+    DiffCurrent.Parent = DiffCard
+
+    local DiffArrow = Instance.new("TextLabel")
+    DiffArrow.Size = UDim2.new(0, 30, 1, 0)
+    DiffArrow.Position = UDim2.new(0, 165, 0, 0)
+    DiffArrow.BackgroundTransparency = 1
+    DiffArrow.Font = Enum.Font.GothamBold
+    DiffArrow.TextSize = 14
+    DiffArrow.TextColor3 = Color3.fromRGB(64, 196, 255)
+    DiffArrow.Text = "➔"
+    DiffArrow.Parent = DiffCard
+
+    local DiffAvailable = Instance.new("TextLabel")
+    DiffAvailable.Name = "DiffAvailable"
+    DiffAvailable.Size = UDim2.new(0, 160, 1, 0)
+    DiffAvailable.Position = UDim2.new(0, 200, 0, 0)
+    DiffAvailable.BackgroundTransparency = 1
+    DiffAvailable.Font = Enum.Font.GothamBold
+    DiffAvailable.TextSize = 12
+    DiffAvailable.TextColor3 = Color3.fromRGB(64, 196, 255)
+    DiffAvailable.TextXAlignment = Enum.TextXAlignment.Left
+    DiffAvailable.Text = "Available: v1.1.0"
+    DiffAvailable.Parent = DiffCard
+
+    local DiffDate = Instance.new("TextLabel")
+    DiffDate.Name = "DiffDate"
+    DiffDate.Size = UDim2.new(0, 120, 1, 0)
+    DiffDate.Position = UDim2.new(1, -132, 0, 0)
+    DiffDate.BackgroundTransparency = 1
+    DiffDate.Font = Enum.Font.Gotham
+    DiffDate.TextSize = 10
+    DiffDate.TextColor3 = Color3.fromRGB(130, 145, 165)
+    DiffDate.TextXAlignment = Enum.TextXAlignment.Right
+    DiffDate.Text = "2026-10-02"
+    DiffDate.Parent = DiffCard
+
+    -- Changelog Section Title
+    local ChangelogTitle = Instance.new("TextLabel")
+    ChangelogTitle.Size = UDim2.new(1, -32, 0, 18)
+    ChangelogTitle.Position = UDim2.new(0, 16, 0, 114)
+    ChangelogTitle.BackgroundTransparency = 1
+    ChangelogTitle.Font = Enum.Font.GothamBold
+    ChangelogTitle.TextSize = 10
+    ChangelogTitle.TextColor3 = Color3.fromRGB(100, 175, 230)
+    ChangelogTitle.TextXAlignment = Enum.TextXAlignment.Left
+    ChangelogTitle.Text = "VERIFIED CHANGELOG & AUDIT LOG:"
+    ChangelogTitle.Parent = ModalFrame
+
+    -- Changelog Scroll Container
+    local ChangelogScroll = Instance.new("ScrollingFrame")
+    ChangelogScroll.Name = "ChangelogScroll"
+    ChangelogScroll.Size = UDim2.new(1, -32, 0, 246)
+    ChangelogScroll.Position = UDim2.new(0, 16, 0, 136)
+    ChangelogScroll.BackgroundColor3 = Color3.fromRGB(11, 13, 19)
+    ChangelogScroll.BorderSizePixel = 0
+    ChangelogScroll.ScrollBarThickness = 4
+    ChangelogScroll.ScrollBarImageColor3 = Color3.fromRGB(64, 196, 255)
+    ChangelogScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    ChangelogScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    ChangelogScroll.Parent = ModalFrame
+
+    local ChangelogCorner = Instance.new("UICorner")
+    ChangelogCorner.CornerRadius = UDim.new(0, 6)
+    ChangelogCorner.Parent = ChangelogScroll
+
+    local ChangelogStroke = Instance.new("UIStroke")
+    ChangelogStroke.Thickness = 1
+    ChangelogStroke.Color = Color3.fromRGB(30, 38, 52)
+    ChangelogStroke.Parent = ChangelogScroll
+
+    local ChangelogLayout = Instance.new("UIListLayout")
+    ChangelogLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    ChangelogLayout.Padding = UDim.new(0, 6)
+    ChangelogLayout.Parent = ChangelogScroll
+
+    local ChangelogPadding = Instance.new("UIPadding")
+    ChangelogPadding.PaddingTop = UDim.new(0, 8)
+    ChangelogPadding.PaddingBottom = UDim.new(0, 8)
+    ChangelogPadding.PaddingLeft = UDim.new(0, 8)
+    ChangelogPadding.PaddingRight = UDim.new(0, 12)
+    ChangelogPadding.Parent = ChangelogScroll
+
+    -- Footer Action Buttons
+    local FooterFrame = Instance.new("Frame")
+    FooterFrame.Name = "FooterFrame"
+    FooterFrame.Size = UDim2.new(1, -32, 0, 38)
+    FooterFrame.Position = UDim2.new(0, 16, 1, -48)
+    FooterFrame.BackgroundTransparency = 1
+    FooterFrame.Parent = ModalFrame
+
+    local DismissBtn = Instance.new("TextButton")
+    DismissBtn.Name = "DismissBtn"
+    DismissBtn.Size = UDim2.new(0, 140, 1, 0)
+    DismissBtn.Position = UDim2.new(0, 0, 0, 0)
+    DismissBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 46)
+    DismissBtn.Font = Enum.Font.GothamBold
+    DismissBtn.TextSize = 11
+    DismissBtn.TextColor3 = Color3.fromRGB(180, 195, 215)
+    DismissBtn.Text = "✕ Dismiss (Skip)"
+    DismissBtn.Parent = FooterFrame
+
+    local DismissCorner = Instance.new("UICorner")
+    DismissCorner.CornerRadius = UDim.new(0, 6)
+    DismissCorner.Parent = DismissBtn
+
+    local ApplyUpdateBtn = Instance.new("TextButton")
+    ApplyUpdateBtn.Name = "ApplyUpdateBtn"
+    ApplyUpdateBtn.Size = UDim2.new(1, -148, 1, 0)
+    ApplyUpdateBtn.Position = UDim2.new(0, 148, 0, 0)
+    ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+    ApplyUpdateBtn.Font = Enum.Font.GothamBold
+    ApplyUpdateBtn.TextSize = 12
+    ApplyUpdateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ApplyUpdateBtn.Text = "⬇️ Update & Apply Now"
+    ApplyUpdateBtn.Parent = FooterFrame
+
+    local ApplyCorner = Instance.new("UICorner")
+    ApplyCorner.CornerRadius = UDim.new(0, 6)
+    ApplyCorner.Parent = ApplyUpdateBtn
+
+    -- Populate Changelog
+    local function populateChangelog(items)
+        for _, child in ipairs(ChangelogScroll:GetChildren()) do
+            if child:IsA("Frame") then child:Destroy() end
+        end
+        for idx, item in ipairs(items) do
+            local row = Instance.new("Frame")
+            row.Name = "ChangeRow_" .. idx
+            row.Size = UDim2.new(1, 0, 0, 0)
+            row.AutomaticSize = Enum.AutomaticSize.Y
+            row.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+            row.BorderSizePixel = 0
+            row.LayoutOrder = idx
+            row.Parent = ChangelogScroll
+
+            local rowCorner = Instance.new("UICorner")
+            rowCorner.CornerRadius = UDim.new(0, 4)
+            rowCorner.Parent = row
+
+            local rowStroke = Instance.new("UIStroke")
+            rowStroke.Thickness = 1
+            rowStroke.Color = Color3.fromRGB(28, 36, 50)
+            rowStroke.Parent = row
+
+            local rowPadding = Instance.new("UIPadding")
+            rowPadding.PaddingTop = UDim.new(0, 6)
+            rowPadding.PaddingBottom = UDim.new(0, 6)
+            rowPadding.PaddingLeft = UDim.new(0, 8)
+            rowPadding.PaddingRight = UDim.new(0, 8)
+            rowPadding.Parent = row
+
+            local icon = Instance.new("TextLabel")
+            icon.Size = UDim2.new(0, 16, 0, 16)
+            icon.Position = UDim2.new(0, 0, 0, 0)
+            icon.BackgroundTransparency = 1
+            icon.Font = Enum.Font.GothamBold
+            icon.TextSize = 10
+            icon.TextColor3 = Color3.fromRGB(64, 196, 255)
+            icon.Text = "🔹"
+            icon.Parent = row
+
+            local desc = Instance.new("TextLabel")
+            desc.Size = UDim2.new(1, -22, 0, 0)
+            desc.Position = UDim2.new(0, 22, 0, 0)
+            desc.AutomaticSize = Enum.AutomaticSize.Y
+            desc.BackgroundTransparency = 1
+            desc.Font = Enum.Font.Gotham
+            desc.TextSize = 11
+            desc.TextColor3 = Color3.fromRGB(225, 235, 245)
+            desc.TextXAlignment = Enum.TextXAlignment.Left
+            desc.TextWrapped = true
+            desc.Text = tostring(item)
+            desc.Parent = row
+        end
+    end
+
+    local currentUpdateData = nil
+
+    local function openUpdateModal()
+        if not currentUpdateData then return end
+        DiffCurrent.Text = "Installed: v" .. CURRENT_OMNI_VERSION
+        DiffAvailable.Text = "Available: v" .. tostring(currentUpdateData.version)
+        DiffDate.Text = tostring(currentUpdateData.releaseDate or "Latest")
+        populateChangelog(currentUpdateData.changelog or { "Performance improvements and bug fixes" })
+        
+        ModalBackdrop.Visible = true
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+    end
+
+    local function closeUpdateModal()
+        ModalBackdrop.Visible = false
+    end
+
+    -- Event Wiring
+    ModalCloseBtn.MouseButton1Click:Connect(closeUpdateModal)
+    ModalBackdrop.MouseButton1Click:Connect(function()
+        closeUpdateModal()
+    end)
+
+    PillReviewBtn.MouseButton1Click:Connect(function()
+        PillToast.Visible = false
+        openUpdateModal()
+    end)
+
+    PillDismissBtn.MouseButton1Click:Connect(function()
+        PillToast.Visible = false
+        getgenv()._OmniUpdateDismissed = true
+    end)
+
+    DismissBtn.MouseButton1Click:Connect(function()
+        closeUpdateModal()
+        PillToast.Visible = false
+        getgenv()._OmniUpdateDismissed = true
+    end)
+
+    if UpdateBadge then
+        UpdateBadge.MouseButton1Click:Connect(openUpdateModal)
+    end
+
+    local function getLatestCommitSha()
+        local ok, res = pcall(function()
+            if type(request) == "function" then
+                local resp = request({
+                    Url = "https://api.github.com/repos/s3rvxnt/RobloxOmni/commits/main",
+                    Method = "GET",
+                    Headers = { ["User-Agent"] = "OmniUpdater" }
+                })
+                if resp and resp.StatusCode == 200 and resp.Body then
+                    local data = HttpService:JSONDecode(resp.Body)
+                    return data and data.sha
+                end
+            end
+        end)
+        if ok and res and type(res) == "string" and #res > 10 then
+            return res
+        end
+        return "main"
+    end
+
+    ApplyUpdateBtn.MouseButton1Click:Connect(function()
+        if not currentUpdateData then return end
+        ApplyUpdateBtn.Active = false
+        ApplyUpdateBtn.Text = "⏳ Fetching from GitHub..."
+
+        task.spawn(function()
+            local stages = currentUpdateData.stages
+            if not stages or #stages == 0 then
+                stages = {
+                    {
+                        repoPath = "kernel/KernelTaskManager.lua",
+                        localPath = "autoexec/kernel/KernelTaskManager.lua",
+                        name = "KernelTaskManager"
+                    }
+                }
+            end
+
+            local anySuccess = false
+            local lastCode = nil
+            local shaToUse = (currentUpdateData and currentUpdateData.sha) or "main"
+
+            for _, stage in ipairs(stages) do
+                local repoPath = stage.repoPath or stage.url
+                local localPath = stage.localPath or stage.path
+                local url = repoPath
+                if not url:find("^https?://") then
+                    url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. shaToUse .. "/" .. url
+                end
+
+                local remoteContent = fetchGithubScript(url)
+                if not remoteContent then
+                    remoteContent = fetchGithubScript(GITHUB_REPO_RAW .. (stage.repoPath or stage.url) .. "?v=" .. tostring(os.time()))
+                end
+
+                if remoteContent and #remoteContent > 500 then
+                    local ok, err = pcall(writefile, localPath, remoteContent)
+                    if ok then
+                        anySuccess = true
+                        if localPath:find("KernelTaskManager") then
+                            lastCode = remoteContent
+                        end
+                        print(string.format("[OmniUpdater]: Successfully updated %s", localPath))
+                        if isfile and isfile("workspace/" .. localPath) then
+                            pcall(writefile, "workspace/" .. localPath, remoteContent)
+                        end
+                    else
+                        warn(string.format("[OmniUpdater]: Failed writing to %s: %s", localPath, tostring(err)))
+                    end
+                end
+            end
+
+            if anySuccess then
+                ApplyUpdateBtn.Text = "✓ Updated! Reloading Omni..."
+                task.wait(0.7)
+                closeUpdateModal()
+                PillToast.Visible = false
+                if UpdateBadge then UpdateBadge.Visible = false end
+
+                -- Teardown old instance and execute updated code
+                if type(getgenv()._KernelTaskManagerUnifiedCleanUp) == "function" then
+                    pcall(getgenv()._KernelTaskManagerUnifiedCleanUp)
+                end
+
+                local codeToRun = lastCode
+                if not codeToRun then
+                    local okRead, fileData = pcall(readfile, "autoexec/kernel/KernelTaskManager.lua")
+                    if okRead and fileData then codeToRun = fileData end
+                end
+
+                if codeToRun then
+                    local fn, syntaxErr = loadstring(codeToRun, "@KernelTaskManager")
+                    if fn then
+                        task.spawn(fn)
+                    else
+                        warn("[OmniUpdater]: Reload compilation error: " .. tostring(syntaxErr))
+                    end
+                end
+            else
+                ApplyUpdateBtn.Text = "❌ Download Failed (Check Connection)"
+                task.wait(2.5)
+                ApplyUpdateBtn.Text = "⬇️ Update & Apply Now"
+                ApplyUpdateBtn.Active = true
+            end
+        end)
+    end)
+
+    -- Background Update Checker
+    task.spawn(function()
+        task.wait(1.5)
+        local sha = getLatestCommitSha()
+        local manifestUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. sha .. "/manifest.json"
+        local rawManifest = fetchGithubScript(manifestUrl)
+        if not rawManifest then
+            rawManifest = fetchGithubScript(MANIFEST_URL .. "?v=" .. tostring(os.time()))
+        end
+        if not rawManifest then return end
+
+        local ok, parsed = pcall(function() return HttpService:JSONDecode(rawManifest) end)
+        if not ok or not parsed or not parsed.version then return end
+
+        if isNewerVersion(parsed.version, CURRENT_OMNI_VERSION) then
+            currentUpdateData = {
+                version = parsed.version,
+                releaseDate = parsed.releaseDate or "Latest",
+                title = parsed.title or ("Omni v" .. parsed.version),
+                changelog = parsed.changelog or { "Performance improvements and bug fixes" },
+                stages = parsed.stages or {},
+                sha = sha
+            }
+
+            -- Show TitleBar badge
+            if UpdateBadge then
+                UpdateBadge.Text = "⚡ v" .. tostring(parsed.version) .. " Available"
+                UpdateBadge.Visible = true
+            end
+
+            -- Show floating Pill Toast if not previously dismissed
+            if not getgenv()._OmniUpdateDismissed then
+                PillSubtitle.Text = "v" .. CURRENT_OMNI_VERSION .. " ➔ v" .. tostring(parsed.version)
+                PillToast.Visible = true
+            end
+        end
+    end)
+
+    return function()
+        if UpdateScreenGui then
+            pcall(function() UpdateScreenGui:Destroy() end)
+            UpdateScreenGui = nil
+        end
+    end
+end
+
+-- ==============================================================================
 -- SECTION 2: FLUENT TASK MANAGER HUD
 -- ==============================================================================
 
@@ -3719,6 +4344,10 @@ end
 local existingGui = guiParent:FindFirstChild("KernelTaskManager_Protected")
 if existingGui then
     pcall(function() existingGui:Destroy() end)
+end
+local existingUpdateGui = guiParent:FindFirstChild("OmniUpdateGate_Protected")
+if existingUpdateGui then
+    pcall(function() existingUpdateGui:Destroy() end)
 end
 
 -- ==============================================================================
@@ -3800,6 +4429,27 @@ local KeybindBadgeCorner = Instance.new("UICorner")
 KeybindBadgeCorner.CornerRadius = UDim.new(0, 4)
 KeybindBadgeCorner.Parent = KeybindBadge
 
+local UpdateBadge = Instance.new("TextButton")
+UpdateBadge.Name = "UpdateBadge"
+UpdateBadge.Size = UDim2.new(0, 126, 0, 20)
+UpdateBadge.Position = UDim2.new(0, 320, 0.5, -10)
+UpdateBadge.BackgroundColor3 = Color3.fromRGB(25, 60, 100)
+UpdateBadge.Font = Enum.Font.GothamBold
+UpdateBadge.TextSize = 10
+UpdateBadge.TextColor3 = Color3.fromRGB(100, 210, 255)
+UpdateBadge.Text = "⚡ Update Available"
+UpdateBadge.Visible = false
+UpdateBadge.Parent = TitleBar
+
+local UpdateBadgeCorner = Instance.new("UICorner")
+UpdateBadgeCorner.CornerRadius = UDim.new(0, 4)
+UpdateBadgeCorner.Parent = UpdateBadge
+
+local UpdateBadgeStroke = Instance.new("UIStroke")
+UpdateBadgeStroke.Thickness = 1
+UpdateBadgeStroke.Color = Color3.fromRGB(50, 130, 210)
+UpdateBadgeStroke.Parent = UpdateBadge
+
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Name = "CloseBtn"
 CloseBtn.Size = UDim2.new(0, 28, 0, 28)
@@ -3837,7 +4487,7 @@ end
 local function handleDragStart(pos)
     if not ScreenGui.Enabled then return end
     -- Guard interactive title bar buttons
-    if isInsideGui(CloseBtn, pos) then
+    if isInsideGui(CloseBtn, pos) or (UpdateBadge and isInsideGui(UpdateBadge, pos)) then
         return
     end
     -- Check if click originated within TitleBar bounds
@@ -8528,6 +9178,8 @@ CloseBtn.MouseButton1Click:Connect(function()
     ScreenGui.Enabled = false
 end)
 
+local cleanUpUpdateGate = initUpdateGate(guiParent, UpdateBadge)
+
 -- ==============================================================================
 -- KEYBIND & TOGGLE HANDLER (Shift + F8)
 -- ==============================================================================
@@ -8579,6 +9231,9 @@ cleanUpHUD = function()
     cachedStartupRows = {}
     if ScreenGui then
         ScreenGui:Destroy()
+    end
+    if type(cleanUpUpdateGate) == "function" then
+        pcall(cleanUpUpdateGate)
     end
     getgenv()._KernelTaskManagerGui = nil
     getgenv()._KernelTaskManagerCleanUp = nil
