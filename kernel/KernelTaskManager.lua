@@ -3724,6 +3724,26 @@ local function initUpdateGate(guiParent, UpdateBadge)
         return nil
     end
 
+    local function getLatestCommitSha()
+        local ok, res = pcall(function()
+            if type(request) == "function" then
+                local resp = request({
+                    Url = "https://api.github.com/repos/s3rvxnt/RobloxOmni/commits/main",
+                    Method = "GET",
+                    Headers = { ["User-Agent"] = "OmniUpdater" }
+                })
+                if resp and resp.StatusCode == 200 and resp.Body then
+                    local data = HttpService:JSONDecode(resp.Body)
+                    return data and data.sha
+                end
+            end
+        end)
+        if ok and res and type(res) == "string" and #res > 10 then
+            return res
+        end
+        return "main"
+    end
+
     local function parseVersion(vStr)
         local parts = {}
         for num in tostring(vStr):gmatch("%d+") do
@@ -4762,26 +4782,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
             end
         end
     end)
-
-    local function getLatestCommitSha()
-        local ok, res = pcall(function()
-            if type(request) == "function" then
-                local resp = request({
-                    Url = "https://api.github.com/repos/s3rvxnt/RobloxOmni/commits/main",
-                    Method = "GET",
-                    Headers = { ["User-Agent"] = "OmniUpdater" }
-                })
-                if resp and resp.StatusCode == 200 and resp.Body then
-                    local data = HttpService:JSONDecode(resp.Body)
-                    return data and data.sha
-                end
-            end
-        end)
-        if ok and res and type(res) == "string" and #res > 10 then
-            return res
-        end
-        return "main"
-    end
 
     ApplyUpdateBtn.MouseButton1Click:Connect(function()
         if not currentUpdateData then return end
