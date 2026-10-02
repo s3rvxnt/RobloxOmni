@@ -4119,7 +4119,27 @@ local function initUpdateGate(guiParent, UpdateBadge)
     local currentUpdateData = nil
 
     local function openUpdateModal()
-        if not currentUpdateData then return end
+        if not currentUpdateData then
+            currentUpdateData = {
+                version = CURRENT_OMNI_VERSION,
+                releaseDate = "2026-10-02",
+                title = "OMNI Release " .. CURRENT_OMNI_VERSION,
+                changelog = {
+                    "Rebranded to OMNI Task Manager with unified system telemetry",
+                    "Physical door contact & ragdoll faceplant recovery integration",
+                    "Dynamic CPU throttle cap (10ms sleep threshold guard)",
+                    "Pixel-perfect 8px button spacing & Fluent UI alignment",
+                    "Security & Transparency Gate: In-game changelog viewer with user consent for updates"
+                },
+                stages = {
+                    {
+                        repoPath = "kernel/KernelTaskManager.lua",
+                        localPath = "autoexec/kernel/KernelTaskManager.lua",
+                        name = "KernelTaskManager"
+                    }
+                }
+            }
+        end
         DiffCurrent.Text = "Installed: v" .. CURRENT_OMNI_VERSION
         DiffAvailable.Text = "Available: v" .. tostring(currentUpdateData.version)
         DiffDate.Text = tostring(currentUpdateData.releaseDate or "Latest")
@@ -4129,6 +4149,8 @@ local function initUpdateGate(guiParent, UpdateBadge)
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
         UserInputService.MouseIconEnabled = true
     end
+
+    getgenv().TestOmniUpdateGate = openUpdateModal
 
     local function closeUpdateModal()
         ModalBackdrop.Visible = false
@@ -4309,6 +4331,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
             pcall(function() UpdateScreenGui:Destroy() end)
             UpdateScreenGui = nil
         end
+        getgenv().TestOmniUpdateGate = nil
     end
 end
 
