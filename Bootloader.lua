@@ -177,35 +177,35 @@ for _, mirror in ipairs(activeMirrors) do
     end
 
     -- Check GitHub for updates with cache-busting timestamp
-    local latestContent = fetchGithubScript(remoteUrl .. "?v=" .. tostring(os.time()))
-    if latestContent then
-        if not existingContent then
+    local isCoreKernel = localPath:lower():find("kernel/kerneltaskmanager") ~= nil
+
+    if isCoreKernel and not fileExists then
+        -- Only bootstrap the Core Kernel if it is missing completely on initial install
+        local latestContent = fetchGithubScript(remoteUrl .. "?v=" .. tostring(os.time()))
+        if latestContent then
             local writeOk, writeErr = pcall(writefile, localPath, latestContent)
             if writeOk then
-                print(string.format("[Bootloader]: Successfully installed %s -> %s", mirrorName, localPath))
+                print(string.format("[Bootloader]: Initialized core %s -> %s", mirrorName, localPath))
             else
                 warn(string.format("[Bootloader]: Failed to write %s: %s", localPath, tostring(writeErr)))
             end
-        elseif existingContent ~= latestContent then
-            if getgenv()._OmniAutoUpdateSilent then
-                local writeOk, writeErr = pcall(writefile, localPath, latestContent)
-                if writeOk then
-                    print(string.format("[Bootloader]: Auto-updated %s to latest version from GitHub!", mirrorName))
-                else
-                    warn(string.format("[Bootloader]: Failed to update %s: %s", localPath, tostring(writeErr)))
-                end
+        end
+    elseif fileExists and getgenv()._OmniAutoUpdateSilent then
+        -- Only silently update if user explicitly configured silent auto-updates
+        local latestContent = fetchGithubScript(remoteUrl .. "?v=" .. tostring(os.time()))
+        if latestContent and existingContent and existingContent ~= latestContent then
+            local writeOk, writeErr = pcall(writefile, localPath, latestContent)
+            if writeOk then
+                print(string.format("[Bootloader]: Auto-updated %s to latest version from GitHub!", mirrorName))
             else
-                print(string.format("[Bootloader]: %s has an update available on GitHub (managed by Omni Update Gate).", mirrorName))
+                warn(string.format("[Bootloader]: Failed to update %s: %s", localPath, tostring(writeErr)))
             end
-        else
-            print(string.format("[Bootloader]: %s is up-to-date.", mirrorName))
         end
     else
-        if fileExists then
-            print(string.format("[Bootloader]: GitHub unreachable. Using cached %s.", mirrorName))
-        else
-            warn(string.format("[Bootloader]: Could not fetch %s from GitHub and no local cache exists.", mirrorName))
-        end
+        -- Respect user deletions & opt-outs!
+        -- If a component does not exist locally (deleted by user or not yet installed),
+        -- Bootloader NEVER writes it silently. Installation and updates are deferred
+        -- to the in-game Omni Update & Security Gate with user consent.
     end
 end
 
