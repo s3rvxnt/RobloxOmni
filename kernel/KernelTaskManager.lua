@@ -3698,7 +3698,7 @@ getgenv()._VirtualSchedulerLoaded = true
 -- ==============================================================================
 
 local function initUpdateGate(guiParent, UpdateBadge)
-    local CURRENT_OMNI_VERSION = "1.2.0"
+    local CURRENT_OMNI_VERSION = "1.1.0"
     local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
     local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
     local LEDGER_PATH = "Omni_Ledger.json"
@@ -3941,18 +3941,17 @@ local function initUpdateGate(guiParent, UpdateBadge)
     PillDismissBtn.Font = Enum.Font.GothamBold
     PillDismissBtn.TextSize = 11
     PillDismissBtn.TextColor3 = Color3.fromRGB(140, 155, 175)
-    PillDismissBtn.Text = "✕"
+    PillDismissBtn.Text = "X"
     PillDismissBtn.Parent = PillToast
 
     -- 2. Modal Backdrop & Centered Modal Frame (580x480)
-    local ModalBackdrop = Instance.new("TextButton")
+    local ModalBackdrop = Instance.new("Frame")
     ModalBackdrop.Name = "ModalBackdrop"
     ModalBackdrop.Size = UDim2.new(1, 0, 1, 0)
     ModalBackdrop.Position = UDim2.new(0, 0, 0, 0)
     ModalBackdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     ModalBackdrop.BackgroundTransparency = 0.6
-    ModalBackdrop.Text = ""
-    ModalBackdrop.AutoButtonColor = false
+    ModalBackdrop.BorderSizePixel = 0
     ModalBackdrop.Visible = false
     ModalBackdrop.Parent = UpdateScreenGui
 
@@ -4016,7 +4015,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
     ModalCloseBtn.Font = Enum.Font.GothamBold
     ModalCloseBtn.TextSize = 13
     ModalCloseBtn.TextColor3 = Color3.fromRGB(200, 210, 225)
-    ModalCloseBtn.Text = "✕"
+    ModalCloseBtn.Text = "X"
     ModalCloseBtn.Parent = ModalHeader
 
     local ModalCloseCorner = Instance.new("UICorner")
@@ -4250,7 +4249,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
     DismissBtn.Font = Enum.Font.GothamBold
     DismissBtn.TextSize = 11
     DismissBtn.TextColor3 = Color3.fromRGB(180, 195, 215)
-    DismissBtn.Text = "✕ Dismiss (Skip)"
+    DismissBtn.Text = "Dismiss (Skip)"
     DismissBtn.Parent = FooterFrame
 
     local DismissCorner = Instance.new("UICorner")
@@ -4679,12 +4678,34 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
     local function closeUpdateModal()
         ModalBackdrop.Visible = false
+        -- Keep PillToast visible so user can easily reopen the modal!
+        if not getgenv()._OmniUpdateDismissed and currentUpdateData then
+            PillToast.Visible = true
+        end
     end
 
     -- Event Wiring
     ModalCloseBtn.MouseButton1Click:Connect(closeUpdateModal)
-    ModalBackdrop.MouseButton1Click:Connect(function()
-        closeUpdateModal()
+
+    -- Smooth Modal Header Dragging
+    local isDraggingModal, dragStartPos, frameStartPos
+    ModalHeader.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDraggingModal = true
+            dragStartPos = input.Position
+            frameStartPos = ModalFrame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    isDraggingModal = false
+                end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if isDraggingModal and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStartPos
+            ModalFrame.Position = UDim2.new(frameStartPos.X.Scale, frameStartPos.X.Offset + delta.X, frameStartPos.Y.Scale, frameStartPos.Y.Offset + delta.Y)
+        end
     end)
 
     PillReviewBtn.MouseButton1Click:Connect(function()
