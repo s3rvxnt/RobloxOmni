@@ -212,6 +212,1314 @@ for _, mirror in ipairs(activeMirrors) do
     end
 end
 
+-- ==============================================================================
+-- ROOT OF TRUST: OMNI SECURITY & TRANSPARENCY GATE
+-- ==============================================================================
+local function getGuiParent()
+    local okCG, CoreGui = pcall(function() return game:GetService("CoreGui") end)
+    if okCG and CoreGui then
+        local okP = pcall(function()
+            local test = Instance.new("Folder")
+            test.Parent = CoreGui
+            test:Destroy()
+        end)
+        if okP then return CoreGui end
+    end
+    if type(gethui) == "function" then
+        local ok, hui = pcall(gethui)
+        if ok and hui then return hui end
+    end
+    local Players = game:GetService("Players")
+    local lp = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+    return lp:WaitForChild("PlayerGui")
+end
+
+local function initUpdateGate(guiParent, UpdateBadge)
+    local CURRENT_OMNI_VERSION = "1.2.0"
+    local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
+    local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
+    local LEDGER_PATH = "Omni_Ledger.json"
+
+    local function fetchGithubScript(url)
+        local ok, content = pcall(function()
+            if type(game.HttpGet) == "function" then
+                return game:HttpGet(url)
+            elseif type(httpget) == "function" then
+                return httpget(url)
+            elseif type(request) == "function" then
+                local res = request({ Url = url, Method = "GET" })
+                return res and res.Body
+            end
+        end)
+        if ok and content and type(content) == "string" and #content > 50 then
+            -- Only check for 404/400 error message if content is suspiciously short (< 150 chars)
+            if #content < 150 and (content:find("404: Not Found") or content:find("400: Invalid Request")) then
+                return nil
+            end
+            return content
+        end
+        return nil
+    end
+
+    local function getLatestCommitSha()
+        local ok, res = pcall(function()
+            if type(request) == "function" then
+                local resp = request({
+                    Url = "https://api.github.com/repos/s3rvxnt/RobloxOmni/commits/main",
+                    Method = "GET",
+                    Headers = { ["User-Agent"] = "OmniUpdater" }
+                })
+                if resp and resp.StatusCode == 200 and resp.Body then
+                    local data = HttpService:JSONDecode(resp.Body)
+                    return data and data.sha
+                end
+            end
+        end)
+        if ok and res and type(res) == "string" and #res > 10 then
+            return res
+        end
+        return "main"
+    end
+
+    local function parseVersion(vStr)
+        local parts = {}
+        for num in tostring(vStr):gmatch("%d+") do
+            table.insert(parts, tonumber(num))
+        end
+        while #parts < 3 do table.insert(parts, 0) end
+        return parts
+    end
+
+    local function isNewerVersion(remote, current)
+        local r = parseVersion(remote)
+        local c = parseVersion(current)
+        for i = 1, math.max(#r, #c) do
+            local rVal = r[i] or 0
+            local cVal = c[i] or 0
+            if rVal > cVal then return true end
+            if rVal < cVal then return false end
+        end
+        return false
+    end
+
+    -- Ledger Management
+    local function loadLedger()
+        if type(isfile) == "function" and isfile(LEDGER_PATH) then
+            local ok, raw = pcall(readfile, LEDGER_PATH)
+            if ok and raw and #raw > 2 then
+                local okDec, data = pcall(function() return HttpService:JSONDecode(raw) end)
+                if okDec and type(data) == "table" then
+                    data.components = data.components or {}
+                    return data
+                end
+            end
+        end
+        return { version = CURRENT_OMNI_VERSION, components = {} }
+    end
+
+    local function saveLedger(ledger)
+        if type(writefile) == "function" and HttpService then
+            pcall(function()
+                writefile(LEDGER_PATH, HttpService:JSONEncode(ledger))
+            end)
+        end
+    end
+
+    -- Security Heuristics Audit
+    local function auditScriptContent(code)
+        local badges = {}
+        if not code or #code == 0 then return badges end
+        if code:find("discord%.com/api/webhooks") or code:find("discordapp%.com/api/webhooks") then
+            table.insert(badges, { label = "🚨 Webhook", color = Color3.fromRGB(240, 70, 70) })
+        end
+        if code:find("loadstring%s*%(") then
+            table.insert(badges, { label = "⚠️ loadstring()", color = Color3.fromRGB(250, 160, 40) })
+        end
+        if code:find("HttpGet%s*%(") or code:find("request%s*%(") or code:find("http_request%s*%(") then
+            table.insert(badges, { label = "🌐 Web Traffic", color = Color3.fromRGB(60, 180, 250) })
+        end
+        if code:find("writefile%s*%(") or code:find("delfile%s*%(") then
+            table.insert(badges, { label = "💾 File IO", color = Color3.fromRGB(170, 130, 240) })
+        end
+        if #badges == 0 then
+            table.insert(badges, { label = "🛡️ Clean Audit", color = Color3.fromRGB(70, 210, 130) })
+        end
+        return badges
+    end
+
+    -- Ultra-Fast Linear Diff Engine
+    local function computeLineDiff(oldCode, newCode)
+        local oldLines = {}
+        if oldCode and #oldCode > 0 then
+            for line in (oldCode .. "\n"):gmatch("(.-)\r?\n") do
+                table.insert(oldLines, line)
+            end
+        end
+
+        local newLines = {}
+        if newCode and #newCode > 0 then
+            for line in (newCode .. "\n"):gmatch("(.-)\r?\n") do
+                table.insert(newLines, line)
+            end
+        end
+
+        if #oldLines == 0 then
+            local diff = {}
+            for idx, line in ipairs(newLines) do
+                table.insert(diff, { type = "add", lineNum = idx, text = line })
+                if idx >= 500 then break end
+            end
+            return diff, #newLines, #newLines, 0
+        end
+
+        local pStart = 1
+        while pStart <= #oldLines and pStart <= #newLines and oldLines[pStart] == newLines[pStart] do
+            pStart = pStart + 1
+        end
+
+        local oldEnd = #oldLines
+        local newEnd = #newLines
+        while oldEnd >= pStart and newEnd >= pStart and oldLines[oldEnd] == newLines[newEnd] do
+            oldEnd = oldEnd - 1
+            newEnd = newEnd - 1
+        end
+
+        local diff = {}
+        local adds = math.max(0, newEnd - pStart + 1)
+        local removes = math.max(0, oldEnd - pStart + 1)
+
+        local ctxStart = math.max(1, pStart - 3)
+        for i = ctxStart, pStart - 1 do
+            table.insert(diff, { type = "same", lineNum = i, text = oldLines[i] })
+        end
+
+        for i = pStart, math.min(oldEnd, pStart + 250) do
+            table.insert(diff, { type = "remove", lineNum = i, text = oldLines[i] })
+        end
+
+        for i = pStart, math.min(newEnd, pStart + 250) do
+            table.insert(diff, { type = "add", lineNum = i, text = newLines[i] })
+        end
+
+        local ctxEnd = math.min(#newLines, newEnd + 3)
+        for i = newEnd + 1, ctxEnd do
+            table.insert(diff, { type = "same", lineNum = i, text = newLines[i] })
+        end
+
+        return diff, #newLines, adds, removes
+    end
+
+    local existingUpdateGui = guiParent:FindFirstChild("OmniUpdateGate_Protected")
+    if existingUpdateGui then
+        pcall(function() existingUpdateGui:Destroy() end)
+    end
+
+    -- Update Gate GUI Container
+    local UpdateScreenGui = Instance.new("ScreenGui")
+    UpdateScreenGui.Name = "OmniUpdateGate_Protected"
+    UpdateScreenGui.ResetOnSpawn = false
+    UpdateScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    UpdateScreenGui.DisplayOrder = 1000000
+    UpdateScreenGui.Enabled = true
+    UpdateScreenGui.Parent = guiParent
+
+    -- 1. Floating Pill Toast (Top-Right)
+    local PillToast = Instance.new("Frame")
+    PillToast.Name = "PillToast"
+    PillToast.Size = UDim2.new(0, 320, 0, 52)
+    PillToast.Position = UDim2.new(1, -336, 0, 16)
+    PillToast.BackgroundColor3 = Color3.fromRGB(16, 20, 28)
+    PillToast.BorderSizePixel = 0
+    PillToast.Visible = false
+    PillToast.Parent = UpdateScreenGui
+
+    local PillCorner = Instance.new("UICorner")
+    PillCorner.CornerRadius = UDim.new(0, 8)
+    PillCorner.Parent = PillToast
+
+    local PillStroke = Instance.new("UIStroke")
+    PillStroke.Thickness = 1
+    PillStroke.Color = Color3.fromRGB(45, 75, 120)
+    PillStroke.Parent = PillToast
+
+    local PillIcon = Instance.new("TextLabel")
+    PillIcon.Size = UDim2.new(0, 24, 0, 24)
+    PillIcon.Position = UDim2.new(0, 10, 0.5, -12)
+    PillIcon.BackgroundTransparency = 1
+    PillIcon.Font = Enum.Font.GothamBold
+    PillIcon.TextSize = 16
+    PillIcon.TextColor3 = Color3.fromRGB(64, 196, 255)
+    PillIcon.Text = "⚡"
+    PillIcon.Parent = PillToast
+
+    local PillTitle = Instance.new("TextLabel")
+    PillTitle.Size = UDim2.new(0, 160, 0, 16)
+    PillTitle.Position = UDim2.new(0, 38, 0, 10)
+    PillTitle.BackgroundTransparency = 1
+    PillTitle.Font = Enum.Font.GothamBold
+    PillTitle.TextSize = 12
+    PillTitle.TextColor3 = Color3.fromRGB(240, 245, 255)
+    PillTitle.TextXAlignment = Enum.TextXAlignment.Left
+    PillTitle.Text = "Omni Update Available"
+    PillTitle.Parent = PillToast
+
+    local PillSubtitle = Instance.new("TextLabel")
+    PillSubtitle.Name = "PillSubtitle"
+    PillSubtitle.Size = UDim2.new(0, 160, 0, 14)
+    PillSubtitle.Position = UDim2.new(0, 38, 0, 27)
+    PillSubtitle.BackgroundTransparency = 1
+    PillSubtitle.Font = Enum.Font.Gotham
+    PillSubtitle.TextSize = 10
+    PillSubtitle.TextColor3 = Color3.fromRGB(120, 170, 210)
+    PillSubtitle.TextXAlignment = Enum.TextXAlignment.Left
+    PillSubtitle.Text = "v1.0.0 ➔ v1.1.0"
+    PillSubtitle.Parent = PillToast
+
+    local PillReviewBtn = Instance.new("TextButton")
+    PillReviewBtn.Name = "PillReviewBtn"
+    PillReviewBtn.Size = UDim2.new(0, 76, 0, 26)
+    PillReviewBtn.Position = UDim2.new(1, -104, 0.5, -13)
+    PillReviewBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+    PillReviewBtn.Font = Enum.Font.GothamBold
+    PillReviewBtn.TextSize = 10
+    PillReviewBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    PillReviewBtn.Text = "Review"
+    PillReviewBtn.Parent = PillToast
+
+    local PillReviewCorner = Instance.new("UICorner")
+    PillReviewCorner.CornerRadius = UDim.new(0, 5)
+    PillReviewCorner.Parent = PillReviewBtn
+
+    local PillDismissBtn = Instance.new("TextButton")
+    PillDismissBtn.Name = "PillDismissBtn"
+    PillDismissBtn.Size = UDim2.new(0, 20, 0, 20)
+    PillDismissBtn.Position = UDim2.new(1, -24, 0.5, -10)
+    PillDismissBtn.BackgroundTransparency = 1
+    PillDismissBtn.Font = Enum.Font.GothamBold
+    PillDismissBtn.TextSize = 11
+    PillDismissBtn.TextColor3 = Color3.fromRGB(140, 155, 175)
+    PillDismissBtn.Text = "X"
+    PillDismissBtn.Parent = PillToast
+
+    -- 2. Modal Backdrop & Centered Modal Frame (580x480)
+    local ModalBackdrop = Instance.new("Frame")
+    ModalBackdrop.Name = "ModalBackdrop"
+    ModalBackdrop.Size = UDim2.new(1, 0, 1, 0)
+    ModalBackdrop.Position = UDim2.new(0, 0, 0, 0)
+    ModalBackdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    ModalBackdrop.BackgroundTransparency = 0.6
+    ModalBackdrop.BorderSizePixel = 0
+    ModalBackdrop.Visible = false
+    ModalBackdrop.Parent = UpdateScreenGui
+
+    local ModalFrame = Instance.new("Frame")
+    ModalFrame.Name = "ModalFrame"
+    ModalFrame.Size = UDim2.new(0, 580, 0, 480)
+    ModalFrame.Position = UDim2.new(0.5, -290, 0.5, -240)
+    ModalFrame.BackgroundColor3 = Color3.fromRGB(15, 18, 25)
+    ModalFrame.BorderSizePixel = 0
+    ModalFrame.ClipsDescendants = true
+    ModalFrame.Active = true
+    ModalFrame.Parent = ModalBackdrop
+
+    local ModalCorner = Instance.new("UICorner")
+    ModalCorner.CornerRadius = UDim.new(0, 10)
+    ModalCorner.Parent = ModalFrame
+
+    local ModalStroke = Instance.new("UIStroke")
+    ModalStroke.Thickness = 1.5
+    ModalStroke.Color = Color3.fromRGB(35, 110, 180)
+    ModalStroke.Parent = ModalFrame
+
+    -- Modal Header
+    local ModalHeader = Instance.new("Frame")
+    ModalHeader.Name = "ModalHeader"
+    ModalHeader.Size = UDim2.new(1, 0, 0, 50)
+    ModalHeader.BackgroundColor3 = Color3.fromRGB(20, 25, 35)
+    ModalHeader.BorderSizePixel = 0
+    ModalHeader.Parent = ModalFrame
+
+    local ModalHeaderCorner = Instance.new("UICorner")
+    ModalHeaderCorner.CornerRadius = UDim.new(0, 10)
+    ModalHeaderCorner.Parent = ModalHeader
+
+    local ModalTitle = Instance.new("TextLabel")
+    ModalTitle.Size = UDim2.new(1, -60, 0, 22)
+    ModalTitle.Position = UDim2.new(0, 16, 0, 7)
+    ModalTitle.BackgroundTransparency = 1
+    ModalTitle.Font = Enum.Font.GothamBold
+    ModalTitle.TextSize = 13
+    ModalTitle.TextColor3 = Color3.fromRGB(64, 196, 255)
+    ModalTitle.TextXAlignment = Enum.TextXAlignment.Left
+    ModalTitle.Text = "⚡ OMNI UPDATE & SECURITY GATE"
+    ModalTitle.Parent = ModalHeader
+
+    local ModalSubtitle = Instance.new("TextLabel")
+    ModalSubtitle.Size = UDim2.new(1, -60, 0, 14)
+    ModalSubtitle.Position = UDim2.new(0, 16, 0, 28)
+    ModalSubtitle.BackgroundTransparency = 1
+    ModalSubtitle.Font = Enum.Font.Gotham
+    ModalSubtitle.TextSize = 10
+    ModalSubtitle.TextColor3 = Color3.fromRGB(150, 165, 185)
+    ModalSubtitle.TextXAlignment = Enum.TextXAlignment.Left
+    ModalSubtitle.Text = "Verified code changes • Complete transparency before updating local files"
+    ModalSubtitle.Parent = ModalHeader
+
+    local ModalCloseBtn = Instance.new("TextButton")
+    ModalCloseBtn.Size = UDim2.new(0, 28, 0, 28)
+    ModalCloseBtn.Position = UDim2.new(1, -38, 0.5, -14)
+    ModalCloseBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 46)
+    ModalCloseBtn.Font = Enum.Font.GothamBold
+    ModalCloseBtn.TextSize = 13
+    ModalCloseBtn.TextColor3 = Color3.fromRGB(200, 210, 225)
+    ModalCloseBtn.Text = "X"
+    ModalCloseBtn.Parent = ModalHeader
+
+    local ModalCloseCorner = Instance.new("UICorner")
+    ModalCloseCorner.CornerRadius = UDim.new(0, 6)
+    ModalCloseCorner.Parent = ModalCloseBtn
+
+    -- Version Diff Card
+    local DiffCard = Instance.new("Frame")
+    DiffCard.Name = "DiffCard"
+    DiffCard.Size = UDim2.new(1, -32, 0, 38)
+    DiffCard.Position = UDim2.new(0, 16, 0, 56)
+    DiffCard.BackgroundColor3 = Color3.fromRGB(22, 27, 38)
+    DiffCard.BorderSizePixel = 0
+    DiffCard.Parent = ModalFrame
+
+    local DiffCorner = Instance.new("UICorner")
+    DiffCorner.CornerRadius = UDim.new(0, 6)
+    DiffCorner.Parent = DiffCard
+
+    local DiffStroke = Instance.new("UIStroke")
+    DiffStroke.Thickness = 1
+    DiffStroke.Color = Color3.fromRGB(38, 50, 72)
+    DiffStroke.Parent = DiffCard
+
+    local DiffCurrent = Instance.new("TextLabel")
+    DiffCurrent.Name = "DiffCurrent"
+    DiffCurrent.Size = UDim2.new(0, 150, 1, 0)
+    DiffCurrent.Position = UDim2.new(0, 12, 0, 0)
+    DiffCurrent.BackgroundTransparency = 1
+    DiffCurrent.Font = Enum.Font.GothamMedium
+    DiffCurrent.TextSize = 11
+    DiffCurrent.TextColor3 = Color3.fromRGB(140, 175, 155)
+    DiffCurrent.TextXAlignment = Enum.TextXAlignment.Left
+    DiffCurrent.Text = "Installed: v" .. CURRENT_OMNI_VERSION
+    DiffCurrent.Parent = DiffCard
+
+    local DiffArrow = Instance.new("TextLabel")
+    DiffArrow.Size = UDim2.new(0, 30, 1, 0)
+    DiffArrow.Position = UDim2.new(0, 165, 0, 0)
+    DiffArrow.BackgroundTransparency = 1
+    DiffArrow.Font = Enum.Font.GothamBold
+    DiffArrow.TextSize = 14
+    DiffArrow.TextColor3 = Color3.fromRGB(64, 196, 255)
+    DiffArrow.Text = "➔"
+    DiffArrow.Parent = DiffCard
+
+    local DiffAvailable = Instance.new("TextLabel")
+    DiffAvailable.Name = "DiffAvailable"
+    DiffAvailable.Size = UDim2.new(0, 160, 1, 0)
+    DiffAvailable.Position = UDim2.new(0, 200, 0, 0)
+    DiffAvailable.BackgroundTransparency = 1
+    DiffAvailable.Font = Enum.Font.GothamBold
+    DiffAvailable.TextSize = 12
+    DiffAvailable.TextColor3 = Color3.fromRGB(64, 196, 255)
+    DiffAvailable.TextXAlignment = Enum.TextXAlignment.Left
+    DiffAvailable.Text = "Available: v1.1.0"
+    DiffAvailable.Parent = DiffCard
+
+    local DiffDate = Instance.new("TextLabel")
+    DiffDate.Name = "DiffDate"
+    DiffDate.Size = UDim2.new(0, 120, 1, 0)
+    DiffDate.Position = UDim2.new(1, -132, 0, 0)
+    DiffDate.BackgroundTransparency = 1
+    DiffDate.Font = Enum.Font.Gotham
+    DiffDate.TextSize = 10
+    DiffDate.TextColor3 = Color3.fromRGB(130, 145, 165)
+    DiffDate.TextXAlignment = Enum.TextXAlignment.Right
+    DiffDate.Text = "2026-10-02"
+    DiffDate.Parent = DiffCard
+
+    -- Tab Switcher Bar
+    local TabBar = Instance.new("Frame")
+    TabBar.Name = "TabBar"
+    TabBar.Size = UDim2.new(1, -32, 0, 28)
+    TabBar.Position = UDim2.new(0, 16, 0, 100)
+    TabBar.BackgroundTransparency = 1
+    TabBar.Parent = ModalFrame
+
+    local TabBtnChangelog = Instance.new("TextButton")
+    TabBtnChangelog.Name = "TabBtnChangelog"
+    TabBtnChangelog.Size = UDim2.new(0, 160, 1, 0)
+    TabBtnChangelog.Position = UDim2.new(0, 0, 0, 0)
+    TabBtnChangelog.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+    TabBtnChangelog.Font = Enum.Font.GothamBold
+    TabBtnChangelog.TextSize = 11
+    TabBtnChangelog.TextColor3 = Color3.fromRGB(255, 255, 255)
+    TabBtnChangelog.Text = "📋 Changelog & Notes"
+    TabBtnChangelog.Parent = TabBar
+
+    local TabChangelogCorner = Instance.new("UICorner")
+    TabChangelogCorner.CornerRadius = UDim.new(0, 5)
+    TabChangelogCorner.Parent = TabBtnChangelog
+
+    local TabBtnCode = Instance.new("TextButton")
+    TabBtnCode.Name = "TabBtnCode"
+    TabBtnCode.Size = UDim2.new(0, 160, 1, 0)
+    TabBtnCode.Position = UDim2.new(0, 168, 0, 0)
+    TabBtnCode.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
+    TabBtnCode.Font = Enum.Font.GothamBold
+    TabBtnCode.TextSize = 11
+    TabBtnCode.TextColor3 = Color3.fromRGB(160, 175, 195)
+    TabBtnCode.Text = "🔍 Review Code & Diff"
+    TabBtnCode.Parent = TabBar
+
+    local TabCodeCorner = Instance.new("UICorner")
+    TabCodeCorner.CornerRadius = UDim.new(0, 5)
+    TabCodeCorner.Parent = TabBtnCode
+
+    -- Content Frame
+    local ContentFrame = Instance.new("Frame")
+    ContentFrame.Name = "ContentFrame"
+    ContentFrame.Size = UDim2.new(1, -32, 0, 292)
+    ContentFrame.Position = UDim2.new(0, 16, 0, 134)
+    ContentFrame.BackgroundTransparency = 1
+    ContentFrame.Parent = ModalFrame
+
+    -- View A: Changelog Scroll
+    local ChangelogScroll = Instance.new("ScrollingFrame")
+    ChangelogScroll.Name = "ChangelogScroll"
+    ChangelogScroll.Size = UDim2.new(1, 0, 1, 0)
+    ChangelogScroll.BackgroundColor3 = Color3.fromRGB(11, 13, 19)
+    ChangelogScroll.BorderSizePixel = 0
+    ChangelogScroll.ScrollBarThickness = 4
+    ChangelogScroll.ScrollBarImageColor3 = Color3.fromRGB(64, 196, 255)
+    ChangelogScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    ChangelogScroll.Visible = true
+    ChangelogScroll.Parent = ContentFrame
+
+    local ChangelogCorner = Instance.new("UICorner")
+    ChangelogCorner.CornerRadius = UDim.new(0, 6)
+    ChangelogCorner.Parent = ChangelogScroll
+
+    local ChangelogStroke = Instance.new("UIStroke")
+    ChangelogStroke.Thickness = 1
+    ChangelogStroke.Color = Color3.fromRGB(30, 38, 52)
+    ChangelogStroke.Parent = ChangelogScroll
+
+    local ChangelogLayout = Instance.new("UIListLayout")
+    ChangelogLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    ChangelogLayout.Padding = UDim.new(0, 6)
+    ChangelogLayout.Parent = ChangelogScroll
+
+    local ChangelogPadding = Instance.new("UIPadding")
+    ChangelogPadding.PaddingTop = UDim.new(0, 8)
+    ChangelogPadding.PaddingBottom = UDim.new(0, 8)
+    ChangelogPadding.PaddingLeft = UDim.new(0, 8)
+    ChangelogPadding.PaddingRight = UDim.new(0, 12)
+    ChangelogPadding.Parent = ChangelogScroll
+
+    -- View B: Code Review & Diff Viewer Frame
+    local CodeReviewFrame = Instance.new("Frame")
+    CodeReviewFrame.Name = "CodeReviewFrame"
+    CodeReviewFrame.Size = UDim2.new(1, 0, 1, 0)
+    CodeReviewFrame.BackgroundTransparency = 1
+    CodeReviewFrame.Visible = false
+    CodeReviewFrame.Parent = ContentFrame
+
+    -- Stage selector sub-bar
+    local StageBar = Instance.new("Frame")
+    StageBar.Name = "StageBar"
+    StageBar.Size = UDim2.new(1, 0, 0, 26)
+    StageBar.BackgroundTransparency = 1
+    StageBar.Parent = CodeReviewFrame
+
+    local StageBarLayout = Instance.new("UIListLayout")
+    StageBarLayout.FillDirection = Enum.FillDirection.Horizontal
+    StageBarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    StageBarLayout.Padding = UDim.new(0, 6)
+    StageBarLayout.Parent = StageBar
+
+    -- Audit badges & stats sub-bar
+    local AuditBar = Instance.new("Frame")
+    AuditBar.Name = "AuditBar"
+    AuditBar.Size = UDim2.new(1, 0, 0, 22)
+    AuditBar.Position = UDim2.new(0, 0, 0, 30)
+    AuditBar.BackgroundTransparency = 1
+    AuditBar.Parent = CodeReviewFrame
+
+    local AuditBarLayout = Instance.new("UIListLayout")
+    AuditBarLayout.FillDirection = Enum.FillDirection.Horizontal
+    AuditBarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    AuditBarLayout.Padding = UDim.new(0, 6)
+    AuditBarLayout.Parent = AuditBar
+
+    -- Monospaced Code & Diff Scroll
+    local CodeScroll = Instance.new("ScrollingFrame")
+    CodeScroll.Name = "CodeScroll"
+    CodeScroll.Size = UDim2.new(1, 0, 1, -56)
+    CodeScroll.Position = UDim2.new(0, 0, 0, 56)
+    CodeScroll.BackgroundColor3 = Color3.fromRGB(10, 12, 16)
+    CodeScroll.BorderSizePixel = 0
+    CodeScroll.ScrollBarThickness = 5
+    CodeScroll.ScrollBarImageColor3 = Color3.fromRGB(64, 196, 255)
+    CodeScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    CodeScroll.Parent = CodeReviewFrame
+
+    local CodeScrollCorner = Instance.new("UICorner")
+    CodeScrollCorner.CornerRadius = UDim.new(0, 6)
+    CodeScrollCorner.Parent = CodeScroll
+
+    local CodeScrollStroke = Instance.new("UIStroke")
+    CodeScrollStroke.Thickness = 1
+    CodeScrollStroke.Color = Color3.fromRGB(30, 38, 52)
+    CodeScrollStroke.Parent = CodeScroll
+
+    local CodeScrollLayout = Instance.new("UIListLayout")
+    CodeScrollLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    CodeScrollLayout.Padding = UDim.new(0, 2)
+    CodeScrollLayout.Parent = CodeScroll
+
+    local CodeScrollPadding = Instance.new("UIPadding")
+    CodeScrollPadding.PaddingTop = UDim.new(0, 4)
+    CodeScrollPadding.PaddingBottom = UDim.new(0, 6)
+    CodeScrollPadding.PaddingLeft = UDim.new(0, 6)
+    CodeScrollPadding.PaddingRight = UDim.new(0, 8)
+    CodeScrollPadding.Parent = CodeScroll
+
+    -- Footer Action Buttons
+    local FooterFrame = Instance.new("Frame")
+    FooterFrame.Name = "FooterFrame"
+    FooterFrame.Size = UDim2.new(1, -32, 0, 36)
+    FooterFrame.Position = UDim2.new(0, 16, 1, -44)
+    FooterFrame.BackgroundTransparency = 1
+    FooterFrame.Parent = ModalFrame
+
+    local DismissBtn = Instance.new("TextButton")
+    DismissBtn.Name = "DismissBtn"
+    DismissBtn.Size = UDim2.new(0, 140, 1, 0)
+    DismissBtn.Position = UDim2.new(0, 0, 0, 0)
+    DismissBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 46)
+    DismissBtn.Font = Enum.Font.GothamBold
+    DismissBtn.TextSize = 11
+    DismissBtn.TextColor3 = Color3.fromRGB(180, 195, 215)
+    DismissBtn.Text = "Dismiss (Skip)"
+    DismissBtn.Parent = FooterFrame
+
+    local DismissCorner = Instance.new("UICorner")
+    DismissCorner.CornerRadius = UDim.new(0, 6)
+    DismissCorner.Parent = DismissBtn
+
+    local ApplyUpdateBtn = Instance.new("TextButton")
+    ApplyUpdateBtn.Name = "ApplyUpdateBtn"
+    ApplyUpdateBtn.Size = UDim2.new(1, -148, 1, 0)
+    ApplyUpdateBtn.Position = UDim2.new(0, 148, 0, 0)
+    ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+    ApplyUpdateBtn.Font = Enum.Font.GothamBold
+    ApplyUpdateBtn.TextSize = 12
+    ApplyUpdateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ApplyUpdateBtn.Text = "⬇️ Update & Apply Now"
+    ApplyUpdateBtn.Parent = FooterFrame
+
+    local ApplyCorner = Instance.new("UICorner")
+    ApplyCorner.CornerRadius = UDim.new(0, 6)
+    ApplyCorner.Parent = ApplyUpdateBtn
+
+    -- Tab Switching Logic
+    local function switchTab(tabName)
+        if tabName == "Changelog" then
+            ChangelogScroll.Visible = true
+            CodeReviewFrame.Visible = false
+            TabBtnChangelog.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+            TabBtnChangelog.TextColor3 = Color3.fromRGB(255, 255, 255)
+            TabBtnCode.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
+            TabBtnCode.TextColor3 = Color3.fromRGB(160, 175, 195)
+        else
+            ChangelogScroll.Visible = false
+            CodeReviewFrame.Visible = true
+            TabBtnCode.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+            TabBtnCode.TextColor3 = Color3.fromRGB(255, 255, 255)
+            TabBtnChangelog.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
+            TabBtnChangelog.TextColor3 = Color3.fromRGB(160, 175, 195)
+        end
+    end
+
+    TabBtnChangelog.MouseButton1Click:Connect(function() switchTab("Changelog") end)
+    TabBtnCode.MouseButton1Click:Connect(function() switchTab("Code") end)
+
+    -- Populate Changelog
+    local function populateChangelog(items)
+        for _, child in ipairs(ChangelogScroll:GetChildren()) do
+            if child:IsA("Frame") then child:Destroy() end
+        end
+        for idx, item in ipairs(items) do
+            local row = Instance.new("Frame")
+            row.Name = "ChangeRow_" .. idx
+            row.Size = UDim2.new(1, 0, 0, 0)
+            row.AutomaticSize = Enum.AutomaticSize.Y
+            row.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+            row.BorderSizePixel = 0
+            row.LayoutOrder = idx
+            row.Parent = ChangelogScroll
+
+            local rowCorner = Instance.new("UICorner")
+            rowCorner.CornerRadius = UDim.new(0, 4)
+            rowCorner.Parent = row
+
+            local rowStroke = Instance.new("UIStroke")
+            rowStroke.Thickness = 1
+            rowStroke.Color = Color3.fromRGB(28, 36, 50)
+            rowStroke.Parent = row
+
+            local rowPadding = Instance.new("UIPadding")
+            rowPadding.PaddingTop = UDim.new(0, 6)
+            rowPadding.PaddingBottom = UDim.new(0, 6)
+            rowPadding.PaddingLeft = UDim.new(0, 8)
+            rowPadding.PaddingRight = UDim.new(0, 8)
+            rowPadding.Parent = row
+
+            local icon = Instance.new("TextLabel")
+            icon.Size = UDim2.new(0, 16, 0, 16)
+            icon.Position = UDim2.new(0, 0, 0, 0)
+            icon.BackgroundTransparency = 1
+            icon.Font = Enum.Font.GothamBold
+            icon.TextSize = 10
+            icon.TextColor3 = Color3.fromRGB(64, 196, 255)
+            icon.Text = "🔹"
+            icon.Parent = row
+
+            local desc = Instance.new("TextLabel")
+            desc.Size = UDim2.new(1, -22, 0, 0)
+            desc.Position = UDim2.new(0, 22, 0, 0)
+            desc.AutomaticSize = Enum.AutomaticSize.Y
+            desc.BackgroundTransparency = 1
+            desc.Font = Enum.Font.Gotham
+            desc.TextSize = 11
+            desc.TextColor3 = Color3.fromRGB(225, 235, 245)
+            desc.TextXAlignment = Enum.TextXAlignment.Left
+            desc.TextWrapped = true
+            desc.Text = tostring(item)
+            desc.Parent = row
+        end
+    end
+
+    local currentUpdateData = nil
+    local fetchedStageCodes = {}
+    local selectedStageIdx = 1
+
+    local function renderStageDiff(stageIdx)
+        selectedStageIdx = stageIdx
+        local stages = (currentUpdateData and currentUpdateData.stages) or {}
+        local stage = stages[stageIdx]
+        if not stage then return end
+
+        local localPath = stage.localPath or stage.path
+        local repoPath = stage.repoPath or stage.url
+        local name = stage.name or localPath:match("[^/\\]+$") or "Component"
+
+        -- Update stage selector buttons active state
+        for _, btn in ipairs(StageBar:GetChildren()) do
+            if btn:IsA("TextButton") then
+                local isThis = (btn.Name == "StageBtn_" .. stageIdx)
+                btn.BackgroundColor3 = isThis and Color3.fromRGB(0, 122, 204) or Color3.fromRGB(24, 30, 42)
+                btn.TextColor3 = isThis and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(160, 175, 195)
+            end
+        end
+
+        -- Clear AuditBar
+        for _, c in ipairs(AuditBar:GetChildren()) do
+            if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+        end
+
+        -- Clear CodeScroll & show loading banner
+        for _, c in ipairs(CodeScroll:GetChildren()) do
+            if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+        end
+
+        local loadingLbl = Instance.new("TextLabel")
+        loadingLbl.Size = UDim2.new(1, 0, 0, 40)
+        loadingLbl.BackgroundTransparency = 1
+        loadingLbl.Font = Enum.Font.GothamMedium
+        loadingLbl.TextSize = 11
+        loadingLbl.TextColor3 = Color3.fromRGB(64, 196, 255)
+        loadingLbl.Text = "⏳ Loading & diffing component from GitHub..."
+        loadingLbl.Parent = CodeScroll
+
+        task.spawn(function()
+            -- Fetch remote content if needed
+            local remoteContent = fetchedStageCodes[stageIdx]
+            if not remoteContent then
+                local shaToUse = getLatestCommitSha()
+                local url = repoPath
+                if not url:find("^https?://") then
+                    url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. shaToUse .. "/" .. url
+                end
+                remoteContent = fetchGithubScript(url)
+                if not remoteContent then
+                    remoteContent = fetchGithubScript(GITHUB_REPO_RAW .. repoPath .. "?v=" .. tostring(os.time()))
+                end
+                fetchedStageCodes[stageIdx] = remoteContent
+            end
+
+            -- If user switched away while loading, skip render
+            if selectedStageIdx ~= stageIdx then return end
+
+            -- Read existing local content
+            local localContent = ""
+            local isInstalled = isfile and isfile(localPath)
+            if isInstalled then
+                local ok, raw = pcall(readfile, localPath)
+                if ok and raw then localContent = raw end
+            end
+
+            -- Clear loading banner
+            for _, c in ipairs(CodeScroll:GetChildren()) do
+                if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+            end
+
+            -- Clear AuditBar
+            for _, c in ipairs(AuditBar:GetChildren()) do
+                if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+            end
+
+            if not remoteContent then
+                local notice = Instance.new("TextLabel")
+                notice.Size = UDim2.new(1, 0, 0, 40)
+                notice.BackgroundTransparency = 1
+                notice.Font = Enum.Font.GothamMedium
+                notice.TextSize = 11
+                notice.TextColor3 = Color3.fromRGB(250, 160, 40)
+                notice.Text = "⚠️ Unable to load remote code from GitHub. Check network connection."
+                notice.Parent = CodeScroll
+                return
+            end
+
+            -- Render Audit Chips
+            local badges = auditScriptContent(remoteContent or localContent)
+            for _, b in ipairs(badges) do
+                local chip = Instance.new("Frame")
+                chip.Size = UDim2.new(0, 0, 1, 0)
+                chip.AutomaticSize = Enum.AutomaticSize.X
+                chip.BackgroundColor3 = Color3.fromRGB(20, 26, 36)
+                chip.BorderSizePixel = 0
+                chip.Parent = AuditBar
+
+                local chipCorner = Instance.new("UICorner")
+                chipCorner.CornerRadius = UDim.new(0, 4)
+                chipCorner.Parent = chip
+
+                local chipStroke = Instance.new("UIStroke")
+                chipStroke.Thickness = 1
+                chipStroke.Color = b.color
+                chipStroke.Parent = chip
+
+                local chipPadding = Instance.new("UIPadding")
+                chipPadding.PaddingLeft = UDim.new(0, 6)
+                chipPadding.PaddingRight = UDim.new(0, 6)
+                chipPadding.Parent = chip
+
+                local chipLbl = Instance.new("TextLabel")
+                chipLbl.Size = UDim2.new(0, 0, 1, 0)
+                chipLbl.AutomaticSize = Enum.AutomaticSize.X
+                chipLbl.BackgroundTransparency = 1
+                chipLbl.Font = Enum.Font.GothamBold
+                chipLbl.TextSize = 10
+                chipLbl.TextColor3 = b.color
+                chipLbl.Text = b.label
+                chipLbl.Parent = chip
+            end
+
+            -- Status tag
+            local statusLbl = Instance.new("TextLabel")
+            statusLbl.Size = UDim2.new(0, 0, 1, 0)
+            statusLbl.AutomaticSize = Enum.AutomaticSize.X
+            statusLbl.BackgroundTransparency = 1
+            statusLbl.Font = Enum.Font.Gotham
+            statusLbl.TextSize = 10
+            statusLbl.TextColor3 = isInstalled and Color3.fromRGB(140, 185, 210) or Color3.fromRGB(240, 180, 70)
+            statusLbl.Text = isInstalled and " • Local file present" or " • Component Not Installed"
+            statusLbl.Parent = AuditBar
+
+            -- Compute Line Diff
+            local diff, totalLines, adds, removes = computeLineDiff(localContent, remoteContent)
+
+            -- Diff Stats Badge in AuditBar
+            local diffStat = Instance.new("Frame")
+            diffStat.Size = UDim2.new(0, 0, 1, 0)
+            diffStat.AutomaticSize = Enum.AutomaticSize.X
+            diffStat.BackgroundColor3 = Color3.fromRGB(20, 26, 36)
+            diffStat.BorderSizePixel = 0
+            diffStat.Parent = AuditBar
+
+            local diffStatCorner = Instance.new("UICorner")
+            diffStatCorner.CornerRadius = UDim.new(0, 4)
+            diffStatCorner.Parent = diffStat
+
+            local diffStatStroke = Instance.new("UIStroke")
+            diffStatStroke.Thickness = 1
+            diffStatStroke.Color = Color3.fromRGB(45, 65, 95)
+            diffStatStroke.Parent = diffStat
+
+            local diffStatPadding = Instance.new("UIPadding")
+            diffStatPadding.PaddingLeft = UDim.new(0, 6)
+            diffStatPadding.PaddingRight = UDim.new(0, 6)
+            diffStatPadding.Parent = diffStat
+
+            local diffStatLbl = Instance.new("TextLabel")
+            diffStatLbl.Size = UDim2.new(0, 0, 1, 0)
+            diffStatLbl.AutomaticSize = Enum.AutomaticSize.X
+            diffStatLbl.BackgroundTransparency = 1
+            diffStatLbl.Font = Enum.Font.RobotoMono
+            diffStatLbl.TextSize = 10
+            diffStatLbl.TextColor3 = (adds == 0 and removes == 0) and Color3.fromRGB(120, 210, 150) or Color3.fromRGB(160, 200, 240)
+            diffStatLbl.Text = (adds == 0 and removes == 0) and ("✓ " .. totalLines .. " lines (Synced)") or ("+" .. tostring(adds) .. " / -" .. tostring(removes) .. " lines")
+            diffStatLbl.Parent = diffStat
+
+            if #diff == 0 or (adds == 0 and removes == 0 and #localContent > 0) then
+                local emptyRow = Instance.new("Frame")
+                emptyRow.Name = "IdenticalNotice"
+                emptyRow.Size = UDim2.new(1, 0, 0, 36)
+                emptyRow.BackgroundColor3 = Color3.fromRGB(16, 28, 22)
+                emptyRow.BorderSizePixel = 0
+                emptyRow.Parent = CodeScroll
+
+                local emptyCorner = Instance.new("UICorner")
+                emptyCorner.CornerRadius = UDim.new(0, 4)
+                emptyCorner.Parent = emptyRow
+
+                local emptyStroke = Instance.new("UIStroke")
+                emptyStroke.Thickness = 1
+                emptyStroke.Color = Color3.fromRGB(35, 90, 55)
+                emptyStroke.Parent = emptyRow
+
+                local emptyLbl = Instance.new("TextLabel")
+                emptyLbl.Size = UDim2.new(1, -20, 1, 0)
+                emptyLbl.Position = UDim2.new(0, 12, 0, 0)
+                emptyLbl.BackgroundTransparency = 1
+                emptyLbl.Font = Enum.Font.GothamMedium
+                emptyLbl.TextSize = 11
+                emptyLbl.TextColor3 = Color3.fromRGB(100, 230, 130)
+                emptyLbl.TextXAlignment = Enum.TextXAlignment.Left
+                emptyLbl.Text = "✓ Local file matches repository version (" .. tostring(totalLines) .. " lines verified identical - no changes needed)"
+                emptyLbl.Parent = emptyRow
+            else
+                for idx, item in ipairs(diff) do
+                    local lineRow = Instance.new("Frame")
+                    lineRow.Name = "Line_" .. idx
+                    lineRow.Size = UDim2.new(1, 0, 0, 16)
+                    lineRow.BorderSizePixel = 0
+                    lineRow.LayoutOrder = idx
+
+                    local bgCol = Color3.fromRGB(10, 12, 16)
+                    local textCol = Color3.fromRGB(190, 200, 215)
+                    local prefix = "  "
+
+                    if item.type == "add" then
+                        bgCol = Color3.fromRGB(16, 38, 24)
+                        textCol = Color3.fromRGB(100, 230, 130)
+                        prefix = "+ "
+                    elseif item.type == "remove" then
+                        bgCol = Color3.fromRGB(42, 18, 20)
+                        textCol = Color3.fromRGB(250, 110, 110)
+                        prefix = "- "
+                    end
+                    lineRow.BackgroundColor3 = bgCol
+                    lineRow.Parent = CodeScroll
+
+                    local numLbl = Instance.new("TextLabel")
+                    numLbl.Size = UDim2.new(0, 36, 1, 0)
+                    numLbl.Position = UDim2.new(0, 4, 0, 0)
+                    numLbl.BackgroundTransparency = 1
+                    numLbl.Font = Enum.Font.RobotoMono
+                    numLbl.TextSize = 10
+                    numLbl.TextColor3 = Color3.fromRGB(90, 105, 125)
+                    numLbl.TextXAlignment = Enum.TextXAlignment.Right
+                    numLbl.Text = tostring(item.lineNum or idx)
+                    numLbl.Parent = lineRow
+
+                    local txtLbl = Instance.new("TextLabel")
+                    txtLbl.Size = UDim2.new(1, -48, 1, 0)
+                    txtLbl.Position = UDim2.new(0, 46, 0, 0)
+                    txtLbl.BackgroundTransparency = 1
+                    txtLbl.Font = Enum.Font.RobotoMono
+                    txtLbl.TextSize = 10
+                    txtLbl.TextColor3 = textCol
+                    txtLbl.TextXAlignment = Enum.TextXAlignment.Left
+                    txtLbl.Text = prefix .. item.text
+                    txtLbl.Parent = lineRow
+                end
+            end
+        end)
+    end
+
+    local function setupStageBar()
+        for _, c in ipairs(StageBar:GetChildren()) do
+            if c:IsA("TextButton") then c:Destroy() end
+        end
+
+        local stages = (currentUpdateData and currentUpdateData.stages) or {}
+        for idx, stage in ipairs(stages) do
+            local btn = Instance.new("TextButton")
+            btn.Name = "StageBtn_" .. idx
+            btn.Size = UDim2.new(0, 0, 1, 0)
+            btn.AutomaticSize = Enum.AutomaticSize.X
+            btn.BackgroundColor3 = (idx == selectedStageIdx) and Color3.fromRGB(0, 122, 204) or Color3.fromRGB(24, 30, 42)
+            btn.BorderSizePixel = 0
+            btn.Font = Enum.Font.GothamBold
+            btn.TextSize = 10
+            btn.TextColor3 = (idx == selectedStageIdx) and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(160, 175, 195)
+            btn.Text = " " .. (stage.name or "Component") .. " "
+            btn.LayoutOrder = idx
+            btn.Parent = StageBar
+
+            local btnCorner = Instance.new("UICorner")
+            btnCorner.CornerRadius = UDim.new(0, 4)
+            btnCorner.Parent = btn
+
+            local btnPadding = Instance.new("UIPadding")
+            btnPadding.PaddingLeft = UDim.new(0, 6)
+            btnPadding.PaddingRight = UDim.new(0, 6)
+            btnPadding.Parent = btn
+
+            btn.MouseButton1Click:Connect(function()
+                renderStageDiff(idx)
+            end)
+        end
+    end
+
+    local function openUpdateModal()
+        if not currentUpdateData then
+            currentUpdateData = {
+                version = CURRENT_OMNI_VERSION,
+                releaseDate = "2026-10-02",
+                title = "OMNI Release " .. CURRENT_OMNI_VERSION,
+                changelog = {
+                    "Rebranded to OMNI Task Manager with unified system telemetry",
+                    "Physical door contact & ragdoll faceplant recovery integration",
+                    "Dynamic CPU throttle cap (10ms sleep threshold guard)",
+                    "Pixel-perfect 8px button spacing & Fluent UI alignment",
+                    "Security & Transparency Gate: In-game changelog viewer with user consent for updates"
+                },
+                stages = {
+                    {
+                        repoPath = "kernel/KernelTaskManager.lua",
+                        localPath = "autoexec/kernel/KernelTaskManager.lua",
+                        name = "KernelTaskManager"
+                    },
+                    {
+                        repoPath = "gameloaded/OmniEnhancementSuite.lua",
+                        localPath = "autoexec/gameloaded/OmniEnhancementSuite.lua",
+                        name = "OmniEnhancementSuite"
+                    }
+                }
+            }
+        end
+
+        DiffCurrent.Text = "Installed: v" .. CURRENT_OMNI_VERSION
+        DiffAvailable.Text = "Available: v" .. tostring(currentUpdateData.version)
+        DiffDate.Text = tostring(currentUpdateData.releaseDate or "Latest")
+        populateChangelog(currentUpdateData.changelog or { "Performance improvements and bug fixes" })
+        setupStageBar()
+        renderStageDiff(1)
+        switchTab("Changelog")
+
+        ModalBackdrop.Visible = true
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+    end
+
+    getgenv().OpenOmniUpdateGate = openUpdateModal
+    getgenv().TestOmniUpdateGate = openUpdateModal
+
+    local function closeUpdateModal()
+        ModalBackdrop.Visible = false
+    end
+
+    -- Event Wiring
+    ModalCloseBtn.MouseButton1Click:Connect(function()
+        closeUpdateModal()
+        if not getgenv()._OmniUpdateDismissed and currentUpdateData then
+            PillToast.Visible = true
+        end
+    end)
+
+    -- Smooth Modal Header Dragging
+    local isDraggingModal, dragStartPos, frameStartPos
+    ModalHeader.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDraggingModal = true
+            dragStartPos = input.Position
+            frameStartPos = ModalFrame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    isDraggingModal = false
+                end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if isDraggingModal and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStartPos
+            ModalFrame.Position = UDim2.new(frameStartPos.X.Scale, frameStartPos.X.Offset + delta.X, frameStartPos.Y.Scale, frameStartPos.Y.Offset + delta.Y)
+        end
+    end)
+
+    PillReviewBtn.MouseButton1Click:Connect(function()
+        PillToast.Visible = false
+        openUpdateModal()
+    end)
+
+    PillDismissBtn.MouseButton1Click:Connect(function()
+        PillToast.Visible = false
+        getgenv()._OmniUpdateDismissed = true
+                getgenv()._OmniUpdateAvailable = false
+        -- Update ledger dismissed state
+        local ledger = loadLedger()
+        if currentUpdateData and currentUpdateData.stages then
+            for _, stage in ipairs(currentUpdateData.stages) do
+                local name = stage.name or stage.localPath
+                ledger.components[name] = ledger.components[name] or {}
+                ledger.components[name].lastSeenVersion = currentUpdateData.version
+            end
+            saveLedger(ledger)
+        end
+    end)
+
+    DismissBtn.MouseButton1Click:Connect(function()
+        closeUpdateModal()
+        PillToast.Visible = false
+        getgenv()._OmniUpdateDismissed = true
+                getgenv()._OmniUpdateAvailable = false
+        local ledger = loadLedger()
+        if currentUpdateData and currentUpdateData.stages then
+            for _, stage in ipairs(currentUpdateData.stages) do
+                local name = stage.name or stage.localPath
+                ledger.components[name] = ledger.components[name] or {}
+                ledger.components[name].lastSeenVersion = currentUpdateData.version
+            end
+            saveLedger(ledger)
+        end
+    end)
+
+    if UpdateBadge then
+        UpdateBadge.MouseButton1Click:Connect(openUpdateModal)
+    end
+
+    -- Keybind: Shift + F7 to toggle Update Gate (Shift + F8 toggles Task Manager HUD)
+    local inputConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.KeyCode == Enum.KeyCode.F7 then
+            local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+            if isShift then
+                if ModalBackdrop.Visible then
+                    closeUpdateModal()
+                else
+                    openUpdateModal()
+                end
+            end
+        end
+    end)
+
+    ApplyUpdateBtn.MouseButton1Click:Connect(function()
+        if not currentUpdateData then return end
+        ApplyUpdateBtn.Active = false
+        ApplyUpdateBtn.Text = "⏳ Fetching from GitHub..."
+
+        task.spawn(function()
+            local stages = currentUpdateData.stages
+            if not stages or #stages == 0 then
+                stages = {
+                    {
+                        repoPath = "kernel/KernelTaskManager.lua",
+                        localPath = "autoexec/kernel/KernelTaskManager.lua",
+                        name = "KernelTaskManager"
+                    }
+                }
+            end
+
+            local anySuccess = false
+            local lastCode = nil
+            local shaToUse = getLatestCommitSha()
+            local ledger = loadLedger()
+
+            for idx, stage in ipairs(stages) do
+                local repoPath = stage.repoPath or stage.url
+                local localPath = stage.localPath or stage.path
+                local name = stage.name or localPath:match("[^/\\]+$") or "Component"
+
+                local remoteContent = fetchedStageCodes[idx]
+                if not remoteContent then
+                    local url = repoPath
+                    if not url:find("^https?://") then
+                        url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. shaToUse .. "/" .. url
+                    end
+                    remoteContent = fetchGithubScript(url)
+                    if not remoteContent then
+                        remoteContent = fetchGithubScript(GITHUB_REPO_RAW .. repoPath .. "?v=" .. tostring(os.time()))
+                    end
+                end
+
+                if remoteContent and #remoteContent > 100 then
+                    -- Ensure parent directory exists
+                    local parentDir = localPath:match("^(.*)[/\\][^/\\]+$")
+                    if parentDir and isfolder and not isfolder(parentDir) then
+                        pcall(makefolder, parentDir)
+                    end
+
+                    local ok, err = pcall(writefile, localPath, remoteContent)
+                    if ok then
+                        anySuccess = true
+                        ledger.components[name] = {
+                            installed = true,
+                            lastSeenVersion = currentUpdateData.version,
+                            path = localPath,
+                            updatedAt = os.time()
+                        }
+                        if localPath:find("KernelTaskManager") then
+                            lastCode = remoteContent
+                        elseif localPath:find("OmniEnhancementSuite") then
+                            -- Live reload enhancement suite
+                            task.spawn(function()
+                                local fn = loadstring(remoteContent, "@OmniEnhancementSuite")
+                                if fn then pcall(fn) end
+                            end)
+                        end
+                    else
+                        warn("[OmniUpdater]: Failed writing " .. localPath .. ": " .. tostring(err))
+                    end
+                end
+            end
+
+            ledger.version = currentUpdateData.version
+            saveLedger(ledger)
+
+            if anySuccess then
+                getgenv()._OmniUpdateDismissed = true
+                getgenv()._OmniUpdateAvailable = false
+                ApplyUpdateBtn.Text = "✓ Applied! Reloading Omni..."
+                task.wait(0.7)
+                closeUpdateModal()
+                PillToast.Visible = false
+                if UpdateBadge then UpdateBadge.Visible = false end
+
+                -- Teardown old instance and execute updated code if kernel was updated
+                if lastCode then
+                    if type(getgenv()._KernelTaskManagerUnifiedCleanUp) == "function" then
+                        pcall(getgenv()._KernelTaskManagerUnifiedCleanUp)
+                    end
+                    local fn, syntaxErr = loadstring(lastCode, "@KernelTaskManager")
+                    if fn then
+                        task.spawn(fn)
+                    else
+                        warn("[OmniUpdater]: Reload compilation error: " .. tostring(syntaxErr))
+                    end
+                end
+            else
+                ApplyUpdateBtn.Text = "❌ Download Failed (Check Connection)"
+                task.wait(2.5)
+                ApplyUpdateBtn.Text = "⬇️ Update & Apply Now"
+                ApplyUpdateBtn.Active = true
+            end
+        end)
+    end)
+
+    -- Background Update & Missing Component Checker
+    task.spawn(function()
+        task.wait(1.5)
+        local sha = getLatestCommitSha()
+        local manifestUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. sha .. "/manifest.json"
+        local rawManifest = fetchGithubScript(manifestUrl)
+        if not rawManifest then
+            rawManifest = fetchGithubScript(MANIFEST_URL .. "?v=" .. tostring(os.time()))
+        end
+        if not rawManifest then return end
+
+        local ok, parsed = pcall(function() return HttpService:JSONDecode(rawManifest) end)
+        if not ok or not parsed or not parsed.version then return end
+
+        local ledger = loadLedger()
+        local hasUpdate = false
+        local missingAvailable = {}
+
+        if isNewerVersion(parsed.version, CURRENT_OMNI_VERSION) then
+            hasUpdate = true
+        end
+
+        if parsed.stages and type(parsed.stages) == "table" then
+            for _, stage in ipairs(parsed.stages) do
+                local localPath = stage.localPath or stage.path
+                local name = stage.name or localPath
+                if isfile and not isfile(localPath) then
+                    local compData = ledger.components[name]
+                    local lastSeen = compData and compData.lastSeenVersion
+                    if not lastSeen or isNewerVersion(parsed.version, lastSeen) then
+                        table.insert(missingAvailable, name)
+                    end
+                end
+            end
+        end
+
+        if hasUpdate or #missingAvailable > 0 then
+            currentUpdateData = {
+                version = parsed.version,
+                releaseDate = parsed.releaseDate or "Latest",
+                title = parsed.title or ("Omni v" .. parsed.version),
+                changelog = parsed.changelog or { "Performance improvements and bug fixes" },
+                stages = parsed.stages or {},
+                sha = sha
+            }
+
+            -- Show TitleBar badge
+            getgenv()._OmniUpdateAvailable = true
+            getgenv()._OmniUpdateBadgeText = "⚡ v" .. tostring(parsed.version) .. " Available"
+
+            if UpdateBadge then
+                UpdateBadge.Text = getgenv()._OmniUpdateBadgeText
+                UpdateBadge.Visible = true
+            end
+
+            -- Show floating Pill Toast if not dismissed
+            if not getgenv()._OmniUpdateDismissed then
+                if hasUpdate then
+                    PillSubtitle.Text = "v" .. CURRENT_OMNI_VERSION .. " ➔ v" .. tostring(parsed.version)
+                else
+                    PillSubtitle.Text = #missingAvailable .. " new component(s) available"
+                end
+                PillToast.Visible = true
+            end
+        end
+    end)
+
+    return function()
+        if inputConn then
+            pcall(function() inputConn:Disconnect() end)
+            inputConn = nil
+        end
+        if UpdateScreenGui then
+            pcall(function() UpdateScreenGui:Destroy() end)
+            UpdateScreenGui = nil
+        end
+        getgenv().OpenOmniUpdateGate = nil
+        getgenv().TestOmniUpdateGate = nil
+    end
+end
+
+-- Launch Root-of-Trust Security & Update Gate
+task.spawn(function()
+    local ok, err = pcall(function()
+        local guiParent = getGuiParent()
+        if guiParent then
+            initUpdateGate(guiParent)
+        end
+    end)
+    if not ok then
+        warn("[Bootloader]: Update Gate initialization error: " .. tostring(err))
+    end
+end)
+
 local PlaceIdStr = tostring(game.PlaceId)
 local GameIdStr = tostring(game.GameId or 0)
 
