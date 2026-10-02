@@ -503,8 +503,13 @@ end
 -- Frame 0, NO yields, NO task.wait(), purely environment & hooks.
 local bootStart = os.clock()
 
-if isfolder("autoexec/kernel") and not getgenv()._KernelTaskManagerLoaded then
-    scanDirectory("autoexec/kernel", "Kernel")
+if not getgenv()._KernelTaskManagerLoaded then
+    if isfolder("autoexec/kernel") then
+        scanDirectory("autoexec/kernel", "Kernel")
+    end
+    if isfolder("autoexec/root") then
+        scanDirectory("autoexec/root", "Kernel")
+    end
 end
 
 sortQueue(Queues.Kernel)
@@ -533,6 +538,15 @@ if not SafeMode then
                 elseif lowerFolder == "universal" or lowerFolder == "common" or lowerFolder == "shared" then
                     -- Universal folder
                     scanDirectory(item, "GameLoaded")
+                elseif lowerFolder == "gameloaded" or lowerFolder == "game_loaded" then
+                    -- Stage: GameLoaded folder
+                    scanDirectory(item, "GameLoaded")
+                elseif lowerFolder == "characterready" or lowerFolder == "characterloaded" or lowerFolder == "character_ready" or lowerFolder == "character_loaded" then
+                    -- Stage: CharacterReady folder
+                    scanDirectory(item, "CharacterReady")
+                elseif lowerFolder == "deferred" or lowerFolder == "deffered" then
+                    -- Stage: Deferred folder
+                    scanDirectory(item, "Deferred")
                 elseif folderName == PlaceIdStr 
                     or folderName:sub(1, #PlaceIdStr + 3) == PlaceIdStr .. " - " 
                     or folderName:sub(1, #PlaceIdStr + 1) == PlaceIdStr .. "_"
