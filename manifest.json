@@ -1,5 +1,14 @@
 {
-  "version": "1.0",
+  "version": "1.1.0",
+  "releaseDate": "2026-10-02",
+  "title": "OMNI Release 1.1.0",
+  "changelog": [
+    "Rebranded to OMNI Task Manager with unified system telemetry",
+    "Physical door contact & ragdoll faceplant recovery integration",
+    "Dynamic CPU throttle cap (10ms sleep threshold guard)",
+    "Pixel-perfect 8px button spacing & Fluent UI alignment",
+    "Security & Transparency Gate: In-game changelog viewer with user consent for updates"
+  ],
   "stages": [
     {
       "repoPath": "kernel/KernelTaskManager.lua",

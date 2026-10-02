@@ -187,11 +187,15 @@ for _, mirror in ipairs(activeMirrors) do
                 warn(string.format("[Bootloader]: Failed to write %s: %s", localPath, tostring(writeErr)))
             end
         elseif existingContent ~= latestContent then
-            local writeOk, writeErr = pcall(writefile, localPath, latestContent)
-            if writeOk then
-                print(string.format("[Bootloader]: Auto-updated %s to latest version from GitHub!", mirrorName))
+            if getgenv()._OmniAutoUpdateSilent then
+                local writeOk, writeErr = pcall(writefile, localPath, latestContent)
+                if writeOk then
+                    print(string.format("[Bootloader]: Auto-updated %s to latest version from GitHub!", mirrorName))
+                else
+                    warn(string.format("[Bootloader]: Failed to update %s: %s", localPath, tostring(writeErr)))
+                end
             else
-                warn(string.format("[Bootloader]: Failed to update %s: %s", localPath, tostring(writeErr)))
+                print(string.format("[Bootloader]: %s has an update available on GitHub (managed by Omni Update Gate).", mirrorName))
             end
         else
             print(string.format("[Bootloader]: %s is up-to-date.", mirrorName))
