@@ -3701,6 +3701,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
     local CURRENT_OMNI_VERSION = "1.1.0"
     local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
     local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
+    local LEDGER_PATH = "Omni_Ledger.json"
 
     local function fetchGithubScript(url)
         local ok, content = pcall(function()
@@ -3713,7 +3714,11 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 return res and res.Body
             end
         end)
-        if ok and content and type(content) == "string" and #content > 50 and not content:find("404: Not Found") and not content:find("400: Invalid Request") then
+        if ok and content and type(content) == "string" and #content > 50 then
+            -- Only check for 404/400 error message if content is suspiciously short (< 150 chars)
+            if #content < 150 and (content:find("404: Not Found") or content:find("400: Invalid Request")) then
+                return nil
+            end
             return content
         end
         return nil
@@ -3738,6 +3743,113 @@ local function initUpdateGate(guiParent, UpdateBadge)
             if rVal < cVal then return false end
         end
         return false
+    end
+
+    -- Ledger Management
+    local function loadLedger()
+        if type(isfile) == "function" and isfile(LEDGER_PATH) then
+            local ok, raw = pcall(readfile, LEDGER_PATH)
+            if ok and raw and #raw > 2 then
+                local okDec, data = pcall(function() return HttpService:JSONDecode(raw) end)
+                if okDec and type(data) == "table" then
+                    data.components = data.components or {}
+                    return data
+                end
+            end
+        end
+        return { version = CURRENT_OMNI_VERSION, components = {} }
+    end
+
+    local function saveLedger(ledger)
+        if type(writefile) == "function" and HttpService then
+            pcall(function()
+                writefile(LEDGER_PATH, HttpService:JSONEncode(ledger))
+            end)
+        end
+    end
+
+    -- Security Heuristics Audit
+    local function auditScriptContent(code)
+        local badges = {}
+        if not code or #code == 0 then return badges end
+        if code:find("discord%.com/api/webhooks") or code:find("discordapp%.com/api/webhooks") then
+            table.insert(badges, { label = "🚨 Webhook", color = Color3.fromRGB(240, 70, 70) })
+        end
+        if code:find("loadstring%s*%(") then
+            table.insert(badges, { label = "⚠️ loadstring()", color = Color3.fromRGB(250, 160, 40) })
+        end
+        if code:find("HttpGet%s*%(") or code:find("request%s*%(") or code:find("http_request%s*%(") then
+            table.insert(badges, { label = "🌐 Web Traffic", color = Color3.fromRGB(60, 180, 250) })
+        end
+        if code:find("writefile%s*%(") or code:find("delfile%s*%(") then
+            table.insert(badges, { label = "💾 File IO", color = Color3.fromRGB(170, 130, 240) })
+        end
+        if #badges == 0 then
+            table.insert(badges, { label = "🛡️ Clean Audit", color = Color3.fromRGB(70, 210, 130) })
+        end
+        return badges
+    end
+
+    -- Ultra-Fast Linear Diff Engine
+    local function computeLineDiff(oldCode, newCode)
+        local oldLines = {}
+        if oldCode and #oldCode > 0 then
+            for line in (oldCode .. "\n"):gmatch("(.-)\r?\n") do
+                table.insert(oldLines, line)
+            end
+        end
+
+        local newLines = {}
+        if newCode and #newCode > 0 then
+            for line in (newCode .. "\n"):gmatch("(.-)\r?\n") do
+                table.insert(newLines, line)
+            end
+        end
+
+        if #oldLines == 0 then
+            local diff = {}
+            for idx, line in ipairs(newLines) do
+                table.insert(diff, { type = "add", lineNum = idx, text = line })
+                if idx >= 500 then break end
+            end
+            return diff, #newLines, #newLines, 0
+        end
+
+        local pStart = 1
+        while pStart <= #oldLines and pStart <= #newLines and oldLines[pStart] == newLines[pStart] do
+            pStart = pStart + 1
+        end
+
+        local oldEnd = #oldLines
+        local newEnd = #newLines
+        while oldEnd >= pStart and newEnd >= pStart and oldLines[oldEnd] == newLines[newEnd] do
+            oldEnd = oldEnd - 1
+            newEnd = newEnd - 1
+        end
+
+        local diff = {}
+        local adds = math.max(0, newEnd - pStart + 1)
+        local removes = math.max(0, oldEnd - pStart + 1)
+
+        local ctxStart = math.max(1, pStart - 3)
+        for i = ctxStart, pStart - 1 do
+            table.insert(diff, { type = "same", lineNum = i, text = oldLines[i] })
+        end
+
+        for i = pStart, math.min(oldEnd, pStart + 250) do
+            table.insert(diff, { type = "remove", lineNum = i, text = oldLines[i] })
+        end
+
+        for i = pStart, math.min(newEnd, pStart + 250) do
+            table.insert(diff, { type = "add", lineNum = i, text = newLines[i] })
+        end
+
+        local ctxEnd = math.min(#newLines, newEnd + 3)
+        for i = newEnd + 1, ctxEnd do
+            table.insert(diff, { type = "same", lineNum = i, text = newLines[i] })
+        end
+
+        return diff, #newLines, adds, removes
     end
 
     local existingUpdateGui = guiParent:FindFirstChild("OmniUpdateGate_Protected")
@@ -3832,7 +3944,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
     PillDismissBtn.Text = "✕"
     PillDismissBtn.Parent = PillToast
 
-    -- 2. Modal Backdrop & Centered Modal Frame
+    -- 2. Modal Backdrop & Centered Modal Frame (580x480)
     local ModalBackdrop = Instance.new("TextButton")
     ModalBackdrop.Name = "ModalBackdrop"
     ModalBackdrop.Size = UDim2.new(1, 0, 1, 0)
@@ -3846,8 +3958,8 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
     local ModalFrame = Instance.new("Frame")
     ModalFrame.Name = "ModalFrame"
-    ModalFrame.Size = UDim2.new(0, 540, 0, 440)
-    ModalFrame.Position = UDim2.new(0.5, -270, 0.5, -220)
+    ModalFrame.Size = UDim2.new(0, 580, 0, 480)
+    ModalFrame.Position = UDim2.new(0.5, -290, 0.5, -240)
     ModalFrame.BackgroundColor3 = Color3.fromRGB(15, 18, 25)
     ModalFrame.BorderSizePixel = 0
     ModalFrame.ClipsDescendants = true
@@ -3866,7 +3978,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
     -- Modal Header
     local ModalHeader = Instance.new("Frame")
     ModalHeader.Name = "ModalHeader"
-    ModalHeader.Size = UDim2.new(1, 0, 0, 52)
+    ModalHeader.Size = UDim2.new(1, 0, 0, 50)
     ModalHeader.BackgroundColor3 = Color3.fromRGB(20, 25, 35)
     ModalHeader.BorderSizePixel = 0
     ModalHeader.Parent = ModalFrame
@@ -3875,19 +3987,12 @@ local function initUpdateGate(guiParent, UpdateBadge)
     ModalHeaderCorner.CornerRadius = UDim.new(0, 10)
     ModalHeaderCorner.Parent = ModalHeader
 
-    local ModalHeaderCover = Instance.new("Frame")
-    ModalHeaderCover.Size = UDim2.new(1, 0, 0, 10)
-    ModalHeaderCover.Position = UDim2.new(0, 0, 1, -10)
-    ModalHeaderCover.BackgroundColor3 = Color3.fromRGB(20, 25, 35)
-    ModalHeaderCover.BorderSizePixel = 0
-    ModalHeaderCover.Parent = ModalHeader
-
     local ModalTitle = Instance.new("TextLabel")
     ModalTitle.Size = UDim2.new(1, -60, 0, 22)
-    ModalTitle.Position = UDim2.new(0, 16, 0, 8)
+    ModalTitle.Position = UDim2.new(0, 16, 0, 7)
     ModalTitle.BackgroundTransparency = 1
     ModalTitle.Font = Enum.Font.GothamBold
-    ModalTitle.TextSize = 14
+    ModalTitle.TextSize = 13
     ModalTitle.TextColor3 = Color3.fromRGB(64, 196, 255)
     ModalTitle.TextXAlignment = Enum.TextXAlignment.Left
     ModalTitle.Text = "⚡ OMNI UPDATE & SECURITY GATE"
@@ -3895,7 +4000,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
     local ModalSubtitle = Instance.new("TextLabel")
     ModalSubtitle.Size = UDim2.new(1, -60, 0, 14)
-    ModalSubtitle.Position = UDim2.new(0, 16, 0, 30)
+    ModalSubtitle.Position = UDim2.new(0, 16, 0, 28)
     ModalSubtitle.BackgroundTransparency = 1
     ModalSubtitle.Font = Enum.Font.Gotham
     ModalSubtitle.TextSize = 10
@@ -3921,8 +4026,8 @@ local function initUpdateGate(guiParent, UpdateBadge)
     -- Version Diff Card
     local DiffCard = Instance.new("Frame")
     DiffCard.Name = "DiffCard"
-    DiffCard.Size = UDim2.new(1, -32, 0, 44)
-    DiffCard.Position = UDim2.new(0, 16, 0, 62)
+    DiffCard.Size = UDim2.new(1, -32, 0, 38)
+    DiffCard.Position = UDim2.new(0, 16, 0, 56)
     DiffCard.BackgroundColor3 = Color3.fromRGB(22, 27, 38)
     DiffCard.BorderSizePixel = 0
     DiffCard.Parent = ModalFrame
@@ -3982,30 +4087,63 @@ local function initUpdateGate(guiParent, UpdateBadge)
     DiffDate.Text = "2026-10-02"
     DiffDate.Parent = DiffCard
 
-    -- Changelog Section Title
-    local ChangelogTitle = Instance.new("TextLabel")
-    ChangelogTitle.Size = UDim2.new(1, -32, 0, 18)
-    ChangelogTitle.Position = UDim2.new(0, 16, 0, 114)
-    ChangelogTitle.BackgroundTransparency = 1
-    ChangelogTitle.Font = Enum.Font.GothamBold
-    ChangelogTitle.TextSize = 10
-    ChangelogTitle.TextColor3 = Color3.fromRGB(100, 175, 230)
-    ChangelogTitle.TextXAlignment = Enum.TextXAlignment.Left
-    ChangelogTitle.Text = "VERIFIED CHANGELOG & AUDIT LOG:"
-    ChangelogTitle.Parent = ModalFrame
+    -- Tab Switcher Bar
+    local TabBar = Instance.new("Frame")
+    TabBar.Name = "TabBar"
+    TabBar.Size = UDim2.new(1, -32, 0, 28)
+    TabBar.Position = UDim2.new(0, 16, 0, 100)
+    TabBar.BackgroundTransparency = 1
+    TabBar.Parent = ModalFrame
 
-    -- Changelog Scroll Container
+    local TabBtnChangelog = Instance.new("TextButton")
+    TabBtnChangelog.Name = "TabBtnChangelog"
+    TabBtnChangelog.Size = UDim2.new(0, 160, 1, 0)
+    TabBtnChangelog.Position = UDim2.new(0, 0, 0, 0)
+    TabBtnChangelog.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+    TabBtnChangelog.Font = Enum.Font.GothamBold
+    TabBtnChangelog.TextSize = 11
+    TabBtnChangelog.TextColor3 = Color3.fromRGB(255, 255, 255)
+    TabBtnChangelog.Text = "📋 Changelog & Notes"
+    TabBtnChangelog.Parent = TabBar
+
+    local TabChangelogCorner = Instance.new("UICorner")
+    TabChangelogCorner.CornerRadius = UDim.new(0, 5)
+    TabChangelogCorner.Parent = TabBtnChangelog
+
+    local TabBtnCode = Instance.new("TextButton")
+    TabBtnCode.Name = "TabBtnCode"
+    TabBtnCode.Size = UDim2.new(0, 160, 1, 0)
+    TabBtnCode.Position = UDim2.new(0, 168, 0, 0)
+    TabBtnCode.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
+    TabBtnCode.Font = Enum.Font.GothamBold
+    TabBtnCode.TextSize = 11
+    TabBtnCode.TextColor3 = Color3.fromRGB(160, 175, 195)
+    TabBtnCode.Text = "🔍 Review Code & Diff"
+    TabBtnCode.Parent = TabBar
+
+    local TabCodeCorner = Instance.new("UICorner")
+    TabCodeCorner.CornerRadius = UDim.new(0, 5)
+    TabCodeCorner.Parent = TabBtnCode
+
+    -- Content Frame
+    local ContentFrame = Instance.new("Frame")
+    ContentFrame.Name = "ContentFrame"
+    ContentFrame.Size = UDim2.new(1, -32, 0, 292)
+    ContentFrame.Position = UDim2.new(0, 16, 0, 134)
+    ContentFrame.BackgroundTransparency = 1
+    ContentFrame.Parent = ModalFrame
+
+    -- View A: Changelog Scroll
     local ChangelogScroll = Instance.new("ScrollingFrame")
     ChangelogScroll.Name = "ChangelogScroll"
-    ChangelogScroll.Size = UDim2.new(1, -32, 0, 246)
-    ChangelogScroll.Position = UDim2.new(0, 16, 0, 136)
+    ChangelogScroll.Size = UDim2.new(1, 0, 1, 0)
     ChangelogScroll.BackgroundColor3 = Color3.fromRGB(11, 13, 19)
     ChangelogScroll.BorderSizePixel = 0
     ChangelogScroll.ScrollBarThickness = 4
     ChangelogScroll.ScrollBarImageColor3 = Color3.fromRGB(64, 196, 255)
-    ChangelogScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
     ChangelogScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    ChangelogScroll.Parent = ModalFrame
+    ChangelogScroll.Visible = true
+    ChangelogScroll.Parent = ContentFrame
 
     local ChangelogCorner = Instance.new("UICorner")
     ChangelogCorner.CornerRadius = UDim.new(0, 6)
@@ -4028,11 +4166,79 @@ local function initUpdateGate(guiParent, UpdateBadge)
     ChangelogPadding.PaddingRight = UDim.new(0, 12)
     ChangelogPadding.Parent = ChangelogScroll
 
+    -- View B: Code Review & Diff Viewer Frame
+    local CodeReviewFrame = Instance.new("Frame")
+    CodeReviewFrame.Name = "CodeReviewFrame"
+    CodeReviewFrame.Size = UDim2.new(1, 0, 1, 0)
+    CodeReviewFrame.BackgroundTransparency = 1
+    CodeReviewFrame.Visible = false
+    CodeReviewFrame.Parent = ContentFrame
+
+    -- Stage selector sub-bar
+    local StageBar = Instance.new("Frame")
+    StageBar.Name = "StageBar"
+    StageBar.Size = UDim2.new(1, 0, 0, 26)
+    StageBar.BackgroundTransparency = 1
+    StageBar.Parent = CodeReviewFrame
+
+    local StageBarLayout = Instance.new("UIListLayout")
+    StageBarLayout.FillDirection = Enum.FillDirection.Horizontal
+    StageBarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    StageBarLayout.Padding = UDim.new(0, 6)
+    StageBarLayout.Parent = StageBar
+
+    -- Audit badges & stats sub-bar
+    local AuditBar = Instance.new("Frame")
+    AuditBar.Name = "AuditBar"
+    AuditBar.Size = UDim2.new(1, 0, 0, 22)
+    AuditBar.Position = UDim2.new(0, 0, 0, 30)
+    AuditBar.BackgroundTransparency = 1
+    AuditBar.Parent = CodeReviewFrame
+
+    local AuditBarLayout = Instance.new("UIListLayout")
+    AuditBarLayout.FillDirection = Enum.FillDirection.Horizontal
+    AuditBarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    AuditBarLayout.Padding = UDim.new(0, 6)
+    AuditBarLayout.Parent = AuditBar
+
+    -- Monospaced Code & Diff Scroll
+    local CodeScroll = Instance.new("ScrollingFrame")
+    CodeScroll.Name = "CodeScroll"
+    CodeScroll.Size = UDim2.new(1, 0, 1, -56)
+    CodeScroll.Position = UDim2.new(0, 0, 0, 56)
+    CodeScroll.BackgroundColor3 = Color3.fromRGB(10, 12, 16)
+    CodeScroll.BorderSizePixel = 0
+    CodeScroll.ScrollBarThickness = 5
+    CodeScroll.ScrollBarImageColor3 = Color3.fromRGB(64, 196, 255)
+    CodeScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    CodeScroll.Parent = CodeReviewFrame
+
+    local CodeScrollCorner = Instance.new("UICorner")
+    CodeScrollCorner.CornerRadius = UDim.new(0, 6)
+    CodeScrollCorner.Parent = CodeScroll
+
+    local CodeScrollStroke = Instance.new("UIStroke")
+    CodeScrollStroke.Thickness = 1
+    CodeScrollStroke.Color = Color3.fromRGB(30, 38, 52)
+    CodeScrollStroke.Parent = CodeScroll
+
+    local CodeScrollLayout = Instance.new("UIListLayout")
+    CodeScrollLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    CodeScrollLayout.Padding = UDim.new(0, 2)
+    CodeScrollLayout.Parent = CodeScroll
+
+    local CodeScrollPadding = Instance.new("UIPadding")
+    CodeScrollPadding.PaddingTop = UDim.new(0, 4)
+    CodeScrollPadding.PaddingBottom = UDim.new(0, 6)
+    CodeScrollPadding.PaddingLeft = UDim.new(0, 6)
+    CodeScrollPadding.PaddingRight = UDim.new(0, 8)
+    CodeScrollPadding.Parent = CodeScroll
+
     -- Footer Action Buttons
     local FooterFrame = Instance.new("Frame")
     FooterFrame.Name = "FooterFrame"
-    FooterFrame.Size = UDim2.new(1, -32, 0, 38)
-    FooterFrame.Position = UDim2.new(0, 16, 1, -48)
+    FooterFrame.Size = UDim2.new(1, -32, 0, 36)
+    FooterFrame.Position = UDim2.new(0, 16, 1, -44)
     FooterFrame.BackgroundTransparency = 1
     FooterFrame.Parent = ModalFrame
 
@@ -4065,6 +4271,28 @@ local function initUpdateGate(guiParent, UpdateBadge)
     local ApplyCorner = Instance.new("UICorner")
     ApplyCorner.CornerRadius = UDim.new(0, 6)
     ApplyCorner.Parent = ApplyUpdateBtn
+
+    -- Tab Switching Logic
+    local function switchTab(tabName)
+        if tabName == "Changelog" then
+            ChangelogScroll.Visible = true
+            CodeReviewFrame.Visible = false
+            TabBtnChangelog.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+            TabBtnChangelog.TextColor3 = Color3.fromRGB(255, 255, 255)
+            TabBtnCode.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
+            TabBtnCode.TextColor3 = Color3.fromRGB(160, 175, 195)
+        else
+            ChangelogScroll.Visible = false
+            CodeReviewFrame.Visible = true
+            TabBtnCode.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+            TabBtnCode.TextColor3 = Color3.fromRGB(255, 255, 255)
+            TabBtnChangelog.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
+            TabBtnChangelog.TextColor3 = Color3.fromRGB(160, 175, 195)
+        end
+    end
+
+    TabBtnChangelog.MouseButton1Click:Connect(function() switchTab("Changelog") end)
+    TabBtnCode.MouseButton1Click:Connect(function() switchTab("Code") end)
 
     -- Populate Changelog
     local function populateChangelog(items)
@@ -4123,6 +4351,288 @@ local function initUpdateGate(guiParent, UpdateBadge)
     end
 
     local currentUpdateData = nil
+    local fetchedStageCodes = {}
+    local selectedStageIdx = 1
+
+    local function renderStageDiff(stageIdx)
+        selectedStageIdx = stageIdx
+        local stages = (currentUpdateData and currentUpdateData.stages) or {}
+        local stage = stages[stageIdx]
+        if not stage then return end
+
+        local localPath = stage.localPath or stage.path
+        local repoPath = stage.repoPath or stage.url
+        local name = stage.name or localPath:match("[^/\\]+$") or "Component"
+
+        -- Update stage selector buttons active state
+        for _, btn in ipairs(StageBar:GetChildren()) do
+            if btn:IsA("TextButton") then
+                local isThis = (btn.Name == "StageBtn_" .. stageIdx)
+                btn.BackgroundColor3 = isThis and Color3.fromRGB(0, 122, 204) or Color3.fromRGB(24, 30, 42)
+                btn.TextColor3 = isThis and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(160, 175, 195)
+            end
+        end
+
+        -- Clear AuditBar
+        for _, c in ipairs(AuditBar:GetChildren()) do
+            if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+        end
+
+        -- Clear CodeScroll & show loading banner
+        for _, c in ipairs(CodeScroll:GetChildren()) do
+            if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+        end
+
+        local loadingLbl = Instance.new("TextLabel")
+        loadingLbl.Size = UDim2.new(1, 0, 0, 40)
+        loadingLbl.BackgroundTransparency = 1
+        loadingLbl.Font = Enum.Font.GothamMedium
+        loadingLbl.TextSize = 11
+        loadingLbl.TextColor3 = Color3.fromRGB(64, 196, 255)
+        loadingLbl.Text = "⏳ Loading & diffing component from GitHub..."
+        loadingLbl.Parent = CodeScroll
+
+        task.spawn(function()
+            -- Fetch remote content if needed
+            local remoteContent = fetchedStageCodes[stageIdx]
+            if not remoteContent then
+                local shaToUse = (currentUpdateData and currentUpdateData.sha) or "main"
+                local url = repoPath
+                if not url:find("^https?://") then
+                    url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. shaToUse .. "/" .. url
+                end
+                remoteContent = fetchGithubScript(url)
+                if not remoteContent then
+                    remoteContent = fetchGithubScript(GITHUB_REPO_RAW .. repoPath .. "?v=" .. tostring(os.time()))
+                end
+                fetchedStageCodes[stageIdx] = remoteContent
+            end
+
+            -- If user switched away while loading, skip render
+            if selectedStageIdx ~= stageIdx then return end
+
+            -- Read existing local content
+            local localContent = ""
+            local isInstalled = isfile and isfile(localPath)
+            if isInstalled then
+                local ok, raw = pcall(readfile, localPath)
+                if ok and raw then localContent = raw end
+            end
+
+            -- Clear loading banner
+            for _, c in ipairs(CodeScroll:GetChildren()) do
+                if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+            end
+
+            -- Clear AuditBar
+            for _, c in ipairs(AuditBar:GetChildren()) do
+                if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+            end
+
+            if not remoteContent then
+                local notice = Instance.new("TextLabel")
+                notice.Size = UDim2.new(1, 0, 0, 40)
+                notice.BackgroundTransparency = 1
+                notice.Font = Enum.Font.GothamMedium
+                notice.TextSize = 11
+                notice.TextColor3 = Color3.fromRGB(250, 160, 40)
+                notice.Text = "⚠️ Unable to load remote code from GitHub. Check network connection."
+                notice.Parent = CodeScroll
+                return
+            end
+
+            -- Render Audit Chips
+            local badges = auditScriptContent(remoteContent or localContent)
+            for _, b in ipairs(badges) do
+                local chip = Instance.new("Frame")
+                chip.Size = UDim2.new(0, 0, 1, 0)
+                chip.AutomaticSize = Enum.AutomaticSize.X
+                chip.BackgroundColor3 = Color3.fromRGB(20, 26, 36)
+                chip.BorderSizePixel = 0
+                chip.Parent = AuditBar
+
+                local chipCorner = Instance.new("UICorner")
+                chipCorner.CornerRadius = UDim.new(0, 4)
+                chipCorner.Parent = chip
+
+                local chipStroke = Instance.new("UIStroke")
+                chipStroke.Thickness = 1
+                chipStroke.Color = b.color
+                chipStroke.Parent = chip
+
+                local chipPadding = Instance.new("UIPadding")
+                chipPadding.PaddingLeft = UDim.new(0, 6)
+                chipPadding.PaddingRight = UDim.new(0, 6)
+                chipPadding.Parent = chip
+
+                local chipLbl = Instance.new("TextLabel")
+                chipLbl.Size = UDim2.new(0, 0, 1, 0)
+                chipLbl.AutomaticSize = Enum.AutomaticSize.X
+                chipLbl.BackgroundTransparency = 1
+                chipLbl.Font = Enum.Font.GothamBold
+                chipLbl.TextSize = 10
+                chipLbl.TextColor3 = b.color
+                chipLbl.Text = b.label
+                chipLbl.Parent = chip
+            end
+
+            -- Status tag
+            local statusLbl = Instance.new("TextLabel")
+            statusLbl.Size = UDim2.new(0, 0, 1, 0)
+            statusLbl.AutomaticSize = Enum.AutomaticSize.X
+            statusLbl.BackgroundTransparency = 1
+            statusLbl.Font = Enum.Font.Gotham
+            statusLbl.TextSize = 10
+            statusLbl.TextColor3 = isInstalled and Color3.fromRGB(140, 185, 210) or Color3.fromRGB(240, 180, 70)
+            statusLbl.Text = isInstalled and " • Local file present" or " • Component Not Installed"
+            statusLbl.Parent = AuditBar
+
+            -- Compute Line Diff
+            local diff, totalLines, adds, removes = computeLineDiff(localContent, remoteContent)
+
+            -- Diff Stats Badge in AuditBar
+            local diffStat = Instance.new("Frame")
+            diffStat.Size = UDim2.new(0, 0, 1, 0)
+            diffStat.AutomaticSize = Enum.AutomaticSize.X
+            diffStat.BackgroundColor3 = Color3.fromRGB(20, 26, 36)
+            diffStat.BorderSizePixel = 0
+            diffStat.Parent = AuditBar
+
+            local diffStatCorner = Instance.new("UICorner")
+            diffStatCorner.CornerRadius = UDim.new(0, 4)
+            diffStatCorner.Parent = diffStat
+
+            local diffStatStroke = Instance.new("UIStroke")
+            diffStatStroke.Thickness = 1
+            diffStatStroke.Color = Color3.fromRGB(45, 65, 95)
+            diffStatStroke.Parent = diffStat
+
+            local diffStatPadding = Instance.new("UIPadding")
+            diffStatPadding.PaddingLeft = UDim.new(0, 6)
+            diffStatPadding.PaddingRight = UDim.new(0, 6)
+            diffStatPadding.Parent = diffStat
+
+            local diffStatLbl = Instance.new("TextLabel")
+            diffStatLbl.Size = UDim2.new(0, 0, 1, 0)
+            diffStatLbl.AutomaticSize = Enum.AutomaticSize.X
+            diffStatLbl.BackgroundTransparency = 1
+            diffStatLbl.Font = Enum.Font.RobotoMono
+            diffStatLbl.TextSize = 10
+            diffStatLbl.TextColor3 = (adds == 0 and removes == 0) and Color3.fromRGB(120, 210, 150) or Color3.fromRGB(160, 200, 240)
+            diffStatLbl.Text = (adds == 0 and removes == 0) and ("✓ " .. totalLines .. " lines (Synced)") or ("+" .. tostring(adds) .. " / -" .. tostring(removes) .. " lines")
+            diffStatLbl.Parent = diffStat
+
+            if #diff == 0 or (adds == 0 and removes == 0 and #localContent > 0) then
+                local emptyRow = Instance.new("Frame")
+                emptyRow.Name = "IdenticalNotice"
+                emptyRow.Size = UDim2.new(1, 0, 0, 36)
+                emptyRow.BackgroundColor3 = Color3.fromRGB(16, 28, 22)
+                emptyRow.BorderSizePixel = 0
+                emptyRow.Parent = CodeScroll
+
+                local emptyCorner = Instance.new("UICorner")
+                emptyCorner.CornerRadius = UDim.new(0, 4)
+                emptyCorner.Parent = emptyRow
+
+                local emptyStroke = Instance.new("UIStroke")
+                emptyStroke.Thickness = 1
+                emptyStroke.Color = Color3.fromRGB(35, 90, 55)
+                emptyStroke.Parent = emptyRow
+
+                local emptyLbl = Instance.new("TextLabel")
+                emptyLbl.Size = UDim2.new(1, -20, 1, 0)
+                emptyLbl.Position = UDim2.new(0, 12, 0, 0)
+                emptyLbl.BackgroundTransparency = 1
+                emptyLbl.Font = Enum.Font.GothamMedium
+                emptyLbl.TextSize = 11
+                emptyLbl.TextColor3 = Color3.fromRGB(100, 230, 130)
+                emptyLbl.TextXAlignment = Enum.TextXAlignment.Left
+                emptyLbl.Text = "✓ Local file matches repository version (" .. tostring(totalLines) .. " lines verified identical - no changes needed)"
+                emptyLbl.Parent = emptyRow
+            else
+                for idx, item in ipairs(diff) do
+                    local lineRow = Instance.new("Frame")
+                    lineRow.Name = "Line_" .. idx
+                    lineRow.Size = UDim2.new(1, 0, 0, 16)
+                    lineRow.BorderSizePixel = 0
+                    lineRow.LayoutOrder = idx
+
+                    local bgCol = Color3.fromRGB(10, 12, 16)
+                    local textCol = Color3.fromRGB(190, 200, 215)
+                    local prefix = "  "
+
+                    if item.type == "add" then
+                        bgCol = Color3.fromRGB(16, 38, 24)
+                        textCol = Color3.fromRGB(100, 230, 130)
+                        prefix = "+ "
+                    elseif item.type == "remove" then
+                        bgCol = Color3.fromRGB(42, 18, 20)
+                        textCol = Color3.fromRGB(250, 110, 110)
+                        prefix = "- "
+                    end
+                    lineRow.BackgroundColor3 = bgCol
+                    lineRow.Parent = CodeScroll
+
+                    local numLbl = Instance.new("TextLabel")
+                    numLbl.Size = UDim2.new(0, 36, 1, 0)
+                    numLbl.Position = UDim2.new(0, 4, 0, 0)
+                    numLbl.BackgroundTransparency = 1
+                    numLbl.Font = Enum.Font.RobotoMono
+                    numLbl.TextSize = 10
+                    numLbl.TextColor3 = Color3.fromRGB(90, 105, 125)
+                    numLbl.TextXAlignment = Enum.TextXAlignment.Right
+                    numLbl.Text = tostring(item.lineNum or idx)
+                    numLbl.Parent = lineRow
+
+                    local txtLbl = Instance.new("TextLabel")
+                    txtLbl.Size = UDim2.new(1, -48, 1, 0)
+                    txtLbl.Position = UDim2.new(0, 46, 0, 0)
+                    txtLbl.BackgroundTransparency = 1
+                    txtLbl.Font = Enum.Font.RobotoMono
+                    txtLbl.TextSize = 10
+                    txtLbl.TextColor3 = textCol
+                    txtLbl.TextXAlignment = Enum.TextXAlignment.Left
+                    txtLbl.Text = prefix .. item.text
+                    txtLbl.Parent = lineRow
+                end
+            end
+        end)
+    end
+
+    local function setupStageBar()
+        for _, c in ipairs(StageBar:GetChildren()) do
+            if c:IsA("TextButton") then c:Destroy() end
+        end
+
+        local stages = (currentUpdateData and currentUpdateData.stages) or {}
+        for idx, stage in ipairs(stages) do
+            local btn = Instance.new("TextButton")
+            btn.Name = "StageBtn_" .. idx
+            btn.Size = UDim2.new(0, 0, 1, 0)
+            btn.AutomaticSize = Enum.AutomaticSize.X
+            btn.BackgroundColor3 = (idx == selectedStageIdx) and Color3.fromRGB(0, 122, 204) or Color3.fromRGB(24, 30, 42)
+            btn.BorderSizePixel = 0
+            btn.Font = Enum.Font.GothamBold
+            btn.TextSize = 10
+            btn.TextColor3 = (idx == selectedStageIdx) and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(160, 175, 195)
+            btn.Text = " " .. (stage.name or "Component") .. " "
+            btn.LayoutOrder = idx
+            btn.Parent = StageBar
+
+            local btnCorner = Instance.new("UICorner")
+            btnCorner.CornerRadius = UDim.new(0, 4)
+            btnCorner.Parent = btn
+
+            local btnPadding = Instance.new("UIPadding")
+            btnPadding.PaddingLeft = UDim.new(0, 6)
+            btnPadding.PaddingRight = UDim.new(0, 6)
+            btnPadding.Parent = btn
+
+            btn.MouseButton1Click:Connect(function()
+                renderStageDiff(idx)
+            end)
+        end
+    end
 
     local function openUpdateModal()
         if not currentUpdateData then
@@ -4142,15 +4652,24 @@ local function initUpdateGate(guiParent, UpdateBadge)
                         repoPath = "kernel/KernelTaskManager.lua",
                         localPath = "autoexec/kernel/KernelTaskManager.lua",
                         name = "KernelTaskManager"
+                    },
+                    {
+                        repoPath = "gameloaded/OmniEnhancementSuite.lua",
+                        localPath = "autoexec/gameloaded/OmniEnhancementSuite.lua",
+                        name = "OmniEnhancementSuite"
                     }
                 }
             }
         end
+
         DiffCurrent.Text = "Installed: v" .. CURRENT_OMNI_VERSION
         DiffAvailable.Text = "Available: v" .. tostring(currentUpdateData.version)
         DiffDate.Text = tostring(currentUpdateData.releaseDate or "Latest")
         populateChangelog(currentUpdateData.changelog or { "Performance improvements and bug fixes" })
-        
+        setupStageBar()
+        renderStageDiff(1)
+        switchTab("Changelog")
+
         ModalBackdrop.Visible = true
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
         UserInputService.MouseIconEnabled = true
@@ -4176,17 +4695,51 @@ local function initUpdateGate(guiParent, UpdateBadge)
     PillDismissBtn.MouseButton1Click:Connect(function()
         PillToast.Visible = false
         getgenv()._OmniUpdateDismissed = true
+        -- Update ledger dismissed state
+        local ledger = loadLedger()
+        if currentUpdateData and currentUpdateData.stages then
+            for _, stage in ipairs(currentUpdateData.stages) do
+                local name = stage.name or stage.localPath
+                ledger.components[name] = ledger.components[name] or {}
+                ledger.components[name].lastSeenVersion = currentUpdateData.version
+            end
+            saveLedger(ledger)
+        end
     end)
 
     DismissBtn.MouseButton1Click:Connect(function()
         closeUpdateModal()
         PillToast.Visible = false
         getgenv()._OmniUpdateDismissed = true
+        local ledger = loadLedger()
+        if currentUpdateData and currentUpdateData.stages then
+            for _, stage in ipairs(currentUpdateData.stages) do
+                local name = stage.name or stage.localPath
+                ledger.components[name] = ledger.components[name] or {}
+                ledger.components[name].lastSeenVersion = currentUpdateData.version
+            end
+            saveLedger(ledger)
+        end
     end)
 
     if UpdateBadge then
         UpdateBadge.MouseButton1Click:Connect(openUpdateModal)
     end
+
+    -- Keybind: Shift + F7 to toggle Update Gate (Shift + F8 toggles Task Manager HUD)
+    local inputConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.KeyCode == Enum.KeyCode.F7 then
+            local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+            if isShift then
+                if ModalBackdrop.Visible then
+                    closeUpdateModal()
+                else
+                    openUpdateModal()
+                end
+            end
+        end
+    end)
 
     local function getLatestCommitSha()
         local ok, res = pcall(function()
@@ -4228,57 +4781,71 @@ local function initUpdateGate(guiParent, UpdateBadge)
             local anySuccess = false
             local lastCode = nil
             local shaToUse = (currentUpdateData and currentUpdateData.sha) or "main"
+            local ledger = loadLedger()
 
-            for _, stage in ipairs(stages) do
+            for idx, stage in ipairs(stages) do
                 local repoPath = stage.repoPath or stage.url
                 local localPath = stage.localPath or stage.path
-                local url = repoPath
-                if not url:find("^https?://") then
-                    url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. shaToUse .. "/" .. url
-                end
+                local name = stage.name or localPath:match("[^/\\]+$") or "Component"
 
-                local remoteContent = fetchGithubScript(url)
+                local remoteContent = fetchedStageCodes[idx]
                 if not remoteContent then
-                    remoteContent = fetchGithubScript(GITHUB_REPO_RAW .. (stage.repoPath or stage.url) .. "?v=" .. tostring(os.time()))
+                    local url = repoPath
+                    if not url:find("^https?://") then
+                        url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. shaToUse .. "/" .. url
+                    end
+                    remoteContent = fetchGithubScript(url)
+                    if not remoteContent then
+                        remoteContent = fetchGithubScript(GITHUB_REPO_RAW .. repoPath .. "?v=" .. tostring(os.time()))
+                    end
                 end
 
-                if remoteContent and #remoteContent > 500 then
+                if remoteContent and #remoteContent > 100 then
+                    -- Ensure parent directory exists
+                    local parentDir = localPath:match("^(.*)[/\\][^/\\]+$")
+                    if parentDir and isfolder and not isfolder(parentDir) then
+                        pcall(makefolder, parentDir)
+                    end
+
                     local ok, err = pcall(writefile, localPath, remoteContent)
                     if ok then
                         anySuccess = true
+                        ledger.components[name] = {
+                            installed = true,
+                            lastSeenVersion = currentUpdateData.version,
+                            path = localPath,
+                            updatedAt = os.time()
+                        }
                         if localPath:find("KernelTaskManager") then
                             lastCode = remoteContent
-                        end
-                        print(string.format("[OmniUpdater]: Successfully updated %s", localPath))
-                        if isfile and isfile("workspace/" .. localPath) then
-                            pcall(writefile, "workspace/" .. localPath, remoteContent)
+                        elseif localPath:find("OmniEnhancementSuite") then
+                            -- Live reload enhancement suite
+                            task.spawn(function()
+                                local fn = loadstring(remoteContent, "@OmniEnhancementSuite")
+                                if fn then pcall(fn) end
+                            end)
                         end
                     else
-                        warn(string.format("[OmniUpdater]: Failed writing to %s: %s", localPath, tostring(err)))
+                        warn("[OmniUpdater]: Failed writing " .. localPath .. ": " .. tostring(err))
                     end
                 end
             end
 
+            saveLedger(ledger)
+
             if anySuccess then
-                ApplyUpdateBtn.Text = "✓ Updated! Reloading Omni..."
+                ApplyUpdateBtn.Text = "✓ Applied! Reloading Omni..."
                 task.wait(0.7)
                 closeUpdateModal()
                 PillToast.Visible = false
                 if UpdateBadge then UpdateBadge.Visible = false end
 
-                -- Teardown old instance and execute updated code
-                if type(getgenv()._KernelTaskManagerUnifiedCleanUp) == "function" then
-                    pcall(getgenv()._KernelTaskManagerUnifiedCleanUp)
-                end
-
-                local codeToRun = lastCode
-                if not codeToRun then
-                    local okRead, fileData = pcall(readfile, "autoexec/kernel/KernelTaskManager.lua")
-                    if okRead and fileData then codeToRun = fileData end
-                end
-
-                if codeToRun then
-                    local fn, syntaxErr = loadstring(codeToRun, "@KernelTaskManager")
+                -- Teardown old instance and execute updated code if kernel was updated
+                if lastCode then
+                    if type(getgenv()._KernelTaskManagerUnifiedCleanUp) == "function" then
+                        pcall(getgenv()._KernelTaskManagerUnifiedCleanUp)
+                    end
+                    local fn, syntaxErr = loadstring(lastCode, "@KernelTaskManager")
                     if fn then
                         task.spawn(fn)
                     else
@@ -4294,7 +4861,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
         end)
     end)
 
-    -- Background Update Checker
+    -- Background Update & Missing Component Checker
     task.spawn(function()
         task.wait(1.5)
         local sha = getLatestCommitSha()
@@ -4308,7 +4875,29 @@ local function initUpdateGate(guiParent, UpdateBadge)
         local ok, parsed = pcall(function() return HttpService:JSONDecode(rawManifest) end)
         if not ok or not parsed or not parsed.version then return end
 
+        local ledger = loadLedger()
+        local hasUpdate = false
+        local missingAvailable = {}
+
         if isNewerVersion(parsed.version, CURRENT_OMNI_VERSION) then
+            hasUpdate = true
+        end
+
+        if parsed.stages and type(parsed.stages) == "table" then
+            for _, stage in ipairs(parsed.stages) do
+                local localPath = stage.localPath or stage.path
+                local name = stage.name or localPath
+                if isfile and not isfile(localPath) then
+                    local compData = ledger.components[name]
+                    local lastSeen = compData and compData.lastSeenVersion
+                    if not lastSeen or isNewerVersion(parsed.version, lastSeen) then
+                        table.insert(missingAvailable, name)
+                    end
+                end
+            end
+        end
+
+        if hasUpdate or #missingAvailable > 0 then
             currentUpdateData = {
                 version = parsed.version,
                 releaseDate = parsed.releaseDate or "Latest",
@@ -4324,15 +4913,23 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 UpdateBadge.Visible = true
             end
 
-            -- Show floating Pill Toast if not previously dismissed
+            -- Show floating Pill Toast if not dismissed
             if not getgenv()._OmniUpdateDismissed then
-                PillSubtitle.Text = "v" .. CURRENT_OMNI_VERSION .. " ➔ v" .. tostring(parsed.version)
+                if hasUpdate then
+                    PillSubtitle.Text = "v" .. CURRENT_OMNI_VERSION .. " ➔ v" .. tostring(parsed.version)
+                else
+                    PillSubtitle.Text = #missingAvailable .. " new component(s) available"
+                end
                 PillToast.Visible = true
             end
         end
     end)
 
     return function()
+        if inputConn then
+            pcall(function() inputConn:Disconnect() end)
+            inputConn = nil
+        end
         if UpdateScreenGui then
             pcall(function() UpdateScreenGui:Destroy() end)
             UpdateScreenGui = nil
@@ -4341,8 +4938,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
     end
 end
 
--- ==============================================================================
--- SECTION 2: FLUENT TASK MANAGER HUD
 -- ==============================================================================
 
 local function initHUD()
