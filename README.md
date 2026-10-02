@@ -2,54 +2,95 @@
 
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-orange.svg)](LICENSE)
 
-> **Zero lag. Adaptive budgeting. Silent auto-updates.**  
-> The intelligent bootloader and task manager for Roblox.
+> **Zero lag. Adaptive frame budgeting. Zero-trust security gate.**  
+> The intelligent bootloader, runtime kernel, and enhancement suite for Roblox.
 
 ---
 
 ### It just works.
 
-Traditional autoexec setups inject every script at once. The client freezes. Frames drop. 
+Traditional autoexec setups inject every script at once. The client freezes. Frames drop. Untrusted scripts run silently with zero transparency.
 
-Omni changes that. It meters execution at 6.0ms per frame, dynamically throttles runaway loops, and keeps itself updated in the background before the game even loads.
+**Omni changes that.** It meters execution at 6.0ms per frame, dynamically throttles runaway loops, isolates runtime errors, and protects you with an immutable **Root-of-Trust Security Gate** that lets you audit, inspect, and approve updates before any remote code touches your machine.
+
+---
+
+### Key Capabilities
+
+#### 🛡️ 1. Root-of-Trust Security & Update Gate (`Shift + F7`)
+* **Zero Blind Updates**: Remote components are never silently overwritten without your explicit consent.
+* **Line-by-Line Git Diff Inspector**: Review color-coded `+` additions and `-` removals in a monospaced code viewer directly in-game.
+* **Static Security Heuristics**: Automatically scans every incoming update for `loadstring()`, Discord webhooks, HTTP web traffic, and file system I/O.
+* **User Sovereignty & Persistent Ledger**: Tracks component versions in `Omni_Ledger.json` and strictly respects user-deleted components.
+
+#### ⚡ 2. 100% Offline Kernel Task Manager HUD (`Shift + F8`)
+* **Zero Network Calls**: Verified 100% offline runtime kernel with zero external HTTP requests.
+* **Transparent RunService Interception**: Seamlessly hooks `Heartbeat`, `Stepped`, and `RenderStepped` connections with zero script modifications.
+* **Microsecond CPU Profiling**: Real-time per-task CPU consumption, spike tracking, and dynamic auto-throttling (60Hz ➔ 30Hz ➔ 15Hz).
+* **Interactive Process Controls**: Pause, resume, throttle, priority-lock, or terminate individual runaway threads.
+* **Panic Switch**: Global panic controls (`getgenv().UnloadAllTasks()`), remote mute switch, and orphan drawing purge.
+
+#### 🌌 3. Omni Enhancement Suite (Stage: `GameLoaded`)
+* **Streamer Mode**: Visual-only username, display name, and UserID redaction/spoofing across leaderboards and overhead billboards.
+* **Personal Space Bubble**: Smooth distance falloff and temporal lerp fade that makes crowded player avatars vanish within your personal bubble radius.
+* **Player Locator & ESP**: Hardware-efficient box adornments, on-demand highlight pool (up to 255), raycast tracers, and team filters.
+* **Anti-AFK**: Engine-level inactivity kick prevention.
+* **Native ESC Menu Integration**: Seamlessly injected at the top of the Roblox in-game ESC Settings menu.
+
+#### ⏱️ 4. 5-Stage Adaptive Frame Budgeting
+Drop scripts into stage folders inside your executor's `workspace/autoexec/`:
+* `kernel/` — Critical low-level engines and schedulers (executes first).
+* `preinit/` — Initialization scripts executed before game assets load.
+* `gameloaded/` — Scripts requiring full `game.Loaded` resolution.
+* `characterloaded/` — Scripts dependent on `LocalPlayer.Character` and humanoid rigs.
+* `deferred/` — Non-essential utilities and background tasks.
 
 ---
 
 ### Get Started
 
 #### Option 1: 1-Click Setup *(Recommended)*
-Download and double-click **[`install.bat`](install.bat)**.
+Download and run **[`install.bat`](install.bat)**, or run this single command in PowerShell:
 
-* Automatically detects every executor on your machine (Potassium, Solara, Wave, etc.)
-* Migrates your existing loose scripts from `autoexec/` to `workspace/autoexec/`
-* Deploys `Bootloader.lua` into place in under a second
+```powershell
+irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/install.ps1 | iex
+```
+
+* Automatically discovers your executor installation (Potassium, Solara, Wave, etc.).
+* Safely migrates existing loose scripts to `workspace/autoexec/`.
+* Deploys `Bootloader.lua` into your executor's `autoexec/` folder in under a second.
 
 #### Option 2: In-Game Session *(Zero Install)*
-Paste into your executor and hit **Execute**:
+Paste into your executor's execution tab and hit **Execute**:
 
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()
 ```
 
 #### Option 3: Manual Setup
-Drop **[`Bootloader.lua`](Bootloader.lua)** into your executor's `autoexec` folder (right next to your `workspace` folder).
+Drop **[`Bootloader.lua`](Bootloader.lua)** into your executor's `autoexec` folder (sibling to `workspace/`):
 
 ```text
 YourExecutor/
 ├── autoexec/
 │   └── Bootloader.lua
 └── workspace/
+    └── autoexec/
+        ├── kernel/
+        ├── preinit/
+        ├── gameloaded/
+        ├── characterloaded/
+        └── deferred/
 ```
 
 ---
 
-### The Experience
+### Hotkeys & Controls
 
-* **`Shift + F8`** — Instant Task Manager HUD. Microsecond CPU metrics, spike tracking, and live priority controls.
-* **6.0ms Adaptive Budget** — Smoothly yields to the host engine. 20+ scripts load with zero frame drops.
-* **Silent Auto-Updates** — Checks GitHub on boot and updates the kernel seamlessly. Zero maintenance.
-* **Panic Switch** — `getgenv().UnloadAllTasks()`. Every task, disconnected cleanly in one click.
-* **4-Tier Stage Organization** — Drop scripts into `kernel/`, `preinit/`, `gameloaded/`, `characterloaded/`, or `deferred/` for automatic priority execution.
+| Shortcut | Interface | Description |
+| :--- | :--- | :--- |
+| **`Shift + F8`** | **Kernel Task Manager HUD** | Live CPU metrics, loop inspector, memory leak profiler, task controls |
+| **`Shift + F7`** | **Security & Update Gate** | Release changelog, line-by-line git diff viewer, static security audit |
 
 ---
 
@@ -60,7 +101,7 @@ local RunService = game:GetService("RunService")
 
 -- Throttled to 15Hz. Zero wasted frames.
 local conn = getgenv().ThrottledConnect(RunService.Heartbeat, "Low", function(dt)
-    update()
+    -- Your update loop here
 end)
 ```
 

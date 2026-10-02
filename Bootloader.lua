@@ -472,7 +472,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
     PillSubtitle.TextSize = 10
     PillSubtitle.TextColor3 = Color3.fromRGB(120, 170, 210)
     PillSubtitle.TextXAlignment = Enum.TextXAlignment.Left
-    PillSubtitle.Text = "v1.0.0 ➔ v1.1.0"
+    PillSubtitle.Text = "v1.1.0 ➔ v1.2.0"
     PillSubtitle.Parent = PillToast
 
     local PillReviewBtn = Instance.new("TextButton")
@@ -628,7 +628,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
     DiffAvailable.TextSize = 12
     DiffAvailable.TextColor3 = Color3.fromRGB(64, 196, 255)
     DiffAvailable.TextXAlignment = Enum.TextXAlignment.Left
-    DiffAvailable.Text = "Available: v1.1.0"
+    DiffAvailable.Text = "Available: v1.2.0"
     DiffAvailable.Parent = DiffCard
 
     local DiffDate = Instance.new("TextLabel")

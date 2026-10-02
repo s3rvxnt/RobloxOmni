@@ -6,7 +6,7 @@ color 0B
 echo.
 echo  ======================================================
 echo    Omni
-echo    Zero lag. Adaptive budgeting. Silent auto-updates.
+echo    Zero lag. Adaptive budgeting. Zero-trust security gate.
 echo  ======================================================
 echo.
 

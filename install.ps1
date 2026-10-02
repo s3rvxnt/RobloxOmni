@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 
 Write-Host ""
 Write-Host "  Omni" -ForegroundColor Cyan
-Write-Host "  Zero lag. Adaptive budgeting. Silent auto-updates." -ForegroundColor DarkGray
+Write-Host "  Zero lag. Adaptive budgeting. Zero-trust security gate." -ForegroundColor DarkGray
 Write-Host ""
 
 $detectedRoots = [System.Collections.Generic.List[string]]::new()
@@ -71,10 +71,16 @@ foreach ($root in $detectedRoots) {
 Write-Host ""
 
 # Fetch latest Bootloader.lua once into memory
-Write-Host "[+] Fetching latest Bootloader.lua from GitHub..." -ForegroundColor Cyan
-$timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-$bootloaderUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua?v=$timestamp"
-$bootloaderContent = (Invoke-RestMethod -Uri $bootloaderUrl)
+$localBootloader = Join-Path $PSScriptRoot "Bootloader.lua"
+if ($PSScriptRoot -and (Test-Path $localBootloader)) {
+    Write-Host "[+] Using local Bootloader.lua..." -ForegroundColor Cyan
+    $bootloaderContent = Get-Content -Path $localBootloader -Raw
+} else {
+    Write-Host "[+] Fetching latest Bootloader.lua from GitHub..." -ForegroundColor Cyan
+    $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $bootloaderUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua?v=$timestamp"
+    $bootloaderContent = (Invoke-RestMethod -Uri $bootloaderUrl)
+}
 
 $excludeList = @("Bootloader.lua", "CustomAutoExec.lua", "OmniBootloader.lua", "que_on_teleport.lua")
 
