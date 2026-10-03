@@ -44,6 +44,13 @@ local TweenService = game:GetService("TweenService")
 -- Forward declarations for signals & proxies
 local ProxiedSignals = {}
 local emitProfile
+local findTask
+local KillSchedulerTask
+local IngestGameTask
+local DiscardIngestedGameTask
+local refreshStartupTab
+local taskRowDragging = {}
+local RequestIngestedLivenessCheck
 
 -- Unified Idempotent Reload: Clean up any prior instances
 if getgenv()._KernelTaskManagerUnifiedCleanUp and type(getgenv()._KernelTaskManagerUnifiedCleanUp) == "function" then
@@ -378,7 +385,11 @@ local function runTask(taskObj, ...)
     local ok, err
     local co = coroutine.create(function(...)
         if setthreadidentity then
-            pcall(setthreadidentity, 8)
+            if taskObj.isIngested or taskObj.identity then
+                pcall(setthreadidentity, taskObj.identity or 2)
+            else
+                pcall(setthreadidentity, 8)
+            end
         end
         local xok, xerr = xpcall(taskObj.callback, function(e)
             return debug.traceback(tostring(e), 2)
@@ -413,22 +424,21 @@ local function runTask(taskObj, ...)
     end
 
     -- Dynamic Auto-Throttler & Smart Pipeline Partitioning:
-    -- Dynamically scales threshold to 35% of current frame budget (min 0.8ms), recovery threshold to 20% (min 0.4ms)
-    local heavyThresholdMs = math.max(0.8, currentBudgetMs * 0.35)
-    local lightRecoveryMs = math.max(0.4, currentBudgetMs * 0.20)
+    -- Hard real-time tasks (such as ingested game engine callbacks) MUST NEVER be partitioned or auto-throttled!
+    if not taskObj.isHardRealTime and not taskObj.isIngested then
+        -- Dynamically scales threshold to 35% of current frame budget (min 0.8ms), recovery threshold to 20% (min 0.4ms)
+        local heavyThresholdMs = math.max(0.8, currentBudgetMs * 0.35)
+        local lightRecoveryMs = math.max(0.4, currentBudgetMs * 0.20)
 
-    -- Smart Pipeline Partitioning:
-    -- If a task's single execution exceeds 16.0ms (or average > 14.0ms), partition it to run in a detached worker thread
-    -- so it never hitches or freezes the frame rendering loop!
-    if (durationMs > 16.0 or (taskObj.recentAvgMs and taskObj.recentAvgMs > 14.0)) and not taskObj.isAsync and taskObj.event ~= "SuperStep" then
-        taskObj.isAsync = true
-    elseif taskObj.isAsync and durationMs < 8.0 and (taskObj.recentAvgMs and taskObj.recentAvgMs < 8.0) then
-        taskObj.isAsync = false
-    end
+        -- Smart Pipeline Partitioning:
+        if (durationMs > 16.0 or (taskObj.recentAvgMs and taskObj.recentAvgMs > 14.0)) and not taskObj.isAsync and taskObj.event ~= "SuperStep" then
+            taskObj.isAsync = true
+        elseif taskObj.isAsync and durationMs < 8.0 and (taskObj.recentAvgMs and taskObj.recentAvgMs < 8.0) then
+            taskObj.isAsync = false
+        end
 
-    -- Continuous Fluid Auto-Throttler:
-    -- Per-Task Priority Force/Lock: If taskObj.locked is true, dynamic auto-throttling is completely bypassed!
-    if not taskObj.locked and taskObj.event ~= "SuperStep" and (taskObj.basePriority == "High" or (taskObj.targetHz and taskObj.targetHz >= 25)) then
+        -- Continuous Fluid Auto-Throttler:
+        if not taskObj.locked and taskObj.event ~= "SuperStep" and (taskObj.basePriority == "High" or (taskObj.targetHz and taskObj.targetHz >= 25)) then
         local isHeavy = durationMs > heavyThresholdMs or ((taskObj.recentAvgMs or 0) > heavyThresholdMs)
         if isHeavy then
             taskObj.heavyStreak = (taskObj.heavyStreak or 0) + 1
@@ -490,6 +500,7 @@ local function runTask(taskObj, ...)
                 end
             end
         end
+    end
     end
 
     return ok
@@ -697,7 +708,16 @@ local function processFrame(eventState, ...)
                 for j = i, #workQueue do
                     local remainingObj = workQueue[j]
                     if remainingObj and remainingObj.connected and not remainingObj.paused then
-                        if remainingObj.event == "SuperStep" then
+                        if remainingObj.isHardRealTime or remainingObj.isIngested then
+                            -- HARD REAL-TIME: Ingested game engine callbacks must NEVER be deferred!
+                            local remDt1, remDt2 = ...
+                            if remainingObj.event == "SuperStep" and eventState.name == "Stepped" then
+                                local tVal, dVal = ...
+                                remDt1 = dVal or tVal
+                                remDt2 = tVal
+                            end
+                            runTask(remainingObj, remDt1, remDt2)
+                        elseif remainingObj.event == "SuperStep" then
                             table.insert(Events.SuperStep.deferredQueue, remainingObj.id)
                         else
                             table.insert(deferredThisFrame, remainingObj.id)
@@ -716,9 +736,9 @@ local function processFrame(eventState, ...)
             end
 
             -- Smart Pipeline Partitioning:
-            -- If task is ultra-heavy (>16ms single run), run in detached worker thread
+            -- If task is ultra-heavy (>16ms single run) and NOT hard real-time, run in detached worker thread
             -- so it NEVER freezes or hitches the RunService frame rendering!
-            if (taskObj.isAsync or (taskObj.lastTimeMs and taskObj.lastTimeMs > 16.0)) and taskObj.event ~= "SuperStep" then
+            if not taskObj.isHardRealTime and not taskObj.isIngested and (taskObj.isAsync or (taskObj.lastTimeMs and taskObj.lastTimeMs > 16.0)) and taskObj.event ~= "SuperStep" then
                 if not taskObj.isRunning then
                     taskObj.isRunning = true
                     task.defer(function()
@@ -1187,18 +1207,16 @@ local function getCallingContext(minLvl)
                 elseif src == "" then
                     if not anonymousCaller and line and line > 0 then
                         local suiteName = nil
-                        if fn then
-                            local ok, env = pcall(getfenv, fn)
-                            if ok and type(env) == "table" then
-                                if env.KeepInfYield ~= nil or env.IYMouse ~= nil or env.cmds ~= nil or env.execCmd ~= nil or env.iyflyspeed ~= nil then
-                                    suiteName = "InfiniteYield.lua"
-                                elseif env.SimpleSpy ~= nil or env.Spy ~= nil then
-                                    suiteName = "SimpleSpy.lua"
-                                elseif env.DEX_LOADED ~= nil or env.Dex ~= nil then
-                                    suiteName = "Dex.lua"
-                                elseif env.Hydroxide ~= nil then
-                                    suiteName = "Hydroxide.lua"
-                                end
+                        local genv = (type(getgenv) == "function" and getgenv()) or _G
+                        if genv then
+                            if genv.KeepInfYield ~= nil or genv.IYMouse ~= nil or genv.cmds ~= nil or genv.execCmd ~= nil or genv.iyflyspeed ~= nil then
+                                suiteName = "InfiniteYield.lua"
+                            elseif genv.SimpleSpy ~= nil or genv.Spy ~= nil then
+                                suiteName = "SimpleSpy.lua"
+                            elseif genv.DEX_LOADED ~= nil or genv.Dex ~= nil then
+                                suiteName = "Dex.lua"
+                            elseif genv.Hydroxide ~= nil then
+                                suiteName = "Hydroxide.lua"
                             end
                         end
                         if suiteName then
@@ -1859,11 +1877,6 @@ end
 local RequestIngestedLivenessCheck
 
 local function installGlobalHooks()
-    -- Restore original __namecall if it was ever hooked previously
-    if hookmetamethod and getgenv()._VirtualSchedulerOrigNamecall then
-        pcall(hookmetamethod, game, "__namecall", getgenv()._VirtualSchedulerOrigNamecall)
-        getgenv()._VirtualSchedulerOrigNamecall = nil
-    end
     if hookfunction and getgenv()._VirtualSchedulerOrigFireServer then
         pcall(hookfunction, Instance.new("RemoteEvent").FireServer, getgenv()._VirtualSchedulerOrigFireServer)
         getgenv()._VirtualSchedulerOrigFireServer = nil
@@ -1922,6 +1935,32 @@ local function installGlobalHooks()
             end
             getgenv()._VirtualSchedulerHooksActive = true
         end
+
+        -- Intercept __namecall for RunService:BindToRenderStep and RunService:UnbindFromRenderStep
+        local origInstanceNamecall = getgenv()._VirtualSchedulerOrigNamecall
+        local function customNamecall(self, ...)
+            if checkcaller and checkcaller() then
+                if self == RunService then
+                    local method = (getnamecallmethod and getnamecallmethod()) or ""
+                    if method == "BindToRenderStep" then
+                        return ProxiedBindToRenderStep(self, ...)
+                    elseif method == "UnbindFromRenderStep" then
+                        return ProxiedUnbindFromRenderStep(self, ...)
+                    end
+                end
+            end
+            if origInstanceNamecall then
+                return origInstanceNamecall(self, ...)
+            end
+        end
+
+        if not origInstanceNamecall then
+            local okNc, oldNc = pcall(hookmetamethod, game, "__namecall", customNamecall)
+            if okNc and oldNc then
+                origInstanceNamecall = oldNc
+                getgenv()._VirtualSchedulerOrigNamecall = oldNc
+            end
+        end
     end
 
     -- Fallback: getrawmetatable + setreadonly (Sirhurt, older executors)
@@ -1938,7 +1977,7 @@ local function installGlobalHooks()
         end
     end
 
-    -- Hook RBXScriptConnection.__index for instant disconnect detection
+    -- Hook RBXScriptConnection.__index and __namecall for instant disconnect detection
     if hookmetamethod and not getgenv()._VirtualSchedulerOrigConnIndex then
         pcall(function()
             local raw = getgenv()._VirtualSchedulerRawSignals or rawSignals
@@ -1951,7 +1990,7 @@ local function installGlobalHooks()
                         local orig = origConnIndex(self, key)
                         return function(connSelf)
                             local res = orig(connSelf)
-                            if RequestIngestedLivenessCheck then
+                            if ingestedConnections and ingestedConnections[connSelf] and RequestIngestedLivenessCheck then
                                 RequestIngestedLivenessCheck()
                             end
                             return res
@@ -1959,8 +1998,22 @@ local function installGlobalHooks()
                     end
                     return origConnIndex(self, key)
                 end)
-                temp:Disconnect()
                 getgenv()._VirtualSchedulerOrigConnIndex = origConnIndex
+
+                local connMt = getrawmetatable and getrawmetatable(temp)
+                if connMt and connMt.__namecall and not getgenv()._VirtualSchedulerOrigConnNamecall then
+                    local origConnNc
+                    origConnNc = hookmetamethod(temp, "__namecall", function(self, ...)
+                        local method = (getnamecallmethod and getnamecallmethod()) or ""
+                        if (method == "Disconnect" or method == "disconnect") and ingestedConnections and ingestedConnections[self] then
+                            if RequestIngestedLivenessCheck then RequestIngestedLivenessCheck() end
+                        end
+                        return origConnNc(self, ...)
+                    end)
+                    getgenv()._VirtualSchedulerOrigConnNamecall = origConnNc
+                end
+
+                temp:Disconnect()
             end
         end)
     end
@@ -2016,17 +2069,28 @@ local function DiscardIngestedGameTask(group)
         pcall(function() KillSchedulerTask(tid) end)
     end
 
-    -- 2. Clear any ingested connection references
-    if ingestedConnections then
-        for c, g in pairs(ingestedConnections) do
-            if g == group then
-                ingestedConnections[c] = nil
-            end
-        end
-    end
+    -- 2. Safely re-enable any still-connected native connections before clearing
     if group.connList then
         for _, c in ipairs(group.connList) do
             if c then
+                pcall(function()
+                    if c.Connected ~= false then
+                        if c.Enable then
+                            c:Enable()
+                        elseif c.Enabled ~= nil then
+                            c.Enabled = true
+                        end
+                    end
+                end)
+                if ingestedConnections then
+                    ingestedConnections[c] = nil
+                end
+            end
+        end
+    end
+    if ingestedConnections then
+        for c, g in pairs(ingestedConnections) do
+            if g == group then
                 ingestedConnections[c] = nil
             end
         end
@@ -2379,11 +2443,13 @@ local function IngestGameTask(identifier)
     local taskLabel = if group.count > 1 then string.format("%s (x%d)", group.name, group.count) else group.name
     local conn = ThrottledConnect(taskLabel, group.event, "High", groupCallback, false)
     if conn and (conn.Task or conn.Id) then
-        local tObj = conn.Task or findTask(conn.Id)
+        local tObj = conn.Task or (findTask and findTask(conn.Id))
         if tObj then
             tObj.isIngested = true
             tObj.isHardRealTime = true
             tObj.gameGroup = group
+            tObj.nativeConn = group.connList and group.connList[1]
+            tObj.identity = 2
         end
         group.taskId = conn.Id or (tObj and tObj.id)
         group.schedulerConn = conn
@@ -2529,8 +2595,9 @@ local function buildLoopProfile()
             end
         end)
 
-        -- If a loop has not yielded/ticked in > 4.0s and is not paused, the thread is stale or abandoned (e.g. character respawn)
-        if not isDead and not loop.paused and (now - (loop.lastYieldTime or now)) > 4.0 then
+        -- Check if thread is dead. If suspended/running, calculate stale threshold based on last requested wait duration
+        local waitLimit = math.max(60.0, ((loop.lastWaitRequested or 0) * 2) + 15.0)
+        if not isDead and not loop.paused and (now - (loop.lastYieldTime or now)) > waitLimit then
             isDead = true
         end
 
@@ -2632,10 +2699,10 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
             return nil
         end
 
-        -- CULL STALE DUPLICATES: If an older thread from the same caller hasn't yielded in > 2.0s, prune it immediately
+        -- CULL STALE DUPLICATES: Only prune older thread if it is genuinely dead
         for oldThread, oldLoop in pairs(loopRegistry) do
             if oldLoop.caller == callerStr and oldThread ~= thread then
-                if (now - (oldLoop.lastYieldTime or 0)) > 2.0 or coroutine.status(oldThread) == "dead" then
+                if not oldLoop.paused and coroutine.status(oldThread) == "dead" then
                     oldLoop.alive = false
                     loopRegistry[oldThread] = nil
                 end
@@ -2782,11 +2849,17 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
 
     loop.iterations = loop.iterations + 1
     loop.lastYieldTime = now
+    loop.lastWaitRequested = duration
     return loop
 end
 
 local function hookedTaskWait(duration)
     local waitFn = origTaskWait or rawTaskWait
+    -- STRICT CALLER ISOLATION: Game engine scripts (checkcaller() == false) must never be intercepted!
+    if not (checkcaller and checkcaller()) then
+        return waitFn(duration)
+    end
+
     local curThread = coroutine.running()
 
     if ignoredThreads[curThread] then
@@ -2800,7 +2873,7 @@ local function hookedTaskWait(duration)
             ignoredThreads[curThread] = true
             return waitFn(duration)
         end
-        local isExec = (checkcaller and checkcaller())
+        local isExec = true
         loop = registerOrUpdateLoop(curThread, caller, duration, isExec)
     else
         registerOrUpdateLoop(curThread, loop.caller, duration, loop.isExecutor)
@@ -2834,6 +2907,12 @@ end
 
 local function hookedWait(duration)
     local waitFn = origWait or rawWait or origTaskWait or rawTaskWait
+    -- STRICT CALLER ISOLATION: Game engine scripts (checkcaller() == false) must never be intercepted!
+    if not (checkcaller and checkcaller()) then
+        local d, t = waitFn(duration)
+        return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
+    end
+
     local curThread = coroutine.running()
 
     if ignoredThreads[curThread] then
@@ -2849,7 +2928,7 @@ local function hookedWait(duration)
             local d, t = waitFn(duration)
             return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
         end
-        local isExec = (checkcaller and checkcaller())
+        local isExec = true
         loop = registerOrUpdateLoop(curThread, caller, duration, isExec)
     else
         registerOrUpdateLoop(curThread, loop.caller, duration, loop.isExecutor)
@@ -3158,14 +3237,31 @@ local function buildProfile()
         }
     end
 
-emitProfile = function()
-    local profile = buildProfile()
-    pcall(function()
-        if writefile and HttpService then
-            writefile("Scheduler_Profile.json", HttpService:JSONEncode(profile))
-        end
-    end)
-    return profile
+local lastProfileEmitTime = 0
+local emitProfileScheduled = false
+local cachedProfile = nil
+
+emitProfile = function(force)
+    local now = os.clock()
+    if force or (now - lastProfileEmitTime >= 0.5) then
+        lastProfileEmitTime = now
+        emitProfileScheduled = false
+        cachedProfile = buildProfile()
+        pcall(function()
+            if writefile and HttpService then
+                writefile("Scheduler_Profile.json", HttpService:JSONEncode(cachedProfile))
+            end
+        end)
+        return cachedProfile
+    elseif not emitProfileScheduled then
+        emitProfileScheduled = true
+        task.delay(0.5, function()
+            if emitProfileScheduled then
+                emitProfile(true)
+            end
+        end)
+    end
+    return cachedProfile or buildProfile()
 end
 
 SchedulerPersistence.save = function(immediate)
@@ -3192,7 +3288,7 @@ SchedulerPersistence.save = function(immediate)
                 if taskObj and taskObj.name then
                     local taskKey = taskObj.name .. "@" .. (taskObj.event or evName)
                     placeData.tasks[taskKey] = {
-                        priority = taskObj.priority,
+                        priority = taskObj.basePriority or taskObj.userPriority or taskObj.priority,
                         sortOrder = taskObj.sortOrder,
                         targetHz = taskObj.targetHz,
                         interval = taskObj.interval,
@@ -3389,22 +3485,39 @@ local function KillSchedulerTask(identifier)
             end
         end
 
-        if taskObj.isIngested and taskObj.nativeConn then
-            pcall(function()
-                if taskObj.nativeConn.Enable then
-                    taskObj.nativeConn:Enable()
-                elseif taskObj.nativeConn.Enabled ~= nil then
-                    taskObj.nativeConn.Enabled = true
+        if taskObj.isIngested then
+            local grp = taskObj.gameGroup or (taskObj.nativeConn and findDiscoveredGameTask(taskObj.nativeConn))
+            if grp then
+                if grp.connList then
+                    for _, c in ipairs(grp.connList) do
+                        if c and c.Connected ~= false then
+                            pcall(function()
+                                if c.Enable then
+                                    c:Enable()
+                                elseif c.Enabled ~= nil then
+                                    c.Enabled = true
+                                end
+                            end)
+                        end
+                        if ingestedConnections then
+                            ingestedConnections[c] = nil
+                        end
+                    end
                 end
-            end)
-            if ingestedConnections then
-                ingestedConnections[taskObj.nativeConn] = nil
-            end
-            local gEntry = findDiscoveredGameTask(taskObj.nativeConn)
-            if gEntry then
-                gEntry.isIngested = false
-                gEntry.taskId = nil
-                gEntry.schedulerConn = nil
+                grp.isIngested = false
+                grp.taskId = nil
+                grp.schedulerConn = nil
+            elseif taskObj.nativeConn then
+                pcall(function()
+                    if taskObj.nativeConn.Enable then
+                        taskObj.nativeConn:Enable()
+                    elseif taskObj.nativeConn.Enabled ~= nil then
+                        taskObj.nativeConn.Enabled = true
+                    end
+                end)
+                if ingestedConnections then
+                    ingestedConnections[taskObj.nativeConn] = nil
+                end
             end
         end
 
@@ -5150,20 +5263,35 @@ local function renderTaskRow(taskObj, idx)
             end
         end
 
+        local dragMoveConn, dragEndConn
+        local function stopDrag()
+            isDragging = false
+            taskRowDragging[taskObj.id] = false
+            if dragMoveConn then dragMoveConn:Disconnect(); dragMoveConn = nil end
+            if dragEndConn then dragEndConn:Disconnect(); dragEndConn = nil end
+        end
+
+        row.Destroying:Connect(stopDrag)
+
         priBtn.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 isDragging = true
+                taskRowDragging[taskObj.id] = true
                 updateSlider(input.Position.X)
-            end
-        end)
-        UserInputService.InputChanged:Connect(function(input)
-            if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                updateSlider(input.Position.X)
-            end
-        end)
-        UserInputService.InputEnded:Connect(function(input)
-            if isDragging and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-                isDragging = false
+
+                if dragMoveConn then dragMoveConn:Disconnect() end
+                if dragEndConn then dragEndConn:Disconnect() end
+
+                dragMoveConn = UserInputService.InputChanged:Connect(function(moveInput)
+                    if isDragging and (moveInput.UserInputType == Enum.UserInputType.MouseMovement or moveInput.UserInputType == Enum.UserInputType.Touch) then
+                        updateSlider(moveInput.Position.X)
+                    end
+                end)
+                dragEndConn = UserInputService.InputEnded:Connect(function(endInput)
+                    if endInput.UserInputType == Enum.UserInputType.MouseButton1 or endInput.UserInputType == Enum.UserInputType.Touch then
+                        stopDrag()
+                    end
+                end)
             end
         end)
 
@@ -5271,7 +5399,7 @@ local function renderTaskRow(taskObj, idx)
             eventLbl.Font = Enum.Font.Gotham
         end
     end
-    if priBtn and not isDragging then
+    if priBtn and not taskRowDragging[taskObj.id] then
         local sliderFill = priBtn:FindFirstChild("SliderFill")
         local sliderLbl = priBtn:FindFirstChild("SliderLbl")
         local maxHz = math.max(60, measuredFps or 60)
@@ -7912,22 +8040,35 @@ local function renderLoopRow(loopObj, idx)
             end
         end
 
+        local loopDragMoveConn, loopDragEndConn
+        local function stopLoopDrag()
+            isDragging = false
+            loopRowDragging[loopObj.id] = false
+            if loopDragMoveConn then loopDragMoveConn:Disconnect(); loopDragMoveConn = nil end
+            if loopDragEndConn then loopDragEndConn:Disconnect(); loopDragEndConn = nil end
+        end
+
+        row.Destroying:Connect(stopLoopDrag)
+
         hzBtn.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 isDragging = true
                 loopRowDragging[loopObj.id] = true
                 updateSlider(input.Position.X)
-            end
-        end)
-        UserInputService.InputChanged:Connect(function(input)
-            if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                updateSlider(input.Position.X)
-            end
-        end)
-        UserInputService.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                isDragging = false
-                loopRowDragging[loopObj.id] = false
+
+                if loopDragMoveConn then loopDragMoveConn:Disconnect() end
+                if loopDragEndConn then loopDragEndConn:Disconnect() end
+
+                loopDragMoveConn = UserInputService.InputChanged:Connect(function(moveInput)
+                    if isDragging and (moveInput.UserInputType == Enum.UserInputType.MouseMovement or moveInput.UserInputType == Enum.UserInputType.Touch) then
+                        updateSlider(moveInput.Position.X)
+                    end
+                end)
+                loopDragEndConn = UserInputService.InputEnded:Connect(function(endInput)
+                    if endInput.UserInputType == Enum.UserInputType.MouseButton1 or endInput.UserInputType == Enum.UserInputType.Touch then
+                        stopLoopDrag()
+                    end
+                end)
             end
         end)
 

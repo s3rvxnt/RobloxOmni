@@ -14,6 +14,13 @@
       "desc": "Kernel Task Manager & Runtime Micro-Kernel (Shift + F8)"
     },
     {
+      "repoPath": "kernel/KernelTaskScheduler.lua",
+      "localPath": "autoexec/kernel/KernelTaskScheduler.lua",
+      "stage": "Kernel",
+      "name": "KernelTaskScheduler",
+      "desc": "Shortcuts Automation Engine & Visual Workflow Builder"
+    },
+    {
       "repoPath": "gameloaded/OmniEnhancementSuite.lua",
       "localPath": "autoexec/gameloaded/OmniEnhancementSuite.lua",
       "stage": "GameLoaded",

@@ -24,8 +24,8 @@ local CURRENT_OMNI_VERSION = "1.0"
 local TARGET_BUDGET_MS = 6.0 -- Max Lua ms per frame before yielding to host engine
 
 -- Session duplicate run guard (prevents overlapping concurrent boots)
-if getgenv()._OmniBootloaderRunning then
-    print("[Bootloader]: Omni Bootloader is already running in this session.")
+if (getgenv()._OmniBootloaderRunning or getgenv()._OmniBootloaderLoaded) and not getgenv()._OmniBootloaderHandoffActive then
+    print("[Bootloader]: Omni Bootloader is already running/loaded in this session.")
     return
 end
 getgenv()._OmniBootloaderRunning = true
@@ -34,6 +34,12 @@ if type(isfolder) ~= "function" or type(listfiles) ~= "function" then
     print("[Bootloader]: Incompatible exploit environment.")
     getgenv()._OmniBootloaderRunning = false
     return
+end
+
+-- String Prefix Helper
+local function startsWith(str, prefix)
+    if not str or not prefix then return false end
+    return str:sub(1, #prefix) == prefix
 end
 
 -- Version Comparison Helpers
@@ -92,16 +98,13 @@ end
 
 if SafeMode then
     print(string.format("[Bootloader]: ⚠️ SAFE MODE ENGAGED (Reason: %s) — Bypassing user autoexec scripts.", tostring(SafeModeReason)))
-else
-    -- Write running lockfile for crash detection
-    pcall(writefile, RUNNING_LOCK, tostring(os.time()))
 end
 
 -- ==============================================================================
 -- DYNAMIC BOOTLOADER HANDOFF (Future-Proof Self-Update Bridge)
 -- ==============================================================================
 -- If an updated verified bootloader was installed via the Update Gate to workspace,
--- hand off execution seamlessly to the newer version.
+-- hand off execution seamlessly to the newer version BEFORE writing any locks!
 if not getgenv()._OmniBootloaderHandoffActive and not SafeMode then
     local updatedPath = "autoexec/Bootloader_Updated.lua"
     if isfile and isfile(updatedPath) then
@@ -113,11 +116,11 @@ if not getgenv()._OmniBootloaderHandoffActive and not SafeMode then
                 if updatedFn then
                     getgenv()._OmniBootloaderHandoffActive = true
                     local runOk, runErr = pcall(updatedFn)
+                    getgenv()._OmniBootloaderHandoffActive = nil
                     if runOk then
                         getgenv()._OmniBootloaderRunning = false
                         return -- Handed off cleanly to the updated bootloader!
                     else
-                        getgenv()._OmniBootloaderHandoffActive = false
                         warn("[Bootloader]: Updated bootloader runtime error, falling back to base v" .. CURRENT_OMNI_VERSION .. ": " .. tostring(runErr))
                     end
                 else
@@ -126,6 +129,11 @@ if not getgenv()._OmniBootloaderHandoffActive and not SafeMode then
             end
         end
     end
+end
+
+if not SafeMode then
+    -- Write running lockfile for crash detection during critical init phase
+    pcall(writefile, RUNNING_LOCK, tostring(os.time()))
 end
 
 -- Global Rejoin in Safe Mode helper
@@ -205,72 +213,20 @@ local function fetchGithubScript(url)
     return nil
 end
 
--- Try fetching dynamic manifest from GitHub
-local activeMirrors = DEFAULT_STAGE_MIRRORS
-local manifestRaw = fetchGithubScript(MANIFEST_URL .. "?v=" .. tostring(os.time()))
-if manifestRaw and HttpService then
-    local ok, parsed = pcall(function() return HttpService:JSONDecode(manifestRaw) end)
-    if ok and parsed and type(parsed.stages) == "table" and #parsed.stages > 0 then
-        activeMirrors = parsed.stages
-    end
-end
-
-for _, mirror in ipairs(activeMirrors) do
-    local localPath = mirror.localPath or mirror.path
-    local repoPath = mirror.repoPath or mirror.url
-    local mirrorName = mirror.name or localPath:match("[^/\\]+$") or "Component"
-
-    -- Ensure parent folder exists
-    local parentFolder = localPath:match("^(.*)[/\\][^/\\]+$")
-    if parentFolder and not isfolder(parentFolder) then
-        pcall(makefolder, parentFolder)
-    end
-
-    local fileExists = isfile(localPath)
-    local existingContent = nil
-    if fileExists then
-        local ok, data = pcall(readfile, localPath)
-        if ok and data and #data > 100 then
-            existingContent = data
+-- Initial Core Kernel Bootstrap (Only triggers if core kernel is completely missing)
+local coreKernelLocal = "autoexec/kernel/KernelTaskManager.lua"
+if not isfile(coreKernelLocal) then
+    local coreUrl = GITHUB_REPO_RAW .. "kernel/KernelTaskManager.lua?v=" .. tostring(os.time())
+    local coreContent = fetchGithubScript(coreUrl)
+    if coreContent and #coreContent > 100 then
+        local parentDir = coreKernelLocal:match("^(.*)[/\\][^/\\]+$")
+        if parentDir and not isfolder(parentDir) then pcall(makefolder, parentDir) end
+        local ok, err = pcall(writefile, coreKernelLocal, coreContent)
+        if ok then
+            print("[Bootloader]: Initialized core KernelTaskManager -> " .. coreKernelLocal)
+        else
+            warn("[Bootloader]: Failed to bootstrap core kernel: " .. tostring(err))
         end
-    end
-
-    -- Construct remote URL (handles relative repoPath or full URL)
-    local remoteUrl = repoPath
-    if not remoteUrl:find("^https?://") then
-        remoteUrl = GITHUB_REPO_RAW .. remoteUrl
-    end
-
-    -- Check GitHub for updates with cache-busting timestamp
-    local isCoreKernel = localPath:lower():find("kernel/kerneltaskmanager") ~= nil
-
-    if isCoreKernel and not fileExists then
-        -- Only bootstrap the Core Kernel if it is missing completely on initial install
-        local latestContent = fetchGithubScript(remoteUrl .. "?v=" .. tostring(os.time()))
-        if latestContent then
-            local writeOk, writeErr = pcall(writefile, localPath, latestContent)
-            if writeOk then
-                print(string.format("[Bootloader]: Initialized core %s -> %s", mirrorName, localPath))
-            else
-                warn(string.format("[Bootloader]: Failed to write %s: %s", localPath, tostring(writeErr)))
-            end
-        end
-    elseif fileExists and getgenv()._OmniAutoUpdateSilent then
-        -- Only silently update if user explicitly configured silent auto-updates
-        local latestContent = fetchGithubScript(remoteUrl .. "?v=" .. tostring(os.time()))
-        if latestContent and existingContent and existingContent ~= latestContent then
-            local writeOk, writeErr = pcall(writefile, localPath, latestContent)
-            if writeOk then
-                print(string.format("[Bootloader]: Auto-updated %s to latest version from GitHub!", mirrorName))
-            else
-                warn(string.format("[Bootloader]: Failed to update %s: %s", localPath, tostring(writeErr)))
-            end
-        end
-    else
-        -- Respect user deletions & opt-outs!
-        -- If a component does not exist locally (deleted by user or not yet installed),
-        -- Bootloader NEVER writes it silently. Installation and updates are deferred
-        -- to the in-game Omni Update & Security Gate with user consent.
     end
 end
 
@@ -520,38 +476,90 @@ local function initUpdateGate(guiParent, UpdateBadge)
             return diff, #newLines, #newLines, 0
         end
 
-        local pStart = 1
-        while pStart <= #oldLines and pStart <= #newLines and oldLines[pStart] == newLines[pStart] do
-            pStart = pStart + 1
+        local adds = 0
+        local removes = 0
+        local oldIdx = 1
+        local newIdx = 1
+        local oldLen = #oldLines
+        local newLen = #newLines
+
+        local rawEntries = {}
+
+        while oldIdx <= oldLen or newIdx <= newLen do
+            if oldIdx <= oldLen and newIdx <= newLen and oldLines[oldIdx] == newLines[newIdx] then
+                table.insert(rawEntries, { type = "same", lineNum = newIdx, text = newLines[newIdx] })
+                oldIdx = oldIdx + 1
+                newIdx = newIdx + 1
+            else
+                local matchOld, matchNew = nil, nil
+                local searchWindow = 40
+                for d = 1, searchWindow do
+                    if not matchNew and (newIdx + d) <= newLen and oldIdx <= oldLen and oldLines[oldIdx] == newLines[newIdx + d] then
+                        matchNew = d
+                        break
+                    end
+                    if not matchOld and (oldIdx + d) <= oldLen and newIdx <= newLen and oldLines[oldIdx + d] == newLines[newIdx] then
+                        matchOld = d
+                        break
+                    end
+                end
+
+                if matchNew then
+                    for i = 0, matchNew - 1 do
+                        adds = adds + 1
+                        table.insert(rawEntries, { type = "add", lineNum = newIdx + i, text = newLines[newIdx + i] })
+                    end
+                    newIdx = newIdx + matchNew
+                elseif matchOld then
+                    for i = 0, matchOld - 1 do
+                        removes = removes + 1
+                        table.insert(rawEntries, { type = "remove", lineNum = oldIdx + i, text = oldLines[oldIdx + i] })
+                    end
+                    oldIdx = oldIdx + matchOld
+                else
+                    if oldIdx <= oldLen then
+                        removes = removes + 1
+                        table.insert(rawEntries, { type = "remove", lineNum = oldIdx, text = oldLines[oldIdx] })
+                        oldIdx = oldIdx + 1
+                    end
+                    if newIdx <= newLen then
+                        adds = adds + 1
+                        table.insert(rawEntries, { type = "add", lineNum = newIdx, text = newLines[newIdx] })
+                        newIdx = newIdx + 1
+                    end
+                end
+            end
         end
 
-        local oldEnd = #oldLines
-        local newEnd = #newLines
-        while oldEnd >= pStart and newEnd >= pStart and oldLines[oldEnd] == newLines[newEnd] do
-            oldEnd = oldEnd - 1
-            newEnd = newEnd - 1
+        local keep = {}
+        for idx, entry in ipairs(rawEntries) do
+            if entry.type == "add" or entry.type == "remove" then
+                for k = math.max(1, idx - 3), math.min(#rawEntries, idx + 3) do
+                    keep[k] = true
+                end
+            end
         end
 
         local diff = {}
-        local adds = math.max(0, newEnd - pStart + 1)
-        local removes = math.max(0, oldEnd - pStart + 1)
-
-        local ctxStart = math.max(1, pStart - 3)
-        for i = ctxStart, pStart - 1 do
-            table.insert(diff, { type = "same", lineNum = i, text = oldLines[i] })
-        end
-
-        for i = pStart, math.min(oldEnd, pStart + 250) do
-            table.insert(diff, { type = "remove", lineNum = i, text = oldLines[i] })
-        end
-
-        for i = pStart, math.min(newEnd, pStart + 250) do
-            table.insert(diff, { type = "add", lineNum = i, text = newLines[i] })
-        end
-
-        local ctxEnd = math.min(#newLines, newEnd + 3)
-        for i = newEnd + 1, ctxEnd do
-            table.insert(diff, { type = "same", lineNum = i, text = newLines[i] })
+        local skipped = 0
+        local maxDiffLines = 300
+        for idx, entry in ipairs(rawEntries) do
+            if keep[idx] then
+                if skipped > 0 then
+                    table.insert(diff, { type = "info", lineNum = 0, text = string.format("... [%d unchanged lines] ...", skipped) })
+                    skipped = 0
+                end
+                table.insert(diff, entry)
+                if #diff >= maxDiffLines then
+                    local remaining = #rawEntries - idx
+                    if remaining > 0 then
+                        table.insert(diff, { type = "info", lineNum = 0, text = string.format("... [diff preview truncated, %d lines remaining] ...", remaining) })
+                    end
+                    break
+                end
+            else
+                skipped = skipped + 1
+            end
         end
 
         return diff, #newLines, adds, removes
@@ -1334,6 +1342,10 @@ local function initUpdateGate(guiParent, UpdateBadge)
                         bgCol = Color3.fromRGB(42, 18, 20)
                         textCol = Color3.fromRGB(250, 110, 110)
                         prefix = "- "
+                    elseif item.type == "info" then
+                        bgCol = Color3.fromRGB(24, 30, 42)
+                        textCol = Color3.fromRGB(140, 165, 195)
+                        prefix = "  "
                     end
                     lineRow.BackgroundColor3 = bgCol
                     lineRow.Parent = CodeScroll
@@ -1346,7 +1358,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
                     numLbl.TextSize = 10
                     numLbl.TextColor3 = Color3.fromRGB(90, 105, 125)
                     numLbl.TextXAlignment = Enum.TextXAlignment.Right
-                    numLbl.Text = tostring(item.lineNum or idx)
+                    numLbl.Text = (item.type == "info") and "..." or tostring(item.lineNum or idx)
                     numLbl.Parent = lineRow
 
                     local txtLbl = Instance.new("TextLabel")
@@ -1605,7 +1617,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
             local anySuccess = false
             local lastCode = nil
-            local shaToUse = getLatestCommitSha()
+            local shaToUse = (currentUpdateData and currentUpdateData.sha) or getLatestCommitSha()
             local ledger = loadLedger()
 
             for idx, stage in ipairs(stages) do
@@ -1907,9 +1919,10 @@ local function registerScript(filePath, defaultStage)
     local meta = parsePragmas(filePath)
     meta.stage = meta.stage or defaultStage or "GameLoaded"
 
-    -- Deduplicate scripts by stage + canonical basename (e.g. KernelTaskManager.lua vs KernelTaskManager.txt)
+    -- Deduplicate scripts in same directory by canonical basename (e.g. KernelTaskManager.lua vs KernelTaskManager.txt)
+    local parentDir = filePath:match("^(.*)[/\\][^/\\]+$") or ""
     local rawName = meta.name:gsub("%.%w+$", ""):lower()
-    local dedupKey = meta.stage .. ":" .. rawName
+    local dedupKey = parentDir:lower() .. "/" .. rawName
     if registeredBasenames[dedupKey] then
         -- Prefer .lua over .txt if both exist
         if meta.file:lower():match("%.lua$") or meta.file:lower():match("%.luau$") then
@@ -2078,19 +2091,21 @@ end
 -- Frame 0, NO yields, NO task.wait(), purely environment & hooks.
 local bootStart = os.clock()
 
-if not getgenv()._KernelTaskManagerLoaded then
+if not SafeMode and not getgenv()._KernelTaskManagerLoaded then
     if isfolder("autoexec/kernel") then
         scanDirectory("autoexec/kernel", "Kernel")
     end
     if isfolder("autoexec/root") then
         scanDirectory("autoexec/root", "Kernel")
     end
-end
 
-sortQueue(Queues.Kernel)
+    sortQueue(Queues.Kernel)
 
-for _, meta in ipairs(Queues.Kernel) do
-    executeScript(meta)
+    for _, meta in ipairs(Queues.Kernel) do
+        executeScript(meta)
+    end
+elseif SafeMode then
+    print("[Bootloader]: Safe Mode Active — Bypassing Ring 0 (Kernel).")
 end
 emitTelemetry()
 
@@ -2123,21 +2138,21 @@ if not SafeMode then
                     -- Stage: Deferred folder
                     scanDirectory(item, "Deferred")
                 elseif folderName == PlaceIdStr 
-                    or folderName:sub(1, #PlaceIdStr + 3) == PlaceIdStr .. " - " 
-                    or folderName:sub(1, #PlaceIdStr + 1) == PlaceIdStr .. "_"
+                    or startsWith(folderName, PlaceIdStr .. " - ")
+                    or startsWith(folderName, PlaceIdStr .. "_")
                     or lowerFolder == "place_" .. PlaceIdStr 
-                    or lowerFolder:sub(1, #PlaceIdStr + 7) == "place_" .. PlaceIdStr .. " - "
-                    or lowerFolder:sub(1, #PlaceIdStr + 7) == "place_" .. PlaceIdStr .. "_"
+                    or startsWith(lowerFolder, "place_" .. PlaceIdStr .. " - ")
+                    or startsWith(lowerFolder, "place_" .. PlaceIdStr .. "_")
                     or lowerFolder == "place" .. PlaceIdStr then
                     -- Place-specific folder (scans nodelay/ as PreInit, others as GameLoaded)
                     scanDirectory(item, "GameLoaded")
                 elseif (GameIdStr ~= "0" and (folderName == GameIdStr 
-                    or folderName:sub(1, #GameIdStr + 3) == GameIdStr .. " - " 
-                    or folderName:sub(1, #GameIdStr + 1) == GameIdStr .. "_"
+                    or startsWith(folderName, GameIdStr .. " - ")
+                    or startsWith(folderName, GameIdStr .. "_")
                     or lowerFolder == "universe_" .. GameIdStr 
-                    or lowerFolder:sub(1, #GameIdStr + 10) == "universe_" .. GameIdStr .. " - "
+                    or startsWith(lowerFolder, "universe_" .. GameIdStr .. " - ")
                     or lowerFolder == "game_" .. GameIdStr
-                    or lowerFolder:sub(1, #GameIdStr + 6) == "game_" .. GameIdStr .. " - ")) then
+                    or startsWith(lowerFolder, "game_" .. GameIdStr .. " - "))) then
                     -- Universe-specific folder
                     scanDirectory(item, "GameLoaded")
                 end
@@ -2159,6 +2174,8 @@ if not SafeMode then
 else
     print("[Bootloader]: Safe Mode Active — Bypassing Ring 1 (PreInit).")
 end
+-- Normal synchronous boot phase succeeded: clear running crash sentinel lockfile
+pcall(delfile, RUNNING_LOCK)
 emitTelemetry()
 
 -- ==============================================================================
@@ -2213,8 +2230,10 @@ task.spawn(function()
                     if lowerFolder == "account_" .. AccountName:lower() 
                         or lowerFolder == AccountName:lower() 
                         or lowerFolder == "user_" .. AccountName:lower()
-                        or lowerFolder:sub(1, #AccountName + 9) == "account_" .. AccountName:lower() .. " - "
-                        or lowerFolder:sub(1, #AccountName + 6) == "user_" .. AccountName:lower() .. " - " then
+                        or startsWith(lowerFolder, "account_" .. AccountName:lower() .. " - ")
+                        or startsWith(lowerFolder, "account_" .. AccountName:lower() .. "_")
+                        or startsWith(lowerFolder, "user_" .. AccountName:lower() .. " - ")
+                        or startsWith(lowerFolder, "user_" .. AccountName:lower() .. "_") then
                         
                         scanDirectory(item, "GameLoaded")
                     end
@@ -2260,22 +2279,24 @@ task.spawn(function()
     Telemetry.totalDurationMs = math.floor(totalBootMs * 100) / 100
     emitTelemetry()
 
-    -- Normal boot completed successfully without crashes: delete running lockfile
-    pcall(delfile, RUNNING_LOCK)
-
     getgenv()._OmniBootloaderRunning = false
     getgenv()._OmniBootloaderLoaded = true
 
     print(string.format("[Bootloader]: Boot completed in %.1fms | Discovered: %d | Executed: %d | Success: %d | Errors: %d",
         totalBootMs, Telemetry.discovered, Telemetry.executed, Telemetry.success, Telemetry.errors))
 
-    -- For in-game session users (no autoexec installation), keep Omni alive across teleports
-    if not isfile("autoexec/Bootloader.lua") then
-        local queueOnTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or queueonteleport or (fluxus and fluxus.queue_on_teleport)
-        if type(queueOnTeleport) == "function" then
-            pcall(function()
-                queueOnTeleport('loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()')
-            end)
-        end
+    -- Keep Omni alive across teleports if not installed in autoexec
+    local queueOnTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or queueonteleport or (fluxus and fluxus.queue_on_teleport)
+    if type(queueOnTeleport) == "function" then
+        pcall(function()
+            queueOnTeleport([[
+                task.spawn(function()
+                    task.wait(0.5)
+                    if not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning then
+                        loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()
+                    end
+                end)
+            ]])
+        end)
     end
 end)
