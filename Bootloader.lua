@@ -20,7 +20,7 @@ local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
 
-local CURRENT_OMNI_VERSION = "1.0"
+local CURRENT_OMNI_VERSION = "2.0.0"
 local TARGET_BUDGET_MS = 6.0 -- Max Lua ms per frame before yielding to host engine
 
 -- Session duplicate run guard (prevents overlapping concurrent boots)
@@ -1464,16 +1464,25 @@ local function initUpdateGate(guiParent, UpdateBadge)
         elseif not currentUpdateData then
             currentUpdateData = {
                 version = CURRENT_OMNI_VERSION,
-                releaseDate = "2026-10-02",
-                title = "OMNI Release " .. CURRENT_OMNI_VERSION,
+                releaseDate = "2026-10-03",
+                title = "Omni v2.0 - Universal Automation & Kernel",
                 changelog = {
-                    "--released"
+                    "Apple Shortcuts-style visual automation engine with 32+ action primitives (Shift + F6)",
+                    "Frame-budgeted micro-kernel & adaptive loop governor with per-task CPU telemetry (Shift + F8)",
+                    "Zero-trust update transparency gate with line-by-line diff inspection (Shift + F7)",
+                    "Real-time game connection ingestion, priority bands, and instant hot-reloading",
+                    "Seamless crash sentinel, safe mode fault recovery, and teleport persistence"
                 },
                 stages = sanitizeStages({
                     {
                         repoPath = "kernel/KernelTaskManager.lua",
                         localPath = "autoexec/kernel/KernelTaskManager.lua",
                         name = "KernelTaskManager"
+                    },
+                    {
+                        repoPath = "kernel/KernelTaskScheduler.lua",
+                        localPath = "autoexec/kernel/KernelTaskScheduler.lua",
+                        name = "KernelTaskScheduler"
                     },
                     {
                         repoPath = "gameloaded/OmniEnhancementSuite.lua",

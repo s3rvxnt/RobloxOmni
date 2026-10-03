@@ -1,9 +1,13 @@
 {
-  "version": "1.0",
-  "releaseDate": "2026-10-02",
-  "title": "OMNI Release 1.0",
+  "version": "2.0.0",
+  "releaseDate": "2026-10-03",
+  "title": "Omni v2.0 - Universal Automation & Kernel",
   "changelog": [
-    "--released"
+    "Apple Shortcuts-style visual automation engine with 32+ action primitives (Shift + F6)",
+    "Frame-budgeted micro-kernel & adaptive loop governor with per-task CPU telemetry (Shift + F8)",
+    "Zero-trust update transparency gate with line-by-line diff inspection (Shift + F7)",
+    "Real-time game connection ingestion, priority bands, and instant hot-reloading",
+    "Seamless crash sentinel, safe mode fault recovery, and teleport persistence"
   ],
   "stages": [
     {
@@ -18,7 +22,7 @@
       "localPath": "autoexec/kernel/KernelTaskScheduler.lua",
       "stage": "Kernel",
       "name": "KernelTaskScheduler",
-      "desc": "Shortcuts Automation Engine & Visual Workflow Builder"
+      "desc": "Shortcuts Automation Engine & Visual Workflow Builder (Shift + F6)"
     },
     {
       "repoPath": "gameloaded/OmniEnhancementSuite.lua",

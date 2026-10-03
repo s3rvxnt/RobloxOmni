@@ -74,7 +74,7 @@ Write-Host ""
 $localBootloader = Join-Path $PSScriptRoot "Bootloader.lua"
 if ($PSScriptRoot -and (Test-Path $localBootloader)) {
     Write-Host "[+] Using local Bootloader.lua..." -ForegroundColor Cyan
-    $bootloaderContent = Get-Content -Path $localBootloader -Raw
+    $bootloaderContent = [IO.File]::ReadAllText($localBootloader, [Text.Encoding]::UTF8)
 } else {
     Write-Host "[+] Fetching latest Bootloader.lua from GitHub..." -ForegroundColor Cyan
     $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
@@ -89,7 +89,7 @@ foreach ($root in $detectedRoots) {
     $execName = Split-Path $root -Leaf
     $autoexecDir = Join-Path $root "autoexec"
     $workspaceDir = Join-Path $root "workspace"
-    $targetWorkspaceAutoexec = Join-Path $workspaceDir "autoexec"
+    $targetPreinit = Join-Path $workspaceDir "autoexec\preinit"
 
     if (-not (Test-Path $autoexecDir)) {
         New-Item -ItemType Directory -Path $autoexecDir -Force | Out-Null
@@ -97,37 +97,47 @@ foreach ($root in $detectedRoots) {
     if (-not (Test-Path $workspaceDir)) {
         New-Item -ItemType Directory -Path $workspaceDir -Force | Out-Null
     }
-    if (-not (Test-Path $targetWorkspaceAutoexec)) {
-        New-Item -ItemType Directory -Path $targetWorkspaceAutoexec -Force | Out-Null
+    if (-not (Test-Path $targetPreinit)) {
+        New-Item -ItemType Directory -Path $targetPreinit -Force | Out-Null
     }
 
-    # Universal migration: move loose scripts from real autoexec into workspace/autoexec
+    # Safe migration: move loose third-party scripts from autoexec into workspace/autoexec/preinit/
+    # PreInit ensures they execute immediately at Frame 0 just like native autoexec
     $legacyFiles = Get-ChildItem -Path $autoexecDir -File -ErrorAction SilentlyContinue | Where-Object {
         $excludeList -notcontains $_.Name -and ($_.Extension -in @(".lua", ".luau", ".txt"))
     }
 
     $migratedCount = 0
+    $skippedCount = 0
     if ($legacyFiles) {
         foreach ($file in $legacyFiles) {
-            $dest = Join-Path $targetWorkspaceAutoexec $file.Name
-            Move-Item -Path $file.FullName -Destination $dest -Force
-            $migratedCount++
+            $dest = Join-Path $targetPreinit $file.Name
+            if (Test-Path $dest) {
+                Write-Host "     [!] Collision: '$($file.Name)' already exists in preinit/ — kept original" -ForegroundColor Yellow
+                $skippedCount++
+            } else {
+                Move-Item -Path $file.FullName -Destination $dest
+                $migratedCount++
+            }
         }
     }
 
-    # Deploy Bootloader.lua
+    # Deploy Bootloader.lua (strictly UTF-8 WITHOUT BOM)
     $bootloaderDest = Join-Path $autoexecDir "Bootloader.lua"
-    Set-Content -Path $bootloaderDest -Value $bootloaderContent -NoNewline
+    [IO.File]::WriteAllText($bootloaderDest, $bootloaderContent, [Text.UTF8Encoding]::new($false))
 
     # Write Omni_Installed.marker into workspace for zero-race teleport persistence
     $markerDest = Join-Path $workspaceDir "Omni_Installed.marker"
-    Set-Content -Path $markerDest -Value ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -Force
+    [IO.File]::WriteAllText($markerDest, [string]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()), [Text.UTF8Encoding]::new($false))
 
     Write-Host "[OK] $execName" -ForegroundColor Green
     if ($migratedCount -gt 0) {
-        Write-Host "     -> Migrated $migratedCount script(s) to workspace/autoexec/" -ForegroundColor Yellow
+        Write-Host "     -> Safely migrated $migratedCount script(s) to workspace/autoexec/preinit/" -ForegroundColor Yellow
     }
-    Write-Host "     -> Deployed Bootloader.lua to autoexec/" -ForegroundColor Gray
+    if ($skippedCount -gt 0) {
+        Write-Host "     -> Skipped $skippedCount colliding file(s) to prevent overwriting" -ForegroundColor DarkYellow
+    }
+    Write-Host "     -> Deployed Bootloader.lua to autoexec/ (UTF-8 without BOM)" -ForegroundColor Gray
     Write-Host "     -> Created Omni_Installed.marker in workspace/" -ForegroundColor Gray
 }
 

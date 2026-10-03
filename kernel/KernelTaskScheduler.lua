@@ -4459,14 +4459,14 @@ end
 
 local keybindConnection
 keybindConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if input.KeyCode == Enum.KeyCode.F7 then
+    if input.KeyCode == Enum.KeyCode.F6 then
         local isShiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
         if isShiftHeld then
             toggleSchedulerHUD()
         end
     elseif input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
-        local isF7Held = UserInputService:IsKeyDown(Enum.KeyCode.F7)
-        if isF7Held then
+        local isF6Held = UserInputService:IsKeyDown(Enum.KeyCode.F6)
+        if isF6Held then
             toggleSchedulerHUD()
         end
     end
@@ -4533,4 +4533,4 @@ for _, t in pairs(Storage.data.places[placeIdStr] or {}) do
 end
 
 refreshShortcutsGrid()
-print("[AutomationScheduler]: Omni Shortcuts Engine loaded successfully! (Shift + F7 to open)")
+print("[AutomationScheduler]: Omni Shortcuts Engine loaded successfully! (Shift + F6 to open)")
