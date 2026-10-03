@@ -332,7 +332,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
         -- Obfuscation Detection
         local isObfuscated = false
-        local obfReason = nil
         local lower = code:lower()
 
         -- 1. Known Obfuscator Signatures & Watermarks
@@ -345,7 +344,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
         for _, sig in ipairs(obfKeywords) do
             if lower:find(sig, 1, true) then
                 isObfuscated = true
-                obfReason = "Known Signature (" .. sig .. ")"
                 break
             end
         end
@@ -357,7 +355,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 barcodeCount = barcodeCount + 1
                 if barcodeCount >= 5 then
                     isObfuscated = true
-                    obfReason = "Barcode Variables"
                     break
                 end
             end
@@ -370,7 +367,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 hexVarCount = hexVarCount + 1
                 if hexVarCount >= 8 then
                     isObfuscated = true
-                    obfReason = "Hex Variables"
                     break
                 end
             end
@@ -380,7 +376,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
         if not isObfuscated then
             if code:sub(1, 4) == "\27Lua" or code:find("\\27Lua", 1, true) or code:find("\\x1bLua", 1, true) then
                 isObfuscated = true
-                obfReason = "Precompiled Bytecode"
             end
         end
 
@@ -391,7 +386,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 escapedByteCount = escapedByteCount + 1
                 if escapedByteCount > 80 then
                     isObfuscated = true
-                    obfReason = "Packed Decimal Bytes"
                     break
                 end
             end
@@ -404,7 +398,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 hexEscapeCount = hexEscapeCount + 1
                 if hexEscapeCount > 80 then
                     isObfuscated = true
-                    obfReason = "Packed Hex Bytes"
                     break
                 end
             end
@@ -416,7 +409,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 if #line > 2500 and not line:match("^%s*%-%-") then
                     if line:find("string%.char") or line:find("bit32") or line:find("getfenv") or line:find("unpack") or line:find("table%.concat") then
                         isObfuscated = true
-                        obfReason = "Dense Packed VM Line"
                         break
                     end
                 end
@@ -430,14 +422,13 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 strCharCount = strCharCount + 1
                 if strCharCount >= 15 then
                     isObfuscated = true
-                    obfReason = "Excessive string.char"
                     break
                 end
             end
         end
 
         if isObfuscated then
-            table.insert(badges, { label = "🛑 Obfuscated", color = Color3.fromRGB(255, 65, 65), reason = obfReason })
+            table.insert(badges, { label = "🛑 Obfuscated", color = Color3.fromRGB(255, 65, 65) })
         end
 
         if code:find("discord%.com/api/webhooks") or code:find("discordapp%.com/api/webhooks") then
@@ -1223,7 +1214,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 obfLbl.TextSize = 11
                 obfLbl.TextColor3 = Color3.fromRGB(255, 100, 100)
                 obfLbl.TextXAlignment = Enum.TextXAlignment.Left
-                obfLbl.Text = "🛑 OBFUSCATION DETECTED (" .. tostring(obfBadge.reason or "Untrusted") .. ") — Logic is hidden from inspection!"
+                obfLbl.Text = "🛑 OBFUSCATED CODE DETECTED — Logic is hidden from inspection!"
                 obfLbl.Parent = obfBanner
             end
 
