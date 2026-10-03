@@ -23,26 +23,21 @@ Traditional autoexec setups inject every script at once. The client freezes. Fra
 * **Static Security & Obfuscation Audit**: Automatically scans incoming code for obfuscators (Luarmor, Luraph, IronBrew, MoonSec, packed bytecode/VM decoders), Discord webhooks, HTTP requests, and file I/O. Enforces a 2-click confirmation before any obfuscated update can be applied.
 * **User Sovereignty & Persistent Ledger**: Tracks component versions in `Omni_Ledger.json` and strictly respects user-deleted components.
 
-#### ⚡ 2. Visual Shortcuts Automation Engine (`Shift + F6`)
-* **Apple Shortcuts Experience for Roblox**: Build powerful workflows with 32+ zero-code action primitives, custom signals, and intuitive parameter cards.
-* **Zero Luau Required**: Complete visual automations—navigation, route following, pathfinding, prompt interaction, Discord webhooks, ESP highlighting, tool usage, and camera controls.
-* **Sandbox Security**: Strict single-pass expression parser (`=`) with sandboxed math/string environments; imported shortcuts arrive disabled for review.
-
-#### 📊 3. 100% Offline Kernel Task Manager HUD (`Shift + F8`)
+#### 📊 2. 100% Offline Kernel Task Manager HUD (`Shift + F8`)
 * **Zero Network Calls**: Verified 100% offline runtime micro-kernel with zero external HTTP requests.
 * **Transparent RunService Interception**: Seamlessly hooks `Heartbeat`, `Stepped`, and `RenderStepped` connections with zero script modifications.
 * **Microsecond CPU Profiling**: Real-time per-task CPU consumption, spike tracking, and dynamic auto-throttling (60Hz ➔ 30Hz ➔ 15Hz).
 * **Interactive Process & Loop Controls**: Dedicated tabs for **Runtime** processes, **Loops** governor, **Performance** graphs, and **Startup** management. Pause, resume, throttle, priority-lock, or terminate individual runaway threads.
 * **Panic Switch**: Global panic controls (`getgenv().UnloadAllTasks()`) to instantly disconnect and terminate background threads cleanly.
 
-#### 🌌 4. Omni Enhancement Suite (Stage: `GameLoaded`)
+#### 🌌 3. Omni Enhancement Suite (Stage: `GameLoaded`)
 * **Streamer Mode**: Visual-only username, display name, and UserID redaction/spoofing across leaderboards and overhead billboards.
 * **Personal Space Bubble**: Smooth distance falloff and temporal lerp fade that makes crowded player avatars vanish within your personal bubble radius.
 * **Player Locator & ESP**: Hardware-efficient box adornments, on-demand highlight pool (up to 255), raycast tracers, and team filters.
 * **Anti-AFK**: Engine-level inactivity kick prevention.
 * **Native ESC Menu Integration**: Seamlessly injected at the top of the Roblox in-game ESC Settings menu.
 
-#### ⏱️ 5. 5-Stage Adaptive Frame Budgeting
+#### ⏱️ 4. 5-Stage Adaptive Frame Budgeting
 Drop scripts into stage folders inside your executor's `workspace/autoexec/`:
 * `kernel/` — Critical low-level engines and schedulers (executes first).
 * `preinit/` — Initialization scripts executed before game assets load.
@@ -94,7 +89,6 @@ YourExecutor/
 
 | Shortcut | Interface | Description |
 | :--- | :--- | :--- |
-| **`Shift + F6`** | **Visual Shortcuts Builder** | Visual automation pipelines, trigger signals, parameter cards, zero-code actions |
 | **`Shift + F7`** | **Security & Update Gate** | Release changelog, line-by-line git diff viewer, static security & obfuscation audit |
 | **`Shift + F8`** | **Kernel Task Manager HUD** | Live CPU metrics, loop governor, thread throttling, interactive process controls |
 

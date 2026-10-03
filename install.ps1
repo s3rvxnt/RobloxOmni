@@ -80,10 +80,6 @@ $components = [ordered]@{
         LocalPath = "kernel\KernelTaskManager.lua"
         RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/kernel/KernelTaskManager.lua"
     }
-    "KernelTaskScheduler" = @{
-        LocalPath = "kernel\KernelTaskScheduler.lua"
-        RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/kernel/KernelTaskScheduler.lua"
-    }
     "OmniEnhancementSuite" = @{
         LocalPath = "gameloaded\OmniEnhancementSuite.lua"
         RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/gameloaded/OmniEnhancementSuite.lua"
@@ -161,10 +157,6 @@ foreach ($root in $detectedRoots) {
     $ktmDest = Join-Path $targetKernel "KernelTaskManager.lua"
     [IO.File]::WriteAllText($ktmDest, $contents["KernelTaskManager"], [Text.UTF8Encoding]::new($false))
 
-    # Deploy KernelTaskScheduler.lua
-    $ktsDest = Join-Path $targetKernel "KernelTaskScheduler.lua"
-    [IO.File]::WriteAllText($ktsDest, $contents["KernelTaskScheduler"], [Text.UTF8Encoding]::new($false))
-
     # Deploy OmniEnhancementSuite.lua
     $oesDest = Join-Path $targetGameloaded "OmniEnhancementSuite.lua"
     [IO.File]::WriteAllText($oesDest, $contents["OmniEnhancementSuite"], [Text.UTF8Encoding]::new($false))
@@ -187,12 +179,6 @@ foreach ($root in $detectedRoots) {
                 path = "autoexec/kernel/KernelTaskManager.lua"
                 updatedAt = [int]$timestamp
             }
-            KernelTaskScheduler = [PSCustomObject]@{
-                installed = $true
-                lastSeenVersion = "1.0.0"
-                path = "autoexec/kernel/KernelTaskScheduler.lua"
-                updatedAt = [int]$timestamp
-            }
             OmniEnhancementSuite = [PSCustomObject]@{
                 installed = $true
                 lastSeenVersion = "1.0.0"
@@ -213,7 +199,7 @@ foreach ($root in $detectedRoots) {
         Write-Host "     -> Skipped $skippedCount colliding file(s) to prevent overwriting" -ForegroundColor DarkYellow
     }
     Write-Host "     -> Deployed Bootloader.lua to autoexec/ (UTF-8 without BOM)" -ForegroundColor Gray
-    Write-Host "     -> Deployed KernelTaskManager.lua and KernelTaskScheduler.lua to workspace/autoexec/kernel/" -ForegroundColor Gray
+    Write-Host "     -> Deployed KernelTaskManager.lua to workspace/autoexec/kernel/" -ForegroundColor Gray
     Write-Host "     -> Deployed OmniEnhancementSuite.lua to workspace/autoexec/gameloaded/" -ForegroundColor Gray
     Write-Host "     -> Created markers and initialized Omni_Ledger.json (v1.0.0)" -ForegroundColor Gray
 }

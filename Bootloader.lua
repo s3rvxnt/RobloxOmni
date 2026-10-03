@@ -1511,24 +1511,19 @@ local function initUpdateGate(guiParent, UpdateBadge)
             currentUpdateData = {
                 version = CURRENT_OMNI_VERSION,
                 releaseDate = "2026-10-03",
-                title = "Omni v2.0 - Universal Automation & Kernel",
+                title = "Omni v1.0 - Runtime Micro-Kernel & Enhancement Suite",
                 changelog = {
-                    "Apple Shortcuts-style visual automation engine with 32+ action primitives (Shift + F6)",
-                    "Frame-budgeted micro-kernel & adaptive loop governor with per-task CPU telemetry (Shift + F8)",
-                    "Zero-trust update transparency gate with line-by-line diff inspection (Shift + F7)",
+                    "Adaptive 6.0ms frame-budgeted bootloader with automated crash recovery and Safe Mode",
+                    "Kernel Task Manager HUD and adaptive loop governor with per-task CPU telemetry (Shift + F8)",
+                    "Zero-trust update transparency gate with line-by-line diff inspection and security scanner (Shift + F7)",
                     "Real-time game connection ingestion, priority bands, and instant hot-reloading",
-                    "Seamless crash sentinel, safe mode fault recovery, and teleport persistence"
+                    "Omni Enhancement Suite: Streamer mode, Personal Space Bubble, Player ESP, Anti-AFK, and native ESC settings"
                 },
                 stages = sanitizeStages({
                     {
                         repoPath = "kernel/KernelTaskManager.lua",
                         localPath = "autoexec/kernel/KernelTaskManager.lua",
                         name = "KernelTaskManager"
-                    },
-                    {
-                        repoPath = "kernel/KernelTaskScheduler.lua",
-                        localPath = "autoexec/kernel/KernelTaskScheduler.lua",
-                        name = "KernelTaskScheduler"
                     },
                     {
                         repoPath = "gameloaded/OmniEnhancementSuite.lua",
