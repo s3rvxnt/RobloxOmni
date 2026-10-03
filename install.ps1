@@ -119,11 +119,16 @@ foreach ($root in $detectedRoots) {
     $bootloaderDest = Join-Path $autoexecDir "Bootloader.lua"
     Set-Content -Path $bootloaderDest -Value $bootloaderContent -NoNewline
 
+    # Write Omni_Installed.marker into workspace for zero-race teleport persistence
+    $markerDest = Join-Path $workspaceDir "Omni_Installed.marker"
+    Set-Content -Path $markerDest -Value ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -Force
+
     Write-Host "[OK] $execName" -ForegroundColor Green
     if ($migratedCount -gt 0) {
         Write-Host "     -> Migrated $migratedCount script(s) to workspace/autoexec/" -ForegroundColor Yellow
     }
     Write-Host "     -> Deployed Bootloader.lua to autoexec/" -ForegroundColor Gray
+    Write-Host "     -> Created Omni_Installed.marker in workspace/" -ForegroundColor Gray
 }
 
 Write-Host ""

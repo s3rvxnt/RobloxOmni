@@ -133,6 +133,19 @@ end
 if not SafeMode then
     -- Write running lockfile for crash detection during critical init phase
     pcall(writefile, RUNNING_LOCK, tostring(os.time()))
+    task.spawn(function()
+        local Players = game:GetService("Players")
+        local lp = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait() or Players.LocalPlayer
+        if lp then
+            pcall(function()
+                lp.OnTeleport:Connect(function(state)
+                    if state == Enum.TeleportState.Started then
+                        pcall(delfile, RUNNING_LOCK)
+                    end
+                end)
+            end)
+        end
+    end)
 end
 
 -- Global Rejoin in Safe Mode helper
@@ -175,6 +188,11 @@ local BASE_STAGE_DIRS = {
 }
 for _, dir in ipairs(BASE_STAGE_DIRS) do
     if not isfolder(dir) then pcall(makefolder, dir) end
+end
+
+-- Mark local installation marker for zero-race teleport bootstrapping
+if isfile and not isfile("Omni_Installed.marker") then
+    pcall(writefile, "Omni_Installed.marker", tostring(os.time()))
 end
 
 -- ==============================================================================
@@ -1091,6 +1109,23 @@ local function initUpdateGate(guiParent, UpdateBadge)
     local fetchedStageCodes = {}
     local selectedStageIdx = 1
 
+    local function sanitizeStages(rawStages)
+        local valid = {}
+        if type(rawStages) == "table" then
+            for _, stage in ipairs(rawStages) do
+                if type(stage) == "table" then
+                    local p = stage.localPath or stage.path
+                    if p and type(p) == "string" and p ~= "" then
+                        stage.localPath = p
+                        stage.name = stage.name or p:match("[^/\\]+$") or "Component"
+                        table.insert(valid, stage)
+                    end
+                end
+            end
+        end
+        return valid
+    end
+
     local function renderStageDiff(stageIdx)
         selectedStageIdx = stageIdx
         local stages = (currentUpdateData and currentUpdateData.stages) or {}
@@ -1099,7 +1134,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
         local localPath = stage.localPath or stage.path
         local repoPath = stage.repoPath or stage.url
-        local name = stage.name or localPath:match("[^/\\]+$") or "Component"
+        local name = stage.name or (localPath and localPath:match("[^/\\]+$")) or "Component"
 
         -- Update stage selector buttons active state
         for _, btn in ipairs(StageBar:GetChildren()) do
@@ -1423,6 +1458,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
         if customData and type(customData) == "table" then
             currentUpdateData = customData
+            currentUpdateData.stages = sanitizeStages(currentUpdateData.stages)
             fetchedStageCodes = {}
         elseif not currentUpdateData then
             currentUpdateData = {
@@ -1432,7 +1468,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 changelog = {
                     "--released"
                 },
-                stages = {
+                stages = sanitizeStages({
                     {
                         repoPath = "kernel/KernelTaskManager.lua",
                         localPath = "autoexec/kernel/KernelTaskManager.lua",
@@ -1443,7 +1479,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
                         localPath = "autoexec/gameloaded/OmniEnhancementSuite.lua",
                         name = "OmniEnhancementSuite"
                     }
-                }
+                })
             }
         end
 
@@ -1749,7 +1785,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 releaseDate = parsed.releaseDate or "Latest",
                 title = parsed.title or ("Omni v" .. parsed.version),
                 changelog = parsed.changelog or { "Performance improvements and bug fixes" },
-                stages = parsed.stages or {},
+                stages = sanitizeStages(parsed.stages or {}),
                 sha = sha
             }
 

@@ -1205,25 +1205,7 @@ local function getCallingContext(minLvl)
                     -- Kernel internal frame, skip
                 elseif src == "" then
                     if not anonymousCaller and line and line > 0 then
-                        local suiteName = nil
-                        local genv = (type(getgenv) == "function" and getgenv()) or _G
-                        local okEnv, fenv = pcall(getfenv, fn)
-                        if okEnv and type(fenv) == "table" and fenv ~= genv then
-                            if fenv.KeepInfYield ~= nil or fenv.IYMouse ~= nil or fenv.iyflyspeed ~= nil then
-                                suiteName = "InfiniteYield.lua"
-                            elseif fenv.SimpleSpy ~= nil then
-                                suiteName = "SimpleSpy.lua"
-                            elseif fenv.DEX_LOADED ~= nil then
-                                suiteName = "Dex.lua"
-                            elseif fenv.Hydroxide ~= nil then
-                                suiteName = "Hydroxide.lua"
-                            end
-                        end
-                        if suiteName then
-                            return string.format("%s:%d", suiteName, line)
-                        else
-                            anonymousCaller = string.format("ExecutorScript:%d", line)
-                        end
+                        anonymousCaller = string.format("ExecutorScript:%d", line)
                     end
                 else
                     local cleanSrc = tostring(src):gsub("^[@%[]", ""):gsub("^string \"", ""):gsub("\"\]$", "")
@@ -1980,47 +1962,6 @@ local function installGlobalHooks()
         end
     end
 
-    -- Hook RBXScriptConnection.__index and __namecall for instant disconnect detection
-    if hookmetamethod and not getgenv()._VirtualSchedulerOrigConnIndex then
-        pcall(function()
-            local raw = getgenv()._VirtualSchedulerRawSignals or rawSignals
-            local sig = raw and (raw.Heartbeat or raw.Stepped or raw.RenderStepped)
-            if sig then
-                local temp = sig:Connect(function() end)
-                local origConnIndex
-                origConnIndex = hookmetamethod(temp, "__index", function(self, key)
-                    if key == "Disconnect" or key == "disconnect" then
-                        local orig = origConnIndex(self, key)
-                        return function(connSelf)
-                            local res = orig(connSelf)
-                            if ingestedConnections and ingestedConnections[connSelf] and RequestIngestedLivenessCheck then
-                                RequestIngestedLivenessCheck()
-                            end
-                            return res
-                        end
-                    end
-                    return origConnIndex(self, key)
-                end)
-                getgenv()._VirtualSchedulerOrigConnIndex = origConnIndex
-
-                local connMt = getrawmetatable and getrawmetatable(temp)
-                if connMt and connMt.__namecall and not getgenv()._VirtualSchedulerOrigConnNamecall then
-                    local origConnNc
-                    origConnNc = hookmetamethod(temp, "__namecall", function(self, ...)
-                        local method = (getnamecallmethod and getnamecallmethod()) or ""
-                        if (method == "Disconnect" or method == "disconnect") and ingestedConnections and ingestedConnections[self] then
-                            if RequestIngestedLivenessCheck then RequestIngestedLivenessCheck() end
-                        end
-                        return origConnNc(self, ...)
-                    end)
-                    getgenv()._VirtualSchedulerOrigConnNamecall = origConnNc
-                end
-
-                temp:Disconnect()
-            end
-        end)
-    end
-
     getgenv()._VirtualSchedulerHooksActive = true
     getgenv()._VirtualSchedulerOrigIndex = origInstanceIndex
 end
@@ -2110,10 +2051,6 @@ DiscardIngestedGameTask = function(group)
     group.connList = {}
     group.count = 0
     group.connected = false
-    if group.key then
-        persistedIngestedKeys[group.key] = nil
-        getgenv()._VirtualSchedulerPersistedIngestedKeys = persistedIngestedKeys
-    end
 
     -- 4. Unregister from groups and order
     if DiscoveredGameTaskGroups[group.key] == group then
@@ -3731,10 +3668,14 @@ local function cleanUpScheduler()
             if sig then
                 local temp = sig:Connect(function() end)
                 pcall(hookmetamethod, temp, "__index", getgenv()._VirtualSchedulerOrigConnIndex)
+                if getgenv()._VirtualSchedulerOrigConnNamecall then
+                    pcall(hookmetamethod, temp, "__namecall", getgenv()._VirtualSchedulerOrigConnNamecall)
+                end
                 temp:Disconnect()
             end
         end)
         getgenv()._VirtualSchedulerOrigConnIndex = nil
+        getgenv()._VirtualSchedulerOrigConnNamecall = nil
     end
     if hookfunction and getgenv()._VirtualSchedulerOrigInstanceNew then
         pcall(hookfunction, Instance.new, getgenv()._VirtualSchedulerOrigInstanceNew)

@@ -270,13 +270,6 @@ local function resolveCFrame(target)
     return nil
 end
 
-local function substituteArg(arg, ctx)
-    if type(arg) == "string" then
-        return evalValue(arg, ctx)
-    end
-    return arg
-end
-
 evalValue = function(expr, ctx)
     if type(expr) ~= "string" then return expr end
     if expr == "" then return "" end
@@ -4422,7 +4415,7 @@ DoImportBtn.MouseButton1Click:Connect(function()
 
     if decoded.name and (decoded.trigger or decoded.actions) then
         if importSingleTask(decoded) then importedCount = 1 end
-    elseif #decoded > 0 then
+    elseif type(decoded) == "table" and decoded[1] ~= nil then
         for _, t in ipairs(decoded) do
             if importSingleTask(t) then importedCount = importedCount + 1 end
         end
