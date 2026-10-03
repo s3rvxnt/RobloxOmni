@@ -20,7 +20,7 @@ Traditional autoexec setups inject every script at once. The client freezes. Fra
 #### 🛡️ 1. Root-of-Trust Security & Update Gate (`Shift + F7`)
 * **Zero Blind Updates**: Remote components are never silently overwritten without your explicit consent.
 * **Line-by-Line Git Diff Inspector**: Review color-coded `+` additions and `-` removals in a monospaced code viewer directly in-game.
-* **Static Security Heuristics**: Automatically scans every incoming update for `loadstring()`, Discord webhooks, HTTP web traffic, and file system I/O.
+* **Static Security & Obfuscation Audit**: Automatically scans incoming code for obfuscators (Luarmor, Luraph, IronBrew, MoonSec, packed bytecode/VM decoders), Discord webhooks, HTTP requests, and file I/O. Enforces a 2-click danger confirmation before any obfuscated update can be applied.
 * **User Sovereignty & Persistent Ledger**: Tracks component versions in `Omni_Ledger.json` and strictly respects user-deleted components.
 
 #### ⚡ 2. 100% Offline Kernel Task Manager HUD (`Shift + F8`)
@@ -28,7 +28,7 @@ Traditional autoexec setups inject every script at once. The client freezes. Fra
 * **Transparent RunService Interception**: Seamlessly hooks `Heartbeat`, `Stepped`, and `RenderStepped` connections with zero script modifications.
 * **Microsecond CPU Profiling**: Real-time per-task CPU consumption, spike tracking, and dynamic auto-throttling (60Hz ➔ 30Hz ➔ 15Hz).
 * **Interactive Process Controls**: Pause, resume, throttle, priority-lock, or terminate individual runaway threads.
-* **Panic Switch**: Global panic controls (`getgenv().UnloadAllTasks()`), remote mute switch, and orphan drawing purge.
+* **Panic Switch**: Global panic controls (`getgenv().UnloadAllTasks()`) to instantly disconnect and terminate background threads cleanly.
 
 #### 🌌 3. Omni Enhancement Suite (Stage: `GameLoaded`)
 * **Streamer Mode**: Visual-only username, display name, and UserID redaction/spoofing across leaderboards and overhead billboards.
