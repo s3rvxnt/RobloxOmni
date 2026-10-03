@@ -5885,7 +5885,27 @@ Ed.CloseBtn.MouseLeave:Connect(function()
     Ed.CloseBtn.TextColor3 = Color3.fromRGB(255, 130, 130)
 end)
 
--- Code Editing Container (ScrollingFrame + TextBox + Syntax Highlighter)
+-- Code Editing Container (ScrollingFrame + Viewport-Virtualized Syntax Highlighter + TextBox)
+local LINE_HEIGHT = 11
+local CHAR_WIDTH = 6
+local PADDING_LEFT = 8
+local PADDING_TOP = 6
+
+Ed.Doc = {
+    Lines = {},
+    TotalLines = 0,
+    MaxLineLen = 0,
+    TotalChars = 0,
+}
+Ed.Script = nil
+Ed.HlThread = nil
+Ed.BlinkThread = nil
+Ed.CaretSolid = true
+Ed.EditStartLine = 1
+Ed.EditEndLine = 1
+Ed.IsLargeDoc = false
+Ed.IsUpdatingText = false
+
 Ed.Scroll = Instance.new("ScrollingFrame")
 Ed.Scroll.Name = "CodeScroll"
 Ed.Scroll.Size = UDim2.new(1, -20, 1, -72)
@@ -5894,7 +5914,7 @@ Ed.Scroll.BackgroundColor3 = Color3.fromRGB(10, 12, 17)
 Ed.Scroll.BorderSizePixel = 0
 Ed.Scroll.ScrollBarThickness = 6
 Ed.Scroll.ScrollBarImageColor3 = Color3.fromRGB(60, 75, 105)
-Ed.Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Ed.Scroll.AutomaticCanvasSize = Enum.AutomaticSize.None
 Ed.Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 Ed.Scroll.ZIndex = 501
 Ed.Scroll.Parent = Ed.Modal
@@ -5904,8 +5924,8 @@ edCorner(Ed.Scroll, 6)
 Ed.HighlightLabel = Instance.new("TextLabel")
 Ed.HighlightLabel.Name = "HighlightLabel"
 Ed.HighlightLabel.Size = UDim2.new(1, -16, 0, 0)
-Ed.HighlightLabel.Position = UDim2.new(0, 8, 0, 6)
-Ed.HighlightLabel.AutomaticSize = Enum.AutomaticSize.Y
+Ed.HighlightLabel.Position = UDim2.new(0, PADDING_LEFT, 0, PADDING_TOP)
+Ed.HighlightLabel.AutomaticSize = Enum.AutomaticSize.None
 Ed.HighlightLabel.BackgroundTransparency = 1
 Ed.HighlightLabel.RichText = true
 Ed.HighlightLabel.Font = Enum.Font.Code
@@ -5920,8 +5940,8 @@ Ed.HighlightLabel.Parent = Ed.Scroll
 Ed.TextBox = Instance.new("TextBox")
 Ed.TextBox.Name = "CodeBox"
 Ed.TextBox.Size = UDim2.new(1, -16, 0, 0)
-Ed.TextBox.Position = UDim2.new(0, 8, 0, 6)
-Ed.TextBox.AutomaticSize = Enum.AutomaticSize.Y
+Ed.TextBox.Position = UDim2.new(0, PADDING_LEFT, 0, PADDING_TOP)
+Ed.TextBox.AutomaticSize = Enum.AutomaticSize.None
 Ed.TextBox.BackgroundTransparency = 1
 Ed.TextBox.ClearTextOnFocus = false
 Ed.TextBox.MultiLine = true
@@ -5938,7 +5958,7 @@ Ed.TextBox.Parent = Ed.Scroll
 Ed.Caret = Instance.new("Frame")
 Ed.Caret.Name = "CodeCaret"
 Ed.Caret.Size = UDim2.new(0, 2, 0, 12)
-Ed.Caret.Position = UDim2.new(0, 8, 0, 6)
+Ed.Caret.Position = UDim2.new(0, PADDING_LEFT, 0, PADDING_TOP)
 Ed.Caret.BackgroundColor3 = Color3.fromRGB(100, 215, 255)
 Ed.Caret.BorderSizePixel = 0
 Ed.Caret.ZIndex = 505
@@ -5968,10 +5988,27 @@ Ed.StatusLbl.TextXAlignment = Enum.TextXAlignment.Left
 Ed.StatusLbl.ZIndex = 502
 Ed.StatusLbl.Parent = Ed.Footer
 
-Ed.Script = nil
-Ed.HlThread = nil
-Ed.BlinkThread = nil
-Ed.CaretSolid = true
+local function renderViewport()
+    if not Ed.Modal.Visible or not Ed.Doc or Ed.Doc.TotalLines == 0 then return end
+
+    local scrollY = Ed.Scroll.CanvasPosition.Y
+    local viewHeight = math.max(100, Ed.Scroll.AbsoluteWindowSize.Y)
+
+    -- Calculate visible line range with 5-line overscan buffer
+    local firstLine = math.max(1, math.floor((scrollY - PADDING_TOP) / LINE_HEIGHT) - 5)
+    local lastLine = math.min(Ed.Doc.TotalLines, math.ceil((scrollY + viewHeight - PADDING_TOP) / LINE_HEIGHT) + 5)
+    local count = math.max(1, lastLine - firstLine + 1)
+
+    local slice = {}
+    for i = firstLine, lastLine do
+        table.insert(slice, Ed.Doc.Lines[i] or "")
+    end
+    local sliceText = table.concat(slice, "\n")
+
+    Ed.HighlightLabel.Position = UDim2.new(0, PADDING_LEFT, 0, (firstLine - 1) * LINE_HEIGHT + PADDING_TOP)
+    Ed.HighlightLabel.Size = UDim2.new(1, -PADDING_LEFT * 2, 0, count * LINE_HEIGHT)
+    Ed.HighlightLabel.Text = highlightLuau(sliceText)
+end
 
 local function updateCaretPos()
     if not Ed.TextBox:IsFocused() or not Ed.Modal.Visible then
@@ -5988,26 +6025,30 @@ local function updateCaretPos()
     local _, lineCount = before:gsub("\n", "")
     local lastNl = before:match(".*()\n") or 0
     local linePrefix = before:sub(lastNl + 1)
-    local xOffset = 0
-    if #linePrefix > 0 then
-        xOffset = TextService:GetTextSize(linePrefix, 11, Enum.Font.Code, Vector2.new(100000, 100000)).X
-    end
-    local yOffset = lineCount * 11
+    local xOffset = #linePrefix * CHAR_WIDTH
+    local yOffset = lineCount * LINE_HEIGHT
 
-    Ed.Caret.Position = UDim2.new(0, 8 + xOffset, 0, 6 + yOffset)
+    local boxTopY = Ed.TextBox.Position.Y.Offset
+    Ed.Caret.Position = UDim2.new(0, PADDING_LEFT + xOffset, 0, boxTopY + yOffset)
     Ed.Caret.Visible = true
     Ed.Caret.BackgroundTransparency = 0
     Ed.CaretSolid = true
 
     -- Viewport scroll follow
-    local targetY = 6 + yOffset
+    local targetY = boxTopY + yOffset
     local scrollY = Ed.Scroll.CanvasPosition.Y
-    local viewHeight = math.max(100, Ed.Scroll.AbsoluteSize.Y)
+    local viewHeight = math.max(100, Ed.Scroll.AbsoluteWindowSize.Y)
     if targetY < scrollY + 10 then
         Ed.Scroll.CanvasPosition = Vector2.new(Ed.Scroll.CanvasPosition.X, math.max(0, targetY - 20))
     elseif targetY + 16 > scrollY + viewHeight - 10 then
         Ed.Scroll.CanvasPosition = Vector2.new(Ed.Scroll.CanvasPosition.X, (targetY + 20) - viewHeight)
     end
+
+    -- Update status bar with line and column
+    local curLineInDoc = (Ed.EditStartLine - 1) + lineCount + 1
+    local curColInDoc = #linePrefix + 1
+    Ed.StatusLbl.Text = string.format("Ln %d, Col %d | Lines: %d | Characters: %d", curLineInDoc, curColInDoc, Ed.Doc.TotalLines, Ed.Doc.TotalChars or #text)
+    Ed.StatusLbl.TextColor3 = Color3.fromRGB(140, 160, 190)
 end
 
 local function startCaretBlinking()
@@ -6035,6 +6076,123 @@ local function stopCaretBlinking()
     end
     Ed.Caret.Visible = false
 end
+
+local function activateEditWindow(targetLine, targetCol)
+    if not Ed.Doc or Ed.Doc.TotalLines == 0 then return end
+    targetLine = math.clamp(targetLine or 1, 1, Ed.Doc.TotalLines)
+    targetCol = math.max(1, targetCol or 1)
+
+    if Ed.Doc.TotalLines <= 300 then
+        Ed.IsLargeDoc = false
+        Ed.EditStartLine = 1
+        Ed.EditEndLine = Ed.Doc.TotalLines
+        Ed.IsUpdatingText = true
+        Ed.TextBox.Position = UDim2.new(0, PADDING_LEFT, 0, PADDING_TOP)
+        Ed.TextBox.Size = UDim2.new(1, -PADDING_LEFT * 2, 0, Ed.Doc.TotalLines * LINE_HEIGHT)
+        Ed.TextBox.Text = table.concat(Ed.Doc.Lines, "\n")
+        Ed.IsUpdatingText = false
+
+        local charPos = 1
+        for i = 1, targetLine - 1 do
+            charPos = charPos + #(Ed.Doc.Lines[i] or "") + 1
+        end
+        local lineStr = Ed.Doc.Lines[targetLine] or ""
+        charPos = charPos + math.min(targetCol - 1, #lineStr)
+
+        Ed.TextBox:CaptureFocus()
+        Ed.TextBox.CursorPosition = charPos
+    else
+        Ed.IsLargeDoc = true
+        local startL = math.max(1, targetLine - 45)
+        local endL = math.min(Ed.Doc.TotalLines, targetLine + 45)
+        Ed.EditStartLine = startL
+        Ed.EditEndLine = endL
+
+        local slice = {}
+        for i = startL, endL do
+            table.insert(slice, Ed.Doc.Lines[i] or "")
+        end
+        Ed.IsUpdatingText = true
+        Ed.TextBox.Position = UDim2.new(0, PADDING_LEFT, 0, (startL - 1) * LINE_HEIGHT + PADDING_TOP)
+        Ed.TextBox.Size = UDim2.new(1, -PADDING_LEFT * 2, 0, (endL - startL + 1) * LINE_HEIGHT)
+        Ed.TextBox.Text = table.concat(slice, "\n")
+        Ed.IsUpdatingText = false
+
+        local charPos = 1
+        for i = 1, (targetLine - startL) do
+            charPos = charPos + #(slice[i] or "") + 1
+        end
+        local lineStr = slice[targetLine - startL + 1] or ""
+        charPos = charPos + math.min(targetCol - 1, #lineStr)
+
+        Ed.TextBox:CaptureFocus()
+        Ed.TextBox.CursorPosition = charPos
+    end
+    updateCaretPos()
+    startCaretBlinking()
+end
+
+-- Scroll signals for virtualization
+Ed.Scroll:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+    renderViewport()
+end)
+
+Ed.Scroll:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+    renderViewport()
+end)
+
+-- MouseWheel Smooth Scrolling over code container
+UserInputService.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseWheel and Ed.Modal.Visible then
+        local mousePos = UserInputService:GetMouseLocation()
+        local absPos = Ed.Scroll.AbsolutePosition
+        local absSize = Ed.Scroll.AbsoluteSize
+        if mousePos.X >= absPos.X and mousePos.X <= absPos.X + absSize.X and
+           mousePos.Y >= absPos.Y and mousePos.Y <= absPos.Y + absSize.Y then
+            local delta = input.Position.Z * -33 -- 3 lines per notch
+            local currentY = Ed.Scroll.CanvasPosition.Y
+            local maxY = math.max(0, Ed.Scroll.AbsoluteCanvasSize.Y - Ed.Scroll.AbsoluteWindowSize.Y)
+            Ed.Scroll.CanvasPosition = Vector2.new(Ed.Scroll.CanvasPosition.X, math.clamp(currentY + delta, 0, maxY))
+        end
+    end
+end)
+
+-- Click-to-Position Navigation
+Ed.Scroll.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 and Ed.Modal.Visible and Ed.Doc and Ed.Doc.TotalLines > 0 then
+        local mousePos = UserInputService:GetMouseLocation()
+        local guiInset = GuiService:GetGuiInset()
+        local my = mousePos.Y - guiInset.Y
+        local mx = mousePos.X - guiInset.X
+
+        local clickLocalY = my - Ed.Scroll.AbsolutePosition.Y + Ed.Scroll.CanvasPosition.Y - PADDING_TOP
+        local clickedLine = math.clamp(math.floor(clickLocalY / LINE_HEIGHT) + 1, 1, Ed.Doc.TotalLines)
+        local clickLocalX = mx - Ed.Scroll.AbsolutePosition.X - PADDING_LEFT + Ed.Scroll.CanvasPosition.X
+        local clickedCol = math.max(1, math.floor(clickLocalX / CHAR_WIDTH) + 1)
+
+        activateEditWindow(clickedLine, clickedCol)
+    end
+end)
+
+-- Tab Key Support: 4 spaces insertion & focus retention
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.Tab and Ed.TextBox:IsFocused() and Ed.Modal.Visible then
+        local p = Ed.TextBox.CursorPosition
+        local t = Ed.TextBox.Text
+        if p > 0 and p <= #t + 1 then
+            local newText = t:sub(1, p - 1) .. "    " .. t:sub(p)
+            Ed.TextBox.Text = newText
+            Ed.TextBox.CursorPosition = p + 4
+            task.defer(function()
+                if Ed.TextBox and Ed.Modal.Visible then
+                    Ed.TextBox:CaptureFocus()
+                    Ed.TextBox.CursorPosition = p + 4
+                    updateCaretPos()
+                end
+            end)
+        end
+    end
+end)
 
 Ed.TextBox.Focused:Connect(function()
     updateCaretPos()
@@ -6069,40 +6227,47 @@ openCodeEditor = function(scriptObj)
         end
     end
 
+    -- Normalize CRLF -> LF
+    code = code:gsub("\r\n", "\n"):gsub("\r", "\n")
+
     Ed.Title.Text = "✏️ " .. (scriptObj.name or "Script") .. " (" .. scriptObj.file .. ")"
     local isTruncated = false
-    if #code >= 199990 then
+    if #code >= 2000000 then
         isTruncated = true
-        Ed.TextBox.Text = code:sub(1, 199000) .. "\n\n-- [TRUNCATED: File exceeds Roblox TextBox limit of 200,000 characters]"
-        Ed.TextBox.TextTransparency = 0
-        Ed.HighlightLabel.Text = ""
-        Ed.StatusLbl.Text = string.format("⚠️ File truncated (Original: %d chars, Max: 200,000 chars) | Read-Only to prevent data loss", #code)
+        code = code:sub(1, 200000) .. "\n\n-- [TRUNCATED: File exceeds 2,000,000 characters]"
+        Ed.StatusLbl.Text = string.format("⚠️ File truncated (Original: %d chars, Max: 2,000,000 chars) | Read-Only", #code)
         Ed.StatusLbl.TextColor3 = Color3.fromRGB(255, 170, 50)
-    else
-        Ed.TextBox.Text = code
-        Ed.TextBox.TextTransparency = 1
-        Ed.HighlightLabel.Text = highlightLuau(code)
-        local lines = 1
-        for _ in code:gmatch("\n") do lines = lines + 1 end
-        Ed.StatusLbl.Text = string.format("Lines: %d | Characters: %d | Ready", lines, #code)
-        Ed.StatusLbl.TextColor3 = Color3.fromRGB(140, 160, 190)
     end
     Ed.Script.isTruncated = isTruncated
+
+    local lines = string.split(code, "\n")
+    if #lines == 0 then lines = {""} end
+    Ed.Doc.Lines = lines
+    Ed.Doc.TotalLines = #lines
+
+    local maxLen = 0
+    for _, l in ipairs(lines) do
+        if #l > maxLen then maxLen = #l end
+    end
+    Ed.Doc.MaxLineLen = maxLen
+    Ed.Doc.TotalChars = #code
+
+    Ed.Scroll.AutomaticCanvasSize = Enum.AutomaticSize.None
+    Ed.Scroll.CanvasSize = UDim2.new(0, math.max(0, maxLen * CHAR_WIDTH + 60), 0, Ed.Doc.TotalLines * LINE_HEIGHT + 40)
     Ed.Scroll.CanvasPosition = Vector2.new(0, 0)
+
+    if not isTruncated then
+        Ed.StatusLbl.Text = string.format("Lines: %d | Characters: %d | Ready", Ed.Doc.TotalLines, #code)
+        Ed.StatusLbl.TextColor3 = Color3.fromRGB(140, 160, 190)
+    end
 
     -- Ensure mouse cursor is completely unlocked and visible
     UserInputService.MouseBehavior = Enum.MouseBehavior.Default
     UserInputService.MouseIconEnabled = true
     Ed.Modal.Visible = true
 
-    task.defer(function()
-        if Ed.Modal.Visible and Ed.Script then
-            Ed.TextBox:CaptureFocus()
-            Ed.TextBox.CursorPosition = 1
-            updateCaretPos()
-            startCaretBlinking()
-        end
-    end)
+    renderViewport()
+    activateEditWindow(1, 1)
 end
 
 getgenv().OpenScriptEditor = function(fileOrObj)
@@ -6118,27 +6283,50 @@ getgenv().OpenScriptEditor = function(fileOrObj)
 end
 
 Ed.TextBox:GetPropertyChangedSignal("Text"):Connect(function()
-    if not Ed.Modal.Visible or not Ed.Script then return end
+    if not Ed.Modal.Visible or not Ed.Script or Ed.IsUpdatingText then return end
     if Ed.Script.isTruncated then return end
-    local txt = Ed.TextBox.Text
-    local lines = 1
-    for _ in txt:gmatch("\n") do lines = lines + 1 end
-    Ed.StatusLbl.Text = string.format("Lines: %d | Characters: %d | Unsaved changes", lines, #txt)
+
+    local newText = Ed.TextBox.Text
+    local newSlice = string.split(newText, "\n")
+
+    if not Ed.IsLargeDoc then
+        Ed.Doc.Lines = newSlice
+        Ed.Doc.TotalLines = #newSlice
+        Ed.EditStartLine = 1
+        Ed.EditEndLine = #newSlice
+    else
+        local before = {}
+        for i = 1, Ed.EditStartLine - 1 do table.insert(before, Ed.Doc.Lines[i] or "") end
+        local after = {}
+        for i = Ed.EditEndLine + 1, #Ed.Doc.Lines do table.insert(after, Ed.Doc.Lines[i] or "") end
+
+        local merged = {}
+        for _, l in ipairs(before) do table.insert(merged, l) end
+        for _, l in ipairs(newSlice) do table.insert(merged, l) end
+        for _, l in ipairs(after) do table.insert(merged, l) end
+
+        Ed.Doc.Lines = merged
+        Ed.Doc.TotalLines = #merged
+        Ed.EditEndLine = Ed.EditStartLine + #newSlice - 1
+    end
+
+    local maxLen = 0
+    local totalChars = 0
+    for _, l in ipairs(Ed.Doc.Lines) do
+        local len = #l
+        if len > maxLen then maxLen = len end
+        totalChars = totalChars + len + 1
+    end
+    Ed.Doc.MaxLineLen = maxLen
+    Ed.Doc.TotalChars = totalChars
+
+    Ed.Scroll.CanvasSize = UDim2.new(0, math.max(0, maxLen * CHAR_WIDTH + 60), 0, Ed.Doc.TotalLines * LINE_HEIGHT + 40)
+    Ed.TextBox.Size = UDim2.new(1, -PADDING_LEFT * 2, 0, (Ed.EditEndLine - Ed.EditStartLine + 1) * LINE_HEIGHT)
+
+    Ed.StatusLbl.Text = string.format("Lines: %d | Characters: %d | Unsaved changes", Ed.Doc.TotalLines, totalChars)
     Ed.StatusLbl.TextColor3 = Color3.fromRGB(180, 200, 230)
 
-    if #txt < 12000 then
-        Ed.HighlightLabel.Text = highlightLuau(txt)
-    else
-        if Ed.HlThread then
-            task.cancel(Ed.HlThread)
-            Ed.HlThread = nil
-        end
-        Ed.HlThread = task.delay(0.04, function()
-            if Ed.Modal.Visible and Ed.Script and not Ed.Script.isTruncated then
-                Ed.HighlightLabel.Text = highlightLuau(Ed.TextBox.Text)
-            end
-        end)
-    end
+    renderViewport()
     updateCaretPos()
 end)
 
@@ -6155,7 +6343,7 @@ end)
 Ed.SaveBtn.MouseButton1Click:Connect(function()
     if not Ed.Script then return end
     if Ed.Script.isTruncated then
-        Ed.StatusLbl.Text = "❌ Save blocked: File exceeds 200K chars. Please edit externally to prevent truncation."
+        Ed.StatusLbl.Text = "❌ Save blocked: File exceeds limit. Please edit externally."
         Ed.StatusLbl.TextColor3 = Color3.fromRGB(255, 80, 80)
         return
     end
@@ -6164,10 +6352,11 @@ Ed.SaveBtn.MouseButton1Click:Connect(function()
         target = "workspace/" .. target
     end
     Ed.SaveBtn.Text = "⏳ Saving..."
-    local ok, err = pcall(writefile, target, Ed.TextBox.Text)
+    local fullCode = table.concat(Ed.Doc.Lines, "\n")
+    local ok, err = pcall(writefile, target, fullCode)
     if ok then
         Ed.SaveBtn.Text = "✅ Saved!"
-        Ed.StatusLbl.Text = string.format("✅ Saved successfully to %s at %s (%d chars)", Ed.Script.file, os.date("%H:%M:%S"), #Ed.TextBox.Text)
+        Ed.StatusLbl.Text = string.format("✅ Saved successfully to %s at %s (%d chars)", Ed.Script.file, os.date("%H:%M:%S"), #fullCode)
         Ed.StatusLbl.TextColor3 = Color3.fromRGB(100, 240, 150)
         task.delay(1.5, function()
             if Ed.SaveBtn then Ed.SaveBtn.Text = "💾 Save" end
@@ -6185,8 +6374,8 @@ end)
 
 Ed.RunBtn.MouseButton1Click:Connect(function()
     if not Ed.Script then return end
-    local code = Ed.TextBox.Text
-    local fn, sErr = loadstring(code, "@" .. (Ed.Script.name or "Script"))
+    local fullCode = table.concat(Ed.Doc.Lines, "\n")
+    local fn, sErr = loadstring(fullCode, "@" .. (Ed.Script.name or "Script"))
     if not fn then
         Ed.StatusLbl.Text = "⚠️ Syntax Error: " .. tostring(sErr)
         Ed.StatusLbl.TextColor3 = Color3.fromRGB(255, 120, 80)
