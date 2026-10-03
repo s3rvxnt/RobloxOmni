@@ -1052,7 +1052,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
         task.spawn(function()
             -- Fetch remote content if needed
-            local remoteContent = fetchedStageCodes[stageIdx]
+            local remoteContent = stage.code or stage.content or fetchedStageCodes[stageIdx]
             if not remoteContent then
                 local shaToUse = getLatestCommitSha()
                 local url = repoPath
@@ -1330,8 +1330,11 @@ local function initUpdateGate(guiParent, UpdateBadge)
         end
     end
 
-    local function openUpdateModal()
-        if not currentUpdateData then
+    local function openUpdateModal(customData)
+        if customData and type(customData) == "table" then
+            currentUpdateData = customData
+            fetchedStageCodes = {}
+        elseif not currentUpdateData then
             currentUpdateData = {
                 version = CURRENT_OMNI_VERSION,
                 releaseDate = "2026-10-02",
