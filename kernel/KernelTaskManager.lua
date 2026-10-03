@@ -26,7 +26,7 @@
     - Admin Hotkey: Shift + F8 (or getgenv().ToggleTaskManagerHUD())
     - Real-Time Process Monitoring: Per-task CPU (ms), Spike (ms), Priority, Invocations
     - Interactive Context Controls: Pause/Resume, Lock Priority, Kill Task
-    - Global Action Controls: Panic Kill All, Mute Remotes, Purge Drawings
+    - Global Action Controls: Panic Kill All, Pause/Resume All Loops, Global Priority Override
     - Dynamic Refresh Rate (Hz) Button Scaling
     ==============================================================================
 ]]
@@ -3677,9 +3677,6 @@ getgenv().PauseAllLoops = PauseAllLoops
 getgenv().ResumeAllLoops = function() return PauseAllLoops(false) end
 getgenv().KillAllLoops = KillAllLoops
 getgenv().ClearLoopRegistry = ClearLoopRegistry
-getgenv().PurgeOrphanDrawings = function() local res = PurgeOrphanDrawings() emitProfile() return res end
-getgenv().TriggerFullGC = function() local res = TriggerFullGC() emitProfile() return res end
-getgenv().ClearMemoryRegistry = function() allocationRegistry = {} totalInstancesCreated = 0 globalInstanceTimestamps = {} emitProfile() return true end
 getgenv().GetDiscoveredGameTasks = function() return DiscoveredGameTaskOrder end
 getgenv().ScanGameTasks = ScanGameTasks
 getgenv().IngestGameTask = IngestGameTask
