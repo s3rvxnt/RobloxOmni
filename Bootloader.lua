@@ -105,24 +105,72 @@ end
 -- ==============================================================================
 -- If an updated verified bootloader was installed via the Update Gate to workspace,
 -- hand off execution seamlessly to the newer version BEFORE writing any locks!
+local HANDOFF_LOCK = "Bootloader_Handoff.lock"
+local FAILED_VERSION_FILE = "Bootloader_FailedVersion.txt"
+
+-- Check for crashed previous handoff (client froze or crashed during updated bootloader init)
+if isfile and isfile(HANDOFF_LOCK) then
+    local crashedVer = nil
+    pcall(function() crashedVer = readfile(HANDOFF_LOCK) end)
+    pcall(delfile, HANDOFF_LOCK)
+    if crashedVer and crashedVer ~= "" then
+        pcall(writefile, FAILED_VERSION_FILE, crashedVer)
+        warn("[Bootloader]: ⚠️ Updated bootloader v" .. tostring(crashedVer) .. " crashed previous session — blacklisting version.")
+    end
+end
+
+local blacklistedVersion = nil
+if isfile and isfile(FAILED_VERSION_FILE) then
+    pcall(function() blacklistedVersion = readfile(FAILED_VERSION_FILE) end)
+end
+
 if not getgenv()._OmniBootloaderHandoffActive and not SafeMode then
     local updatedPath = "autoexec/Bootloader_Updated.lua"
     if isfile and isfile(updatedPath) then
         local ok, updatedCode = pcall(readfile, updatedPath)
         if ok and updatedCode and #updatedCode > 500 then
             local updatedVersion = updatedCode:match('CURRENT_OMNI_VERSION%s*=%s*"([^"]+)"')
-            if updatedVersion and isNewerVersion(updatedVersion, CURRENT_OMNI_VERSION) then
+            -- Skip if not newer than base, OR if this exact version previously failed and hasn't been superseded
+            local isEligible = updatedVersion and isNewerVersion(updatedVersion, CURRENT_OMNI_VERSION)
+            if isEligible and blacklistedVersion and not isNewerVersion(updatedVersion, blacklistedVersion) then
+                isEligible = false
+            end
+
+            if isEligible then
                 local updatedFn, compileErr = loadstring(updatedCode, "@Bootloader_Updated")
                 if updatedFn then
+                    -- Set sentinel lock before calling update to catch early client freezes/crashes
+                    pcall(writefile, HANDOFF_LOCK, updatedVersion)
                     getgenv()._OmniBootloaderHandoffActive = true
+                    getgenv()._OmniRingsStarted = nil
+
                     local runOk, runErr = pcall(updatedFn)
                     getgenv()._OmniBootloaderHandoffActive = nil
-                    if runOk then
-                        return -- Handed off cleanly to the updated bootloader!
-                    else
-                        warn("[Bootloader]: Updated bootloader runtime error, falling back to base v" .. CURRENT_OMNI_VERSION .. ": " .. tostring(runErr))
+                    pcall(delfile, HANDOFF_LOCK)
+
+                    if runOk and getgenv()._OmniRingsStarted then
+                        -- Successfully booted updated version! Clear any older blacklist
+                        if blacklistedVersion and isNewerVersion(updatedVersion, blacklistedVersion) then
+                            pcall(delfile, FAILED_VERSION_FILE)
+                        end
+                        return -- Clean handoff complete!
+                    elseif runOk and not getgenv()._OmniRingsStarted then
+                        -- Update returned early without booting anything!
+                        pcall(writefile, FAILED_VERSION_FILE, updatedVersion)
+                        warn("[Bootloader]: Updated bootloader v" .. updatedVersion .. " returned early without starting scripts — blacklisting and falling back to base.")
+                    elseif not runOk then
+                        if getgenv()._OmniRingsStarted then
+                            -- Error occurred after scripts were already running — do NOT re-run scripts in base!
+                            warn("[Bootloader]: Updated bootloader v" .. updatedVersion .. " encountered runtime error after starting scripts: " .. tostring(runErr))
+                            return
+                        else
+                            -- Early error before any scripts ran — blacklist version and safely fall back to base
+                            pcall(writefile, FAILED_VERSION_FILE, updatedVersion)
+                            warn("[Bootloader]: Updated bootloader v" .. updatedVersion .. " early runtime error: " .. tostring(runErr) .. " — falling back to base.")
+                        end
                     end
                 else
+                    pcall(writefile, FAILED_VERSION_FILE, updatedVersion)
                     warn("[Bootloader]: Updated bootloader compilation error: " .. tostring(compileErr))
                 end
             end
@@ -231,9 +279,10 @@ local function fetchGithubScript(url)
     return nil
 end
 
--- Initial Core Kernel Bootstrap (Only triggers if core kernel is completely missing)
+-- Initial Core Kernel Bootstrap (Only triggers if core kernel is completely missing and wasn't intentionally deleted)
 local coreKernelLocal = "autoexec/kernel/KernelTaskManager.lua"
-if not isfile(coreKernelLocal) then
+local KERNEL_INIT_MARKER = "Omni_KernelInitialized.marker"
+if not isfile(coreKernelLocal) and not isfile(KERNEL_INIT_MARKER) then
     local coreUrl = GITHUB_REPO_RAW .. "kernel/KernelTaskManager.lua?v=" .. tostring(os.time())
     local coreContent = fetchGithubScript(coreUrl)
     if coreContent and #coreContent > 100 then
@@ -241,11 +290,14 @@ if not isfile(coreKernelLocal) then
         if parentDir and not isfolder(parentDir) then pcall(makefolder, parentDir) end
         local ok, err = pcall(writefile, coreKernelLocal, coreContent)
         if ok then
+            pcall(writefile, KERNEL_INIT_MARKER, tostring(os.time()))
             print("[Bootloader]: Initialized core KernelTaskManager -> " .. coreKernelLocal)
         else
             warn("[Bootloader]: Failed to bootstrap core kernel: " .. tostring(err))
         end
     end
+elseif isfile(coreKernelLocal) and not isfile(KERNEL_INIT_MARKER) then
+    pcall(writefile, KERNEL_INIT_MARKER, tostring(os.time()))
 end
 
 -- ==============================================================================
@@ -2141,6 +2193,12 @@ end
 -- ==============================================================================
 -- Frame 0, NO yields, NO task.wait(), purely environment & hooks.
 bootStart = os.clock()
+getgenv()._OmniRingsStarted = true
+pcall(function()
+    if isfile and isfile("Bootloader_Handoff.lock") then
+        pcall(delfile, "Bootloader_Handoff.lock")
+    end
+end)
 
 if not SafeMode and not getgenv()._KernelTaskManagerLoaded then
     if isfolder("autoexec/kernel") then

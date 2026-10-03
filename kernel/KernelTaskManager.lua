@@ -1590,7 +1590,7 @@ end
 local function isStartupIgnoredPath(p)
     local lower = normStartupPath(p):lower()
     local name = lower:match("([^/]+)$") or lower
-    if name == "bootloader.lua" or name == "customautoexec.lua" or name == "omnibootloader.lua" then
+    if name == "bootloader.lua" or name == "customautoexec.lua" or name == "omnibootloader.lua" or name == "bootloader_updated.lua" then
         return true
     end
     for seg in lower:gmatch("[^/]+") do

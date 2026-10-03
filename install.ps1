@@ -130,6 +130,10 @@ foreach ($root in $detectedRoots) {
     $markerDest = Join-Path $workspaceDir "Omni_Installed.marker"
     [IO.File]::WriteAllText($markerDest, [string]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()), [Text.UTF8Encoding]::new($false))
 
+    # Write Omni_KernelInitialized.marker into workspace to respect intentional component deletion
+    $kernelMarkerDest = Join-Path $workspaceDir "Omni_KernelInitialized.marker"
+    [IO.File]::WriteAllText($kernelMarkerDest, [string]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()), [Text.UTF8Encoding]::new($false))
+
     Write-Host "[OK] $execName" -ForegroundColor Green
     if ($migratedCount -gt 0) {
         Write-Host "     -> Safely migrated $migratedCount script(s) to workspace/autoexec/preinit/" -ForegroundColor Yellow
@@ -138,7 +142,7 @@ foreach ($root in $detectedRoots) {
         Write-Host "     -> Skipped $skippedCount colliding file(s) to prevent overwriting" -ForegroundColor DarkYellow
     }
     Write-Host "     -> Deployed Bootloader.lua to autoexec/ (UTF-8 without BOM)" -ForegroundColor Gray
-    Write-Host "     -> Created Omni_Installed.marker in workspace/" -ForegroundColor Gray
+    Write-Host "     -> Created Omni_Installed.marker & Omni_KernelInitialized.marker in workspace/" -ForegroundColor Gray
 }
 
 Write-Host ""
