@@ -108,8 +108,10 @@ end
 local HANDOFF_LOCK = "Bootloader_Handoff.lock"
 local FAILED_VERSION_FILE = "Bootloader_FailedVersion.txt"
 
--- Check for crashed previous handoff (client froze or crashed during updated bootloader init)
-if isfile and isfile(HANDOFF_LOCK) then
+-- Check for crashed previous handoff (client froze or crashed during updated bootloader init).
+-- Only the outermost bootloader may do this: inside a handoff, the lock on disk is the one
+-- our parent just wrote for us, not evidence of a previous crash.
+if not getgenv()._OmniBootloaderHandoffActive and isfile and isfile(HANDOFF_LOCK) then
     local crashedVer = nil
     pcall(function() crashedVer = readfile(HANDOFF_LOCK) end)
     pcall(delfile, HANDOFF_LOCK)
