@@ -727,71 +727,111 @@ local function PlayMentionChime()
     end)
 end
 
-local existingIncomingCallback = (genv and genv.__EnhancementOriginalIncomingCallback)
-local currentWrappedCallback
+local function ProcessIncomingTextMessage(message)
+    local props = Instance.new("TextChatMessageProperties")
 
-local function WrapIncomingMessageCallback(originalFn)
-    return function(message)
-        local props
-        if typeof(originalFn) == "function" then
-            local ok, res = pcall(originalFn, message)
-            if ok and typeof(res) == "Instance" and res:IsA("TextChatMessageProperties") then
-                props = res
-            end
+    local currentPrefix = (message and message.PrefixText) or ""
+    local currentText = (message and message.Text) or ""
+
+    if config.streamer_mode then
+        if currentPrefix and currentPrefix ~= "" then
+            currentPrefix = RedactString(currentPrefix)
         end
-        if not props then
-            props = Instance.new("TextChatMessageProperties")
+        if currentText and currentText ~= "" then
+            currentText = RedactString(currentText)
         end
-
-        local currentPrefix = props.PrefixText ~= "" and props.PrefixText or (message and message.PrefixText) or ""
-        local currentText = props.Text ~= "" and props.Text or (message and message.Text) or ""
-
-        if config.streamer_mode then
-            if currentPrefix and currentPrefix ~= "" then
-                currentPrefix = RedactString(currentPrefix)
-            end
-            if currentText and currentText ~= "" then
-                currentText = RedactString(currentText)
-            end
-        end
-
-        if config.chat_timestamps then
-            local timeStr = FormatTimestamp()
-            props.PrefixText = string.format("<font color='#A0A0A0'>[%s]</font> %s", timeStr, currentPrefix)
-        else
-            props.PrefixText = currentPrefix
-        end
-        props.Text = currentText
-
-        if config.mention_chimes and message and message.TextSource then
-            local lp = GetLocalPlayer()
-            if lp and message.TextSource.UserId ~= lp.UserId then
-                local text = message.Text or ""
-                local namePat = lp.Name and BuildCaseInsensitivePattern(lp.Name)
-                local dispPat = lp.DisplayName and BuildCaseInsensitivePattern(lp.DisplayName)
-                if (namePat and text:find(namePat)) or (dispPat and text:find(dispPat)) then
-                    PlayMentionChime()
-                end
-            end
-        end
-
-        return props
     end
+
+    if config.chat_timestamps then
+        local timeStr = FormatTimestamp()
+        props.PrefixText = string.format("<font color='#A0A0A0'>[%s]</font> %s", timeStr, currentPrefix)
+    else
+        props.PrefixText = currentPrefix
+    end
+    props.Text = currentText
+
+    if config.mention_chimes and message and message.TextSource then
+        local lp = GetLocalPlayer()
+        if lp and message.TextSource.UserId ~= lp.UserId then
+            local text = message.Text or ""
+            local namePat = lp.Name and BuildCaseInsensitivePattern(lp.Name)
+            local dispPat = lp.DisplayName and BuildCaseInsensitivePattern(lp.DisplayName)
+            if (namePat and text:find(namePat)) or (dispPat and text:find(dispPat)) then
+                PlayMentionChime()
+            end
+        end
+    end
+
+    return props
 end
 
--- Hook TextChatService
+-- Hook TextChatService (Modern Roblox Chat)
 pcall(function()
     local TextChatService = game:GetService("TextChatService")
     if TextChatService then
-        if not existingIncomingCallback then
-            existingIncomingCallback = TextChatService.OnIncomingMessage
-            if genv then
-                genv.__EnhancementOriginalIncomingCallback = existingIncomingCallback
-            end
-        end
-        currentWrappedCallback = WrapIncomingMessageCallback(existingIncomingCallback)
-        TextChatService.OnIncomingMessage = currentWrappedCallback
+        TextChatService.OnIncomingMessage = ProcessIncomingTextMessage
     end
+end)
+
+-- Hook Legacy Chat (Older Games)
+task.spawn(function()
+    local lp = GetLocalPlayer()
+    if not lp then return end
+    local pg = lp:WaitForChild("PlayerGui", 10)
+    if not pg then return end
+
+    local function HookLegacyMessageLabel(label)
+        if not label or not label:IsA("TextLabel") then return end
+        if label:GetAttribute("OmniTimestamped") then return end
+        label:SetAttribute("OmniTimestamped", true)
+
+        task.defer(function()
+            if not label or not label.Parent then return end
+            local originalText = label.Text
+            if originalText and originalText ~= "" then
+                if config.chat_timestamps then
+                    local timeStr = FormatTimestamp()
+                    label.Text = string.format("[%s] %s", timeStr, originalText)
+                end
+                if config.mention_chimes then
+                    local namePat = lp.Name and BuildCaseInsensitivePattern(lp.Name)
+                    local dispPat = lp.DisplayName and BuildCaseInsensitivePattern(lp.DisplayName)
+                    if (namePat and originalText:find(namePat)) or (dispPat and originalText:find(dispPat)) then
+                        PlayMentionChime()
+                    end
+                end
+            end
+        end)
+    end
+
+    local function HookLegacyScroller(scroller)
+        if not scroller then return end
+        for _, desc in ipairs(scroller:GetDescendants()) do
+            if desc:IsA("TextLabel") then HookLegacyMessageLabel(desc) end
+        end
+        local conn = scroller.DescendantAdded:Connect(function(desc)
+            if desc:IsA("TextLabel") then HookLegacyMessageLabel(desc) end
+        end)
+        table.insert(StreamerConns, conn)
+    end
+
+    local function OnChatGuiAdded(chatGui)
+        if chatGui.Name ~= "Chat" then return end
+        task.spawn(function()
+            local frame = chatGui:WaitForChild("Frame", 5)
+            local chanFrame = frame and frame:WaitForChild("ChatChannelParentFrame", 5)
+            local msgLog = chanFrame and chanFrame:WaitForChild("Frame_MessageLogDisplay", 5)
+            local scroller = msgLog and msgLog:WaitForChild("Scroller", 5)
+            if scroller then
+                HookLegacyScroller(scroller)
+            end
+        end)
+    end
+
+    local chatGui = pg:FindFirstChild("Chat")
+    if chatGui then OnChatGuiAdded(chatGui) end
+    local pConn = pg.ChildAdded:Connect(OnChatGuiAdded)
+    table.insert(StreamerConns, pConn)
 end)
 
 -- ============================================================================
@@ -3496,9 +3536,8 @@ local function FullSuiteCleanup()
     -- 8. Restore TextChatService IncomingMessage callback
     pcall(function()
         local TextChatService = game:GetService("TextChatService")
-        if TextChatService and genv and genv.__EnhancementOriginalIncomingCallback then
-            TextChatService.OnIncomingMessage = genv.__EnhancementOriginalIncomingCallback
-            genv.__EnhancementOriginalIncomingCallback = nil
+        if TextChatService then
+            TextChatService.OnIncomingMessage = nil
         end
     end)
 
