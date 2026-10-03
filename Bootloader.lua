@@ -135,7 +135,13 @@ if not SafeMode then
     pcall(writefile, RUNNING_LOCK, tostring(os.time()))
     task.spawn(function()
         local Players = game:GetService("Players")
-        local lp = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait() or Players.LocalPlayer
+        local lp = Players.LocalPlayer
+        if not lp then
+            pcall(function()
+                Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+            end)
+            lp = Players.LocalPlayer
+        end
         if lp then
             pcall(function()
                 lp.OnTeleport:Connect(function(state)
@@ -188,11 +194,6 @@ local BASE_STAGE_DIRS = {
 }
 for _, dir in ipairs(BASE_STAGE_DIRS) do
     if not isfolder(dir) then pcall(makefolder, dir) end
-end
-
--- Mark local installation marker for zero-race teleport bootstrapping
-if isfile and not isfile("Omni_Installed.marker") then
-    pcall(writefile, "Omni_Installed.marker", tostring(os.time()))
 end
 
 -- ==============================================================================
@@ -2130,7 +2131,7 @@ end
 -- RING 0: KERNEL (Tier 1 - System Hooks, Scheduler & Loop Governor)
 -- ==============================================================================
 -- Frame 0, NO yields, NO task.wait(), purely environment & hooks.
-local bootStart = os.clock()
+bootStart = os.clock()
 
 if not SafeMode and not getgenv()._KernelTaskManagerLoaded then
     if isfolder("autoexec/kernel") then

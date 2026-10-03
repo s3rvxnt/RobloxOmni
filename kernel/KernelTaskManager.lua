@@ -354,7 +354,6 @@ end
 
 SchedulerPersistence.save = function(...) end -- Forward declaration, implemented after buildProfile
 
-local function loadSchedulerOverrides() SchedulerPersistence.load() end
 local function saveSchedulerOverrides(...) SchedulerPersistence.save(...) end
 local function getTaskOverride(...) return SchedulerPersistence.getTask(...) end
 local function getLoopOverride(...) return SchedulerPersistence.getLoop(...) end
@@ -581,11 +580,6 @@ local function processFrame(eventState, ...)
     -- 2. Eligible tasks scheduled for this frame along the continuous spectrum
     local workQueue = {}
     local queuedSet = {}
-
-    -- Helper to resolve effective priority:
-    local function getEffectivePriority(tObj)
-        return tObj.priority
-    end
 
     -- 0. SuperStep tasks: executed at the top of each engine simulation phase
     local superState = Events.SuperStep
@@ -2674,7 +2668,6 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
         end
 
         loopIdCounter = loopIdCounter + 1
-        local callerFile = callerStr:match("^([^:]+)") or callerStr
         local callerLine = tonumber(callerStr:match(":(%d+)$")) or 0
         local isExec = isExecutorOrigin(callerStr, callerStr, isExecFlag)
         local savedOverride = getLoopOverride(callerStr, callerStr)
@@ -2742,12 +2735,12 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
         table.insert(loopOrder, loop.id)
     else
         if loop.caller and loop.caller:find("^ExecutorScript:") then
-            local caller = getCallingContext(2)
-            if caller and not caller:find("^ExecutorScript:") and not isSelfOrKernel(caller) then
-                loop.caller = caller
-                loop.name = caller
-                loop.file = caller:match("^([^:]+)") or caller
-                local savedOverride = getLoopOverride(caller, caller)
+            local resolvedCaller = getCallingContext(2)
+            if resolvedCaller and not resolvedCaller:find("^ExecutorScript:") and not isSelfOrKernel(resolvedCaller) then
+                loop.caller = resolvedCaller
+                loop.name = resolvedCaller
+                loop.file = resolvedCaller:match("^([^:]+)") or resolvedCaller
+                local savedOverride = getLoopOverride(resolvedCaller, resolvedCaller)
                 if savedOverride then
                     if savedOverride.priority ~= nil then
                         loop.priority = math.clamp(math.round(tonumber(savedOverride.priority) or 50), 1, 100)
@@ -5650,7 +5643,7 @@ local function escapeXml(str)
 end
 
 local function scanQuotedString(source, pos, quoteChar)
-    local len = #source
+    local len = string.len(source)
     local p = pos + 1
     while p <= len do
         local c = source:sub(p, p)
@@ -5668,7 +5661,7 @@ local function scanQuotedString(source, pos, quoteChar)
 end
 
 local function highlightLuau(source)
-    local len = #source
+    local len = string.len(source)
     if len == 0 then return "" end
     if len > 65000 then
         return escapeXml(source)
