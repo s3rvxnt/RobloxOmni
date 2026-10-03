@@ -3,7 +3,7 @@
 --!priority 1000
 --[[
     ==============================================================================
-    OMNI KERNEL TASK MANAGER & RUNTIME MICRO-KERNEL (v1.2.0 Standalone)
+    OMNI KERNEL TASK MANAGER & RUNTIME MICRO-KERNEL (v1.0 Standalone)
     ==============================================================================
     A unified, single-file developer execution engine and administrative task manager.
     Zero external dependencies. Works out-of-the-box via loadstring or autoexec.

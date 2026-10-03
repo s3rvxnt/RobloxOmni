@@ -1,13 +1,9 @@
 {
-  "version": "1.2.0",
+  "version": "1.0",
   "releaseDate": "2026-10-02",
-  "title": "OMNI Release 1.2.0",
+  "title": "OMNI Release 1.0",
   "changelog": [
-    "Omni Core Kernel v1.2.0: Interactive Update Gate with git diff inspector",
-    "Security Heuristics: Real-time static auditing for loadstring(), webhooks, network, and file I/O",
-    "Linear time Luau diff engine with monospaced code viewer and line-by-line +/- highlighting",
-    "User Sovereignty: Deletion-respecting bootloader with persistent Omni_Ledger.json",
-    "Shift + F7 direct hotkey to open Update & Transparency Gate anytime"
+    "--released"
   ],
   "stages": [
     {

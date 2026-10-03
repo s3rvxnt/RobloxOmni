@@ -235,7 +235,7 @@ local function getGuiParent()
 end
 
 local function initUpdateGate(guiParent, UpdateBadge)
-    local CURRENT_OMNI_VERSION = "1.2.0"
+    local CURRENT_OMNI_VERSION = "1.0"
     local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
     local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
     local LEDGER_PATH = "Omni_Ledger.json"
@@ -472,7 +472,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
     PillSubtitle.TextSize = 10
     PillSubtitle.TextColor3 = Color3.fromRGB(120, 170, 210)
     PillSubtitle.TextXAlignment = Enum.TextXAlignment.Left
-    PillSubtitle.Text = "v1.1.0 ➔ v1.2.0"
+    PillSubtitle.Text = "v1.0 Available"
     PillSubtitle.Parent = PillToast
 
     local PillReviewBtn = Instance.new("TextButton")
@@ -628,7 +628,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
     DiffAvailable.TextSize = 12
     DiffAvailable.TextColor3 = Color3.fromRGB(64, 196, 255)
     DiffAvailable.TextXAlignment = Enum.TextXAlignment.Left
-    DiffAvailable.Text = "Available: v1.2.0"
+    DiffAvailable.Text = "Available: v1.0"
     DiffAvailable.Parent = DiffCard
 
     local DiffDate = Instance.new("TextLabel")
@@ -1197,11 +1197,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 releaseDate = "2026-10-02",
                 title = "OMNI Release " .. CURRENT_OMNI_VERSION,
                 changelog = {
-                    "Rebranded to OMNI Task Manager with unified system telemetry",
-                    "Physical door contact & ragdoll faceplant recovery integration",
-                    "Dynamic CPU throttle cap (10ms sleep threshold guard)",
-                    "Pixel-perfect 8px button spacing & Fluent UI alignment",
-                    "Security & Transparency Gate: In-game changelog viewer with user consent for updates"
+                    "--released"
                 },
                 stages = {
                     {
