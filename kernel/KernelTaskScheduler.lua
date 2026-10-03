@@ -277,7 +277,7 @@ local function substituteArg(arg, ctx)
     return arg
 end
 
-local function evalValue(expr, ctx)
+evalValue = function(expr, ctx)
     if type(expr) ~= "string" then return expr end
     if expr == "" then return "" end
 
@@ -355,9 +355,15 @@ local function evalValue(expr, ctx)
         end
     end
 
-    -- 4. Check if it's a code expression (arithmetic/logic)
-    local isCodeExpr = (expr:find("%(") and expr:find("%)")) or expr:find("[%+%-%*/%%]") or expr:find("[><=]=")
-    if isCodeExpr and not expr:find("^https?://") then
+    -- 4. Explicit code expression (must start with "=" or "${...}")
+    local codeExpr = nil
+    if expr:sub(1, 1) == "=" then
+        codeExpr = expr:sub(2)
+    elseif expr:find("^%${.*}$") then
+        codeExpr = expr:match("^%${(.*)}$")
+    end
+
+    if codeExpr and codeExpr ~= "" then
         local SAFE_EVAL_GLOBALS = {
             string = string,
             math = math,
@@ -391,15 +397,10 @@ local function evalValue(expr, ctx)
             assert = assert,
         }
 
-        local codeExpr = expr:gsub("%$([%w_]+)", "%1")
+        local cleanExpr = codeExpr:gsub("%$([%w_]+)", "%1")
         local env = setmetatable({
             input = ctx.input,
             inputs = ctx.inputs,
-            workspace = workspace,
-            Workspace = workspace,
-            game = game,
-            Players = Players,
-            LocalPlayer = LocalPlayer,
             position = myHrp and myHrp.Position or Vector3.zero,
             pos = myHrp and myHrp.Position or Vector3.zero,
             cframe = myHrp and myHrp.CFrame or CFrame.identity,
@@ -418,7 +419,7 @@ local function evalValue(expr, ctx)
             end
         })
 
-        local fn = loadstring("return " .. codeExpr)
+        local fn = loadstring("return " .. cleanExpr)
         if fn then
             setfenv(fn, env)
             local ok, res = pcall(fn)
@@ -1341,19 +1342,24 @@ executeSingleAction = function(act, ctx)
                 local processedArgs = {}
                 local rawArgs = act.args
                 if type(rawArgs) == "string" then
-                    rawArgs = evalValue(rawArgs, ctx)
-                    if type(rawArgs) == "string" and rawArgs:sub(1,1) == "[" then
+                    if rawArgs:sub(1, 1) == "[" then
                         local okJ, dec = pcall(function() return HttpService:JSONDecode(rawArgs) end)
-                        rawArgs = (okJ and type(dec) == "table") and dec or { rawArgs }
+                        if okJ and type(dec) == "table" then
+                            for _, v in ipairs(dec) do
+                                table.insert(processedArgs, evalValue(v, ctx))
+                            end
+                        else
+                            table.insert(processedArgs, evalValue(rawArgs, ctx))
+                        end
                     else
-                        rawArgs = { rawArgs }
+                        table.insert(processedArgs, evalValue(rawArgs, ctx))
                     end
-                elseif type(rawArgs) ~= "table" then
-                    rawArgs = rawArgs and { rawArgs } or {}
-                end
-
-                for _, v in ipairs(rawArgs) do
-                    table.insert(processedArgs, substituteArg(v))
+                elseif type(rawArgs) == "table" then
+                    for _, v in ipairs(rawArgs) do
+                        table.insert(processedArgs, evalValue(v, ctx))
+                    end
+                elseif rawArgs ~= nil then
+                    table.insert(processedArgs, evalValue(rawArgs, ctx))
                 end
 
                 if act.type == "FireRemote" and remoteObj:IsA("RemoteEvent") then
@@ -4500,6 +4506,8 @@ getgenv().UnloadAllScheduledTasks = function()
     end
     Engine.activeTasks = {}
 end
+getgenv().EvaluateAutomationValue = evalValue
+getgenv().evalValue = evalValue
 
 getgenv()._KernelTaskSchedulerCleanUp = function()
     if keybindConnection then

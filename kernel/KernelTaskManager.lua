@@ -735,13 +735,12 @@ local function processFrame(eventState, ...)
                 dtArg2 = timeVal
             end
 
-            -- Smart Pipeline Partitioning:
-            -- If task is ultra-heavy (>16ms single run) and NOT hard real-time, run in detached worker thread
-            -- so it NEVER freezes or hitches the RunService frame rendering!
-            if not taskObj.isHardRealTime and not taskObj.isIngested and (taskObj.isAsync or (taskObj.lastTimeMs and taskObj.lastTimeMs > 16.0)) and taskObj.event ~= "SuperStep" then
+            -- Asynchronous Worker Tasks:
+            -- If task is explicitly marked isAsync and NOT hard real-time / ingested, run in detached worker thread
+            if taskObj.isAsync and not taskObj.isHardRealTime and not taskObj.isIngested and taskObj.event ~= "SuperStep" then
                 if not taskObj.isRunning then
                     taskObj.isRunning = true
-                    task.defer(function()
+                    task.spawn(function()
                         local sok, serr = pcall(runTask, taskObj, dtArg1, dtArg2)
                         taskObj.isRunning = false
                     end)
@@ -1208,14 +1207,15 @@ local function getCallingContext(minLvl)
                     if not anonymousCaller and line and line > 0 then
                         local suiteName = nil
                         local genv = (type(getgenv) == "function" and getgenv()) or _G
-                        if genv then
-                            if genv.KeepInfYield ~= nil or genv.IYMouse ~= nil or genv.cmds ~= nil or genv.execCmd ~= nil or genv.iyflyspeed ~= nil then
+                        local okEnv, fenv = pcall(getfenv, fn)
+                        if okEnv and type(fenv) == "table" and fenv ~= genv then
+                            if fenv.KeepInfYield ~= nil or fenv.IYMouse ~= nil or fenv.iyflyspeed ~= nil then
                                 suiteName = "InfiniteYield.lua"
-                            elseif genv.SimpleSpy ~= nil or genv.Spy ~= nil then
+                            elseif fenv.SimpleSpy ~= nil then
                                 suiteName = "SimpleSpy.lua"
-                            elseif genv.DEX_LOADED ~= nil or genv.Dex ~= nil then
+                            elseif fenv.DEX_LOADED ~= nil then
                                 suiteName = "Dex.lua"
-                            elseif genv.Hydroxide ~= nil then
+                            elseif fenv.Hydroxide ~= nil then
                                 suiteName = "Hydroxide.lua"
                             end
                         end
@@ -1874,7 +1874,10 @@ local function toggleStartupScript(filePath)
     end
 end
 
-local RequestIngestedLivenessCheck
+local ingestedConnections = getgenv()._VirtualSchedulerIngestedConnections or setmetatable({}, { __mode = "k" })
+getgenv()._VirtualSchedulerIngestedConnections = ingestedConnections
+local persistedIngestedKeys = getgenv()._VirtualSchedulerPersistedIngestedKeys or {}
+getgenv()._VirtualSchedulerPersistedIngestedKeys = persistedIngestedKeys
 
 local function installGlobalHooks()
     if hookfunction and getgenv()._VirtualSchedulerOrigFireServer then
@@ -2031,10 +2034,6 @@ installGlobalHooks()
 local DiscoveredGameTaskGroups = {}  -- [groupKey] = groupEntry
 local DiscoveredGameTaskOrder = {}   -- array of groupEntry
 local nextGameTaskId = 0
-local ingestedConnections = getgenv()._VirtualSchedulerIngestedConnections or setmetatable({}, { __mode = "k" })
-getgenv()._VirtualSchedulerIngestedConnections = ingestedConnections
-local persistedIngestedKeys = getgenv()._VirtualSchedulerPersistedIngestedKeys or {}
-getgenv()._VirtualSchedulerPersistedIngestedKeys = persistedIngestedKeys
 
 local function buildGameTasksProfile()
     local list = {}
@@ -2055,7 +2054,7 @@ local function buildGameTasksProfile()
     return list
 end
 
-local function DiscardIngestedGameTask(group)
+DiscardIngestedGameTask = function(group)
     if not group then return end
 
     -- 1. Stop scheduler proxy task immediately
@@ -2091,6 +2090,15 @@ local function DiscardIngestedGameTask(group)
     if ingestedConnections then
         for c, g in pairs(ingestedConnections) do
             if g == group then
+                pcall(function()
+                    if c.Connected ~= false then
+                        if c.Enable then
+                            c:Enable()
+                        elseif c.Enabled ~= nil then
+                            c.Enabled = true
+                        end
+                    end
+                end)
                 ingestedConnections[c] = nil
             end
         end
@@ -2102,6 +2110,10 @@ local function DiscardIngestedGameTask(group)
     group.connList = {}
     group.count = 0
     group.connected = false
+    if group.key then
+        persistedIngestedKeys[group.key] = nil
+        getgenv()._VirtualSchedulerPersistedIngestedKeys = persistedIngestedKeys
+    end
 
     -- 4. Unregister from groups and order
     if DiscoveredGameTaskGroups[group.key] == group then
@@ -2123,7 +2135,21 @@ end
 local function IsGroupAliveInSignal(group)
     if not group or not group.event then return false end
 
-    -- 1. Fast script instance ancestry check: If the script that created this connection was destroyed/removed from game
+    -- 1. Direct connection state check: If any tracked connection in the group is still connected
+    if group.connList and #group.connList > 0 then
+        local anyLive = false
+        for _, c in ipairs(group.connList) do
+            if c and c.Connected ~= false then
+                anyLive = true
+                break
+            end
+        end
+        if anyLive then
+            return true
+        end
+    end
+
+    -- 2. Fast script instance ancestry check: only discard if no live connections and parented out
     if group.scriptInstance then
         local ok, isDesc = pcall(function() return group.scriptInstance:IsDescendantOf(game) end)
         if ok and isDesc == false then
@@ -2379,7 +2405,7 @@ local function findDiscoveredGameTask(identifier)
     return nil
 end
 
-local function IngestGameTask(identifier)
+IngestGameTask = function(identifier)
     local group = findDiscoveredGameTask(identifier)
     if not group then return false, "Task not found" end
     if group.isIngested then return false, "Task already ingested" end
@@ -2640,6 +2666,7 @@ local function buildLoopProfile()
                 paused = loop.paused,
                 locked = loop.locked,
                 autoThrottled = loop.autoThrottled,
+                lastWaitRequested = loop.lastWaitRequested,
                 alive = loop.alive
             })
         end
@@ -2849,7 +2876,7 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
 
     loop.iterations = loop.iterations + 1
     loop.lastYieldTime = now
-    loop.lastWaitRequested = duration
+    loop.lastWaitRequested = requestedDelay
     return loop
 end
 
@@ -3417,7 +3444,7 @@ local function UnloadAllTasks()
 end
 
 -- Task lookup by ID or Name
-local function findTask(identifier)
+findTask = function(identifier)
     if not identifier then return nil, nil end
     local idStr = tostring(identifier)
     for _, evName in ipairs(EVENT_NAMES) do
@@ -3460,7 +3487,7 @@ local function SetSchedulerTaskPaused(identifier, isPaused)
 end
 
 -- Kill / End an individual task
-local function KillSchedulerTask(identifier)
+KillSchedulerTask = function(identifier)
     local taskObj, eventState = findTask(identifier)
     if taskObj then
         local tid = taskObj.id
@@ -3507,6 +3534,10 @@ local function KillSchedulerTask(identifier)
                 grp.isIngested = false
                 grp.taskId = nil
                 grp.schedulerConn = nil
+                if grp.key then
+                    persistedIngestedKeys[grp.key] = nil
+                    getgenv()._VirtualSchedulerPersistedIngestedKeys = persistedIngestedKeys
+                end
             elseif taskObj.nativeConn then
                 pcall(function()
                     if taskObj.nativeConn.Enable then
@@ -3517,6 +3548,16 @@ local function KillSchedulerTask(identifier)
                 end)
                 if ingestedConnections then
                     ingestedConnections[taskObj.nativeConn] = nil
+                end
+                local gEntry = findDiscoveredGameTask(taskObj.nativeConn)
+                if gEntry then
+                    gEntry.isIngested = false
+                    gEntry.taskId = nil
+                    gEntry.schedulerConn = nil
+                    if gEntry.key then
+                        persistedIngestedKeys[gEntry.key] = nil
+                        getgenv()._VirtualSchedulerPersistedIngestedKeys = persistedIngestedKeys
+                    end
                 end
             end
         end
@@ -3765,6 +3806,8 @@ getgenv().GetAdaptiveBudget = function() return currentBudgetMs, measuredFps end
 getgenv().SetSchedulerTaskPaused = SetSchedulerTaskPaused
 getgenv().PauseSchedulerTask = function(taskId) return SetSchedulerTaskPaused(taskId, true) end
 getgenv().ResumeSchedulerTask = function(taskId) return SetSchedulerTaskPaused(taskId, false) end
+getgenv().findTask = findTask
+getgenv().FindSchedulerTask = findTask
 getgenv().KillSchedulerTask = KillSchedulerTask
 getgenv().SetSchedulerTaskPriority = SetSchedulerTaskPriority
 getgenv().SetSchedulerTaskHz = SetSchedulerTaskHz
@@ -5607,7 +5650,6 @@ local isDraggingStartupRow = false
 local activeStartupDrag = nil
 local targetDropIndex = nil
 local targetDropStage = nil
-local refreshStartupTab
 
 -- ==============================================================================
 -- STARTUP ACCORDION CONTEXT MENU & IN-GAME CODE EDITOR

@@ -118,7 +118,6 @@ if not getgenv()._OmniBootloaderHandoffActive and not SafeMode then
                     local runOk, runErr = pcall(updatedFn)
                     getgenv()._OmniBootloaderHandoffActive = nil
                     if runOk then
-                        getgenv()._OmniBootloaderRunning = false
                         return -- Handed off cleanly to the updated bootloader!
                     else
                         warn("[Bootloader]: Updated bootloader runtime error, falling back to base v" .. CURRENT_OMNI_VERSION .. ": " .. tostring(runErr))
@@ -471,7 +470,13 @@ local function initUpdateGate(guiParent, UpdateBadge)
             local diff = {}
             for idx, line in ipairs(newLines) do
                 table.insert(diff, { type = "add", lineNum = idx, text = line })
-                if idx >= 500 then break end
+                if idx >= 500 then
+                    local rem = #newLines - idx
+                    if rem > 0 then
+                        table.insert(diff, { type = "info", lineNum = 0, text = string.format("... [preview truncated, %d lines remaining] ...", rem) })
+                    end
+                    break
+                end
             end
             return diff, #newLines, #newLines, 0
         end
@@ -1128,15 +1133,12 @@ local function initUpdateGate(guiParent, UpdateBadge)
             -- Fetch remote content if needed
             local remoteContent = stage.code or stage.content or fetchedStageCodes[stageIdx]
             if not remoteContent then
-                local shaToUse = getLatestCommitSha()
+                local shaToUse = (currentUpdateData and currentUpdateData.sha) or getLatestCommitSha()
                 local url = repoPath
                 if not url:find("^https?://") then
                     url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. shaToUse .. "/" .. url
                 end
                 remoteContent = fetchGithubScript(url)
-                if not remoteContent then
-                    remoteContent = fetchGithubScript(GITHUB_REPO_RAW .. repoPath .. "?v=" .. tostring(os.time()))
-                end
                 fetchedStageCodes[stageIdx] = remoteContent
             end
 
@@ -1623,6 +1625,9 @@ local function initUpdateGate(guiParent, UpdateBadge)
             for idx, stage in ipairs(stages) do
                 local repoPath = stage.repoPath or stage.url
                 local localPath = stage.localPath or stage.path
+                if not localPath or type(localPath) ~= "string" then
+                    continue
+                end
                 local name = stage.name or localPath:match("[^/\\]+$") or "Component"
 
                 local remoteContent = stage.code or stage.content or fetchedStageCodes[idx]
@@ -1632,9 +1637,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
                         url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. shaToUse .. "/" .. url
                     end
                     remoteContent = fetchGithubScript(url)
-                    if not remoteContent then
-                        remoteContent = fetchGithubScript(GITHUB_REPO_RAW .. repoPath .. "?v=" .. tostring(os.time()))
-                    end
                 end
 
                 if remoteContent and #remoteContent > 100 then
@@ -1727,6 +1729,9 @@ local function initUpdateGate(guiParent, UpdateBadge)
         if parsed.stages and type(parsed.stages) == "table" then
             for _, stage in ipairs(parsed.stages) do
                 local localPath = stage.localPath or stage.path
+                if not localPath or type(localPath) ~= "string" then
+                    continue
+                end
                 local name = stage.name or localPath
                 if isfile and not isfile(localPath) then
                     local compData = ledger.components[name]
@@ -2174,8 +2179,6 @@ if not SafeMode then
 else
     print("[Bootloader]: Safe Mode Active — Bypassing Ring 1 (PreInit).")
 end
--- Normal synchronous boot phase succeeded: clear running crash sentinel lockfile
-pcall(delfile, RUNNING_LOCK)
 emitTelemetry()
 
 -- ==============================================================================
@@ -2279,6 +2282,9 @@ task.spawn(function()
     Telemetry.totalDurationMs = math.floor(totalBootMs * 100) / 100
     emitTelemetry()
 
+    -- Full boot pipeline successfully completed: clear running crash sentinel lockfile
+    pcall(delfile, RUNNING_LOCK)
+
     getgenv()._OmniBootloaderRunning = false
     getgenv()._OmniBootloaderLoaded = true
 
@@ -2291,9 +2297,18 @@ task.spawn(function()
         pcall(function()
             queueOnTeleport([[
                 task.spawn(function()
-                    task.wait(0.5)
+                    local waited = 0
+                    while waited < 5.0 and not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning do
+                        task.wait(0.2)
+                        waited = waited + 0.2
+                    end
                     if not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning then
-                        loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()
+                        local hasLocal = (type(isfile) == "function") and (isfile("autoexec/Bootloader.lua") or isfile("workspace/autoexec/Bootloader.lua") or isfile("autoexec/CustomAutoExec.lua") or isfile("Omni_Installed.marker"))
+                        if not hasLocal then
+                            pcall(function()
+                                loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()
+                            end)
+                        end
                     end
                 end)
             ]])
