@@ -40,6 +40,11 @@ echo  [*] Enabling Safe Mode across all detected executors...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "$detected = @((Get-Location).Path, $env:LOCALAPPDATA, $env:APPDATA, (Join-Path $env:USERPROFILE 'Desktop'), (Join-Path $env:USERPROFILE 'Downloads'), (Join-Path $env:USERPROFILE 'Documents'));" ^
     "foreach ($r in $detected) { if (-not (Test-Path $r)) { continue };" ^
+    "  if ((Test-Path (Join-Path $r 'workspace')) -and (Test-Path (Join-Path $r 'autoexec'))) {" ^
+    "    $lock = Join-Path $r 'workspace\SAFE_MODE.lock';" ^
+    "    Set-Content -Path $lock -Value 'true' -Force;" ^
+    "    Write-Host ('  [OK] Safe Mode activated for ' + (Split-Path $r -Leaf)) -ForegroundColor Green;" ^
+    "  }" ^
     "  Get-ChildItem -Path $r -Directory -ErrorAction SilentlyContinue | ForEach-Object {" ^
     "    if ((Test-Path (Join-Path $_.FullName 'workspace')) -and (Test-Path (Join-Path $_.FullName 'autoexec'))) {" ^
     "      $lock = Join-Path $_.FullName 'workspace\SAFE_MODE.lock';" ^

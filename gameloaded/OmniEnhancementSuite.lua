@@ -439,12 +439,6 @@ function StreamerMode.Enable()
 
     -- ROOT 1: CoreGui (All Roblox Native UIs)
     HookGuiContainer(CoreGui)
-    local coreAddedConn = CoreGui.DescendantAdded:Connect(function(desc)
-        if desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox") then
-            HookTextObject(desc)
-        end
-    end)
-    table.insert(StreamerConns, coreAddedConn)
 
     -- ROOT 2: PlayerGui (All Developer 2D Screen UIs & HUDs)
     local function CheckPlayerGuiLabel(obj)
@@ -693,7 +687,6 @@ function PersonalSpaceBubble.Enable()
             end
         end
     end)
-    Own(bubbleConn)
 end
 
 function PersonalSpaceBubble.Disable()
@@ -734,7 +727,7 @@ local function PlayMentionChime()
     end)
 end
 
-local existingIncomingCallback
+local existingIncomingCallback = (genv and genv.__EnhancementOriginalIncomingCallback)
 local currentWrappedCallback
 
 local function WrapIncomingMessageCallback(originalFn)
@@ -790,7 +783,12 @@ end
 pcall(function()
     local TextChatService = game:GetService("TextChatService")
     if TextChatService then
-        existingIncomingCallback = TextChatService.OnIncomingMessage
+        if not existingIncomingCallback then
+            existingIncomingCallback = TextChatService.OnIncomingMessage
+            if genv then
+                genv.__EnhancementOriginalIncomingCallback = existingIncomingCallback
+            end
+        end
         currentWrappedCallback = WrapIncomingMessageCallback(existingIncomingCallback)
         TextChatService.OnIncomingMessage = currentWrappedCallback
     end
@@ -813,7 +811,6 @@ function AntiAFK.Enable()
                 VirtualUser:ClickButton2(Vector2.new(0, 0))
             end
         end)
-        Own(afkConn)
     end
 end
 
@@ -2312,8 +2309,8 @@ end
 local CrowdOptimizer = {}
 local isCrowdActive = false
 local crowdConns = {}
-local storedFaceControls = {}      -- [FaceControls] = parentHead
-local pausedAnimators = {}         -- [Animator] = true
+local storedFaceControls = setmetatable({}, { __mode = "k" })      -- [FaceControls] = parentHead
+local pausedAnimators = setmetatable({}, { __mode = "k" })         -- [Animator] = true
 
 local function TrackCrowdConn(c)
     table.insert(crowdConns, c)
@@ -2593,8 +2590,15 @@ local function FindTargetPage()
     return nil
 end
 
+local activeMenuCleanup = nil
+
 local function InjectEnhancementSettings(page)
     if not page or not page:IsDescendantOf(game) then return end
+
+    if activeMenuCleanup then
+        pcall(activeMenuCleanup)
+        activeMenuCleanup = nil
+    end
 
     for _, child in ipairs(page:GetChildren()) do
         if child.Name:sub(1, 12) == "Enhancement_" then
@@ -3283,7 +3287,13 @@ local function InjectEnhancementSettings(page)
             end
         end
     end
-    Own(CleanupMenu)
+    activeMenuCleanup = CleanupMenu
+    Own(function()
+        if activeMenuCleanup == CleanupMenu then
+            pcall(CleanupMenu)
+            activeMenuCleanup = nil
+        end
+    end)
 end
 
 local function SetupWatcher()
@@ -3481,6 +3491,20 @@ local function FullSuiteCleanup()
             pcall(x)
         end
         Janitor[i] = nil
+    end
+
+    -- 8. Restore TextChatService IncomingMessage callback
+    pcall(function()
+        local TextChatService = game:GetService("TextChatService")
+        if TextChatService and genv and genv.__EnhancementOriginalIncomingCallback then
+            TextChatService.OnIncomingMessage = genv.__EnhancementOriginalIncomingCallback
+            genv.__EnhancementOriginalIncomingCallback = nil
+        end
+    end)
+
+    if genv then
+        genv.__OmniEnhancementCleanup = nil
+        genv.__EnhancementCleanup = nil
     end
 
     print("[OmniEnhancementSuite]: Suite fully cleaned up.")

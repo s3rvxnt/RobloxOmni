@@ -70,16 +70,39 @@ foreach ($root in $detectedRoots) {
 }
 Write-Host ""
 
-# Fetch latest Bootloader.lua once into memory
-$localBootloader = Join-Path $PSScriptRoot "Bootloader.lua"
-if ($PSScriptRoot -and (Test-Path $localBootloader)) {
-    Write-Host "[+] Using local Bootloader.lua..." -ForegroundColor Cyan
-    $bootloaderContent = [IO.File]::ReadAllText($localBootloader, [Text.Encoding]::UTF8)
-} else {
-    Write-Host "[+] Fetching latest Bootloader.lua from GitHub..." -ForegroundColor Cyan
-    $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-    $bootloaderUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/Bootloader.lua?v=$timestamp"
-    $bootloaderContent = (Invoke-RestMethod -Uri $bootloaderUrl)
+# Fetch or load components once into memory
+$components = [ordered]@{
+    "Bootloader" = @{
+        LocalPath = "Bootloader.lua"
+        RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/Bootloader.lua"
+    }
+    "KernelTaskManager" = @{
+        LocalPath = "kernel\KernelTaskManager.lua"
+        RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/kernel/KernelTaskManager.lua"
+    }
+    "KernelTaskScheduler" = @{
+        LocalPath = "kernel\KernelTaskScheduler.lua"
+        RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/kernel/KernelTaskScheduler.lua"
+    }
+    "OmniEnhancementSuite" = @{
+        LocalPath = "gameloaded\OmniEnhancementSuite.lua"
+        RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/gameloaded/OmniEnhancementSuite.lua"
+    }
+}
+
+$contents = @{}
+$timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+
+foreach ($comp in $components.Keys) {
+    $info = $components[$comp]
+    $localFile = if ($PSScriptRoot) { Join-Path $PSScriptRoot $info.LocalPath } else { $null }
+    if ($localFile -and (Test-Path $localFile)) {
+        Write-Host "[+] Using local $($info.LocalPath)..." -ForegroundColor Cyan
+        $contents[$comp] = [IO.File]::ReadAllText($localFile, [Text.Encoding]::UTF8)
+    } else {
+        Write-Host "[+] Fetching latest $($info.LocalPath) from GitHub..." -ForegroundColor Cyan
+        $contents[$comp] = (Invoke-RestMethod -Uri "$($info.RemoteUrl)?v=$timestamp")
+    }
 }
 
 $excludeList = @("Bootloader.lua", "CustomAutoExec.lua", "OmniBootloader.lua", "que_on_teleport.lua")
@@ -90,6 +113,8 @@ foreach ($root in $detectedRoots) {
     $autoexecDir = Join-Path $root "autoexec"
     $workspaceDir = Join-Path $root "workspace"
     $targetPreinit = Join-Path $workspaceDir "autoexec\preinit"
+    $targetKernel = Join-Path $workspaceDir "autoexec\kernel"
+    $targetGameloaded = Join-Path $workspaceDir "autoexec\gameloaded"
 
     if (-not (Test-Path $autoexecDir)) {
         New-Item -ItemType Directory -Path $autoexecDir -Force | Out-Null
@@ -99,6 +124,12 @@ foreach ($root in $detectedRoots) {
     }
     if (-not (Test-Path $targetPreinit)) {
         New-Item -ItemType Directory -Path $targetPreinit -Force | Out-Null
+    }
+    if (-not (Test-Path $targetKernel)) {
+        New-Item -ItemType Directory -Path $targetKernel -Force | Out-Null
+    }
+    if (-not (Test-Path $targetGameloaded)) {
+        New-Item -ItemType Directory -Path $targetGameloaded -Force | Out-Null
     }
 
     # Safe migration: move loose third-party scripts from autoexec into workspace/autoexec/preinit/
@@ -113,7 +144,7 @@ foreach ($root in $detectedRoots) {
         foreach ($file in $legacyFiles) {
             $dest = Join-Path $targetPreinit $file.Name
             if (Test-Path $dest) {
-                Write-Host "     [!] Collision: '$($file.Name)' already exists in preinit/ — kept original" -ForegroundColor Yellow
+                Write-Host "     [!] Collision: '$($file.Name)' already exists in preinit/ -- kept original" -ForegroundColor Yellow
                 $skippedCount++
             } else {
                 Move-Item -Path $file.FullName -Destination $dest
@@ -124,15 +155,55 @@ foreach ($root in $detectedRoots) {
 
     # Deploy Bootloader.lua (strictly UTF-8 WITHOUT BOM)
     $bootloaderDest = Join-Path $autoexecDir "Bootloader.lua"
-    [IO.File]::WriteAllText($bootloaderDest, $bootloaderContent, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($bootloaderDest, $contents["Bootloader"], [Text.UTF8Encoding]::new($false))
+
+    # Deploy KernelTaskManager.lua
+    $ktmDest = Join-Path $targetKernel "KernelTaskManager.lua"
+    [IO.File]::WriteAllText($ktmDest, $contents["KernelTaskManager"], [Text.UTF8Encoding]::new($false))
+
+    # Deploy KernelTaskScheduler.lua
+    $ktsDest = Join-Path $targetKernel "KernelTaskScheduler.lua"
+    [IO.File]::WriteAllText($ktsDest, $contents["KernelTaskScheduler"], [Text.UTF8Encoding]::new($false))
+
+    # Deploy OmniEnhancementSuite.lua
+    $oesDest = Join-Path $targetGameloaded "OmniEnhancementSuite.lua"
+    [IO.File]::WriteAllText($oesDest, $contents["OmniEnhancementSuite"], [Text.UTF8Encoding]::new($false))
 
     # Write Omni_Installed.marker into workspace for zero-race teleport persistence
     $markerDest = Join-Path $workspaceDir "Omni_Installed.marker"
-    [IO.File]::WriteAllText($markerDest, [string]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()), [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($markerDest, [string]$timestamp, [Text.UTF8Encoding]::new($false))
 
-    # Write Omni_KernelInitialized.marker into workspace to respect intentional component deletion
+    # Write Omni_KernelInitialized.marker into workspace
     $kernelMarkerDest = Join-Path $workspaceDir "Omni_KernelInitialized.marker"
-    [IO.File]::WriteAllText($kernelMarkerDest, [string]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()), [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($kernelMarkerDest, [string]$timestamp, [Text.UTF8Encoding]::new($false))
+
+    # Initialize Omni_Ledger.json with pre-installed components
+    $ledgerObj = [PSCustomObject]@{
+        version = "1.0.0"
+        components = [PSCustomObject]@{
+            KernelTaskManager = [PSCustomObject]@{
+                installed = $true
+                lastSeenVersion = "1.0.0"
+                path = "autoexec/kernel/KernelTaskManager.lua"
+                updatedAt = [int]$timestamp
+            }
+            KernelTaskScheduler = [PSCustomObject]@{
+                installed = $true
+                lastSeenVersion = "1.0.0"
+                path = "autoexec/kernel/KernelTaskScheduler.lua"
+                updatedAt = [int]$timestamp
+            }
+            OmniEnhancementSuite = [PSCustomObject]@{
+                installed = $true
+                lastSeenVersion = "1.0.0"
+                path = "autoexec/gameloaded/OmniEnhancementSuite.lua"
+                updatedAt = [int]$timestamp
+            }
+        }
+    }
+    $ledgerJson = $ledgerObj | ConvertTo-Json -Depth 4
+    $ledgerDest = Join-Path $workspaceDir "Omni_Ledger.json"
+    [IO.File]::WriteAllText($ledgerDest, $ledgerJson, [Text.UTF8Encoding]::new($false))
 
     Write-Host "[OK] $execName" -ForegroundColor Green
     if ($migratedCount -gt 0) {
@@ -142,7 +213,9 @@ foreach ($root in $detectedRoots) {
         Write-Host "     -> Skipped $skippedCount colliding file(s) to prevent overwriting" -ForegroundColor DarkYellow
     }
     Write-Host "     -> Deployed Bootloader.lua to autoexec/ (UTF-8 without BOM)" -ForegroundColor Gray
-    Write-Host "     -> Created Omni_Installed.marker & Omni_KernelInitialized.marker in workspace/" -ForegroundColor Gray
+    Write-Host "     -> Deployed KernelTaskManager.lua and KernelTaskScheduler.lua to workspace/autoexec/kernel/" -ForegroundColor Gray
+    Write-Host "     -> Deployed OmniEnhancementSuite.lua to workspace/autoexec/gameloaded/" -ForegroundColor Gray
+    Write-Host "     -> Created markers and initialized Omni_Ledger.json (v1.0.0)" -ForegroundColor Gray
 }
 
 Write-Host ""

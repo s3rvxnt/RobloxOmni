@@ -1,7 +1,7 @@
 {
-  "version": "2.0.0",
+  "version": "1.0.0",
   "releaseDate": "2026-10-03",
-  "title": "Omni v2.0 - Universal Automation & Kernel",
+  "title": "Omni v1.0 - Universal Automation & Kernel",
   "changelog": [
     "Apple Shortcuts-style visual automation engine with 32+ action primitives (Shift + F6)",
     "Frame-budgeted micro-kernel & adaptive loop governor with per-task CPU telemetry (Shift + F8)",

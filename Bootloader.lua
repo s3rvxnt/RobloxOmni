@@ -20,7 +20,7 @@ local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
 
-local CURRENT_OMNI_VERSION = "2.0.0"
+local CURRENT_OMNI_VERSION = "1.0.0"
 local TARGET_BUDGET_MS = 6.0 -- Max Lua ms per frame before yielding to host engine
 
 -- Session duplicate run guard (prevents overlapping concurrent boots)
@@ -252,14 +252,6 @@ end
 local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/"
 local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
 
-local DEFAULT_STAGE_MIRRORS = {
-    {
-        repoPath = "kernel/KernelTaskManager.lua",
-        localPath = "autoexec/kernel/KernelTaskManager.lua",
-        name = "KernelTaskManager",
-        desc = "Kernel Task Manager & Runtime Micro-Kernel (Shift + F8)"
-    }
-}
 
 local function fetchGithubScript(url)
     local ok, content = pcall(function()
