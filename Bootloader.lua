@@ -336,10 +336,10 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
         -- 1. Known Obfuscator Signatures & Watermarks
         local obfKeywords = {
-            "luraph", "ironbrew", "moonsec", "prometheus", "psu obfuscator",
+            "luarmor", "luraph", "ironbrew", "moonsec", "prometheus", "psu obfuscator",
             "aztup", "boron", "wearedevs obfuscator", "synapse xen",
             "obfuscated with", "this file was obfuscated", "protected by",
-            "lph_obfuscated", "lph_jit", "lph_enc"
+            "lph-", "lph_", "lph_obfuscated", "lph_jit", "lph_enc"
         }
         for _, sig in ipairs(obfKeywords) do
             if lower:find(sig, 1, true) then
@@ -930,6 +930,26 @@ local function initUpdateGate(guiParent, UpdateBadge)
     ApplyCorner.CornerRadius = UDim.new(0, 6)
     ApplyCorner.Parent = ApplyUpdateBtn
 
+    -- Option B: Obfuscation Protection State & UI Controller
+    local isObfuscatedUpdateDetected = false
+    local forceInstallConfirmActive = false
+    local forceInstallResetThread = nil
+
+    local function refreshApplyButtonUI()
+        if isObfuscatedUpdateDetected then
+            if forceInstallConfirmActive then
+                ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(220, 20, 20)
+                ApplyUpdateBtn.Text = "🛑 Are you sure? Click again to Force Install"
+            else
+                ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+                ApplyUpdateBtn.Text = "⚠️ Force Install Obfuscated Code (Unsafe)"
+            end
+        else
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+            ApplyUpdateBtn.Text = "⬇️ Update & Apply Now"
+        end
+    end
+
     -- Tab Switching Logic
     local function switchTab(tabName)
         if tabName == "Changelog" then
@@ -1189,6 +1209,9 @@ local function initUpdateGate(guiParent, UpdateBadge)
             end
 
             if obfBadge then
+                isObfuscatedUpdateDetected = true
+                refreshApplyButtonUI()
+
                 local obfBanner = Instance.new("Frame")
                 obfBanner.Name = "ObfuscationBanner"
                 obfBanner.Size = UDim2.new(1, 0, 0, 36)
@@ -1331,6 +1354,13 @@ local function initUpdateGate(guiParent, UpdateBadge)
     end
 
     local function openUpdateModal(customData)
+        if forceInstallResetThread then
+            task.cancel(forceInstallResetThread)
+            forceInstallResetThread = nil
+        end
+        forceInstallConfirmActive = false
+        isObfuscatedUpdateDetected = false
+
         if customData and type(customData) == "table" then
             currentUpdateData = customData
             fetchedStageCodes = {}
@@ -1357,6 +1387,25 @@ local function initUpdateGate(guiParent, UpdateBadge)
             }
         end
 
+        -- Pre-scan any immediately available stage contents for obfuscation
+        if currentUpdateData and currentUpdateData.stages then
+            for idx, st in ipairs(currentUpdateData.stages) do
+                local c = st.code or st.content or fetchedStageCodes[idx]
+                if c then
+                    local bg = auditScriptContent(c)
+                    for _, b in ipairs(bg) do
+                        if b.label == "🛑 Obfuscated" then
+                            isObfuscatedUpdateDetected = true
+                            break
+                        end
+                    end
+                end
+            end
+        end
+
+        ApplyUpdateBtn.Active = true
+        refreshApplyButtonUI()
+
         local ledger = loadLedger()
         local installedVersion = (ledger and ledger.version) or CURRENT_OMNI_VERSION
         DiffCurrent.Text = "Installed: v" .. tostring(installedVersion)
@@ -1376,6 +1425,12 @@ local function initUpdateGate(guiParent, UpdateBadge)
     getgenv().TestOmniUpdateGate = openUpdateModal
 
     local function closeUpdateModal()
+        if forceInstallResetThread then
+            task.cancel(forceInstallResetThread)
+            forceInstallResetThread = nil
+        end
+        forceInstallConfirmActive = false
+        refreshApplyButtonUI()
         ModalBackdrop.Visible = false
     end
 
@@ -1466,6 +1521,27 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
     ApplyUpdateBtn.MouseButton1Click:Connect(function()
         if not currentUpdateData then return end
+
+        -- Option B: Two-click confirmation for obfuscated updates
+        if isObfuscatedUpdateDetected and not forceInstallConfirmActive then
+            forceInstallConfirmActive = true
+            refreshApplyButtonUI()
+            if forceInstallResetThread then
+                task.cancel(forceInstallResetThread)
+            end
+            forceInstallResetThread = task.delay(4.5, function()
+                forceInstallConfirmActive = false
+                refreshApplyButtonUI()
+            end)
+            return
+        end
+
+        if forceInstallResetThread then
+            task.cancel(forceInstallResetThread)
+            forceInstallResetThread = nil
+        end
+        forceInstallConfirmActive = false
+
         ApplyUpdateBtn.Active = false
         ApplyUpdateBtn.Text = "⏳ Fetching from GitHub..."
 
@@ -1561,8 +1637,8 @@ local function initUpdateGate(guiParent, UpdateBadge)
             else
                 ApplyUpdateBtn.Text = "❌ Download Failed (Check Connection)"
                 task.wait(2.5)
-                ApplyUpdateBtn.Text = "⬇️ Update & Apply Now"
                 ApplyUpdateBtn.Active = true
+                refreshApplyButtonUI()
             end
         end)
     end)
