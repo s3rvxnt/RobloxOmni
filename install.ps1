@@ -1,5 +1,5 @@
 # Omni Universal 1-Click Installer
-# Run: irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/install.ps1 | iex
+# Run: irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/install.ps1 | iex
 
 param([string]$Path)
 
@@ -78,7 +78,7 @@ if ($PSScriptRoot -and (Test-Path $localBootloader)) {
 } else {
     Write-Host "[+] Fetching latest Bootloader.lua from GitHub..." -ForegroundColor Cyan
     $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-    $bootloaderUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua?v=$timestamp"
+    $bootloaderUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/Bootloader.lua?v=$timestamp"
     $bootloaderContent = (Invoke-RestMethod -Uri $bootloaderUrl)
 }
 

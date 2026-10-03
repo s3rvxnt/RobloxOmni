@@ -199,7 +199,7 @@ end
 -- ==============================================================================
 -- GITHUB STAGE AUTO-MIRRORING & DYNAMIC SYNC
 -- ==============================================================================
-local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
+local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/"
 local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
 
 local DEFAULT_STAGE_MIRRORS = {
@@ -277,7 +277,7 @@ local function getGuiParent()
 end
 
 local function initUpdateGate(guiParent, UpdateBadge)
-    local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
+    local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/"
     local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
     local LEDGER_PATH = "Omni_Ledger.json"
 
@@ -306,7 +306,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
         local ok, res = pcall(function()
             if type(request) == "function" then
                 local resp = request({
-                    Url = "https://api.github.com/repos/s3rvxnt/RobloxOmni/commits/main",
+                    Url = "https://api.github.com/repos/s3rvxnt/RobloxOmni/commits/release",
                     Method = "GET",
                     Headers = { ["User-Agent"] = "OmniUpdater" }
                 })
@@ -319,7 +319,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
         if ok and res and type(res) == "string" and #res > 10 then
             return res
         end
-        return "main"
+        return "release"
     end
 
     -- Ledger Management
@@ -2343,7 +2343,7 @@ task.spawn(function()
                         local hasLocal = (type(isfile) == "function") and (isfile("autoexec/Bootloader.lua") or isfile("workspace/autoexec/Bootloader.lua") or isfile("autoexec/CustomAutoExec.lua") or isfile("Omni_Installed.marker"))
                         if not hasLocal then
                             pcall(function()
-                                loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()
+                                loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/Bootloader.lua"))()
                             end)
                         end
                     end
