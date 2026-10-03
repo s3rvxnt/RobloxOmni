@@ -329,6 +329,117 @@ local function initUpdateGate(guiParent, UpdateBadge)
     local function auditScriptContent(code)
         local badges = {}
         if not code or #code == 0 then return badges end
+
+        -- Obfuscation Detection
+        local isObfuscated = false
+        local obfReason = nil
+        local lower = code:lower()
+
+        -- 1. Known Obfuscator Signatures & Watermarks
+        local obfKeywords = {
+            "luraph", "ironbrew", "moonsec", "prometheus", "psu obfuscator",
+            "aztup", "boron", "wearedevs obfuscator", "synapse xen",
+            "obfuscated with", "this file was obfuscated", "protected by",
+            "lph_obfuscated", "lph_jit", "lph_enc"
+        }
+        for _, sig in ipairs(obfKeywords) do
+            if lower:find(sig, 1, true) then
+                isObfuscated = true
+                obfReason = "Known Signature (" .. sig .. ")"
+                break
+            end
+        end
+
+        -- 2. Barcode variable names (e.g. IlIIlllIIllI)
+        if not isObfuscated then
+            local barcodeCount = 0
+            for _ in code:gmatch("[Il1][Il1][Il1][Il1][Il1][Il1][Il1][Il1]+") do
+                barcodeCount = barcodeCount + 1
+                if barcodeCount >= 5 then
+                    isObfuscated = true
+                    obfReason = "Barcode Variables"
+                    break
+                end
+            end
+        end
+
+        -- 3. Hex variable identifiers (e.g. _0x4f1a2b)
+        if not isObfuscated then
+            local hexVarCount = 0
+            for _ in code:gmatch("_0x%x%x%x%x+") do
+                hexVarCount = hexVarCount + 1
+                if hexVarCount >= 8 then
+                    isObfuscated = true
+                    obfReason = "Hex Variables"
+                    break
+                end
+            end
+        end
+
+        -- 4. Precompiled Bytecode Signature
+        if not isObfuscated then
+            if code:sub(1, 4) == "\27Lua" or code:find("\\27Lua", 1, true) or code:find("\\x1bLua", 1, true) then
+                isObfuscated = true
+                obfReason = "Precompiled Bytecode"
+            end
+        end
+
+        -- 5. Packed Decimal Byte Streams (\123\145\167...)
+        if not isObfuscated then
+            local escapedByteCount = 0
+            for _ in code:gmatch("\\[0-9][0-9][0-9]") do
+                escapedByteCount = escapedByteCount + 1
+                if escapedByteCount > 80 then
+                    isObfuscated = true
+                    obfReason = "Packed Decimal Bytes"
+                    break
+                end
+            end
+        end
+
+        -- 6. Packed Hex Byte Streams (\x41\x42\x43...)
+        if not isObfuscated then
+            local hexEscapeCount = 0
+            for _ in code:gmatch("\\x%x%x") do
+                hexEscapeCount = hexEscapeCount + 1
+                if hexEscapeCount > 80 then
+                    isObfuscated = true
+                    obfReason = "Packed Hex Bytes"
+                    break
+                end
+            end
+        end
+
+        -- 7. Giant dense single-line VM wrapper (> 2500 chars with string decoding)
+        if not isObfuscated then
+            for line in code:gmatch("[^\r\n]+") do
+                if #line > 2500 and not line:match("^%s*%-%-") then
+                    if line:find("string%.char") or line:find("bit32") or line:find("getfenv") or line:find("unpack") or line:find("table%.concat") then
+                        isObfuscated = true
+                        obfReason = "Dense Packed VM Line"
+                        break
+                    end
+                end
+            end
+        end
+
+        -- 8. Excessive dynamic string.char calls
+        if not isObfuscated then
+            local strCharCount = 0
+            for _ in code:gmatch("string%.char%s*%(") do
+                strCharCount = strCharCount + 1
+                if strCharCount >= 15 then
+                    isObfuscated = true
+                    obfReason = "Excessive string.char"
+                    break
+                end
+            end
+        end
+
+        if isObfuscated then
+            table.insert(badges, { label = "🛑 Obfuscated", color = Color3.fromRGB(255, 65, 65), reason = obfReason })
+        end
+
         if code:find("discord%.com/api/webhooks") or code:find("discordapp%.com/api/webhooks") then
             table.insert(badges, { label = "🚨 Webhook", color = Color3.fromRGB(240, 70, 70) })
         end
@@ -1077,6 +1188,44 @@ local function initUpdateGate(guiParent, UpdateBadge)
             diffStatLbl.TextColor3 = (adds == 0 and removes == 0) and Color3.fromRGB(120, 210, 150) or Color3.fromRGB(160, 200, 240)
             diffStatLbl.Text = (adds == 0 and removes == 0) and ("✓ " .. totalLines .. " lines (Synced)") or ("+" .. tostring(adds) .. " / -" .. tostring(removes) .. " lines")
             diffStatLbl.Parent = diffStat
+
+            local obfBadge = nil
+            for _, b in ipairs(badges) do
+                if b.label == "🛑 Obfuscated" then
+                    obfBadge = b
+                    break
+                end
+            end
+
+            if obfBadge then
+                local obfBanner = Instance.new("Frame")
+                obfBanner.Name = "ObfuscationBanner"
+                obfBanner.Size = UDim2.new(1, 0, 0, 36)
+                obfBanner.BackgroundColor3 = Color3.fromRGB(45, 16, 20)
+                obfBanner.BorderSizePixel = 0
+                obfBanner.LayoutOrder = 0
+                obfBanner.Parent = CodeScroll
+
+                local obfCorner = Instance.new("UICorner")
+                obfCorner.CornerRadius = UDim.new(0, 4)
+                obfCorner.Parent = obfBanner
+
+                local obfStroke = Instance.new("UIStroke")
+                obfStroke.Thickness = 1
+                obfStroke.Color = Color3.fromRGB(240, 70, 70)
+                obfStroke.Parent = obfBanner
+
+                local obfLbl = Instance.new("TextLabel")
+                obfLbl.Size = UDim2.new(1, -20, 1, 0)
+                obfLbl.Position = UDim2.new(0, 12, 0, 0)
+                obfLbl.BackgroundTransparency = 1
+                obfLbl.Font = Enum.Font.GothamBold
+                obfLbl.TextSize = 11
+                obfLbl.TextColor3 = Color3.fromRGB(255, 100, 100)
+                obfLbl.TextXAlignment = Enum.TextXAlignment.Left
+                obfLbl.Text = "🛑 OBFUSCATION DETECTED (" .. tostring(obfBadge.reason or "Untrusted") .. ") — Logic is hidden from inspection!"
+                obfLbl.Parent = obfBanner
+            end
 
             if #diff == 0 or (adds == 0 and removes == 0 and #localContent > 0) then
                 local emptyRow = Instance.new("Frame")
