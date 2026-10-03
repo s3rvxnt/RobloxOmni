@@ -1567,8 +1567,8 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 local localPath = stage.localPath or stage.path
                 local name = stage.name or localPath:match("[^/\\]+$") or "Component"
 
-                local remoteContent = fetchedStageCodes[idx]
-                if not remoteContent then
+                local remoteContent = stage.code or stage.content or fetchedStageCodes[idx]
+                if not remoteContent and repoPath then
                     local url = repoPath
                     if not url:find("^https?://") then
                         url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. shaToUse .. "/" .. url
