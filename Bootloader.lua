@@ -20,11 +20,42 @@ local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
 
+local CURRENT_OMNI_VERSION = "1.0"
 local TARGET_BUDGET_MS = 6.0 -- Max Lua ms per frame before yielding to host engine
+
+-- Session duplicate run guard (prevents overlapping concurrent boots)
+if getgenv()._OmniBootloaderRunning then
+    print("[Bootloader]: Omni Bootloader is already running in this session.")
+    return
+end
+getgenv()._OmniBootloaderRunning = true
 
 if type(isfolder) ~= "function" or type(listfiles) ~= "function" then
     print("[Bootloader]: Incompatible exploit environment.")
+    getgenv()._OmniBootloaderRunning = false
     return
+end
+
+-- Version Comparison Helpers
+local function parseVersion(vStr)
+    local parts = {}
+    for num in tostring(vStr):gmatch("%d+") do
+        table.insert(parts, tonumber(num))
+    end
+    while #parts < 3 do table.insert(parts, 0) end
+    return parts
+end
+
+local function isNewerVersion(remote, current)
+    local r = parseVersion(remote)
+    local c = parseVersion(current)
+    for i = 1, math.max(#r, #c) do
+        local rVal = r[i] or 0
+        local cVal = c[i] or 0
+        if rVal > cVal then return true end
+        if rVal < cVal then return false end
+    end
+    return false
 end
 
 -- ==============================================================================
@@ -64,6 +95,37 @@ if SafeMode then
 else
     -- Write running lockfile for crash detection
     pcall(writefile, RUNNING_LOCK, tostring(os.time()))
+end
+
+-- ==============================================================================
+-- DYNAMIC BOOTLOADER HANDOFF (Future-Proof Self-Update Bridge)
+-- ==============================================================================
+-- If an updated verified bootloader was installed via the Update Gate to workspace,
+-- hand off execution seamlessly to the newer version.
+if not getgenv()._OmniBootloaderHandoffActive and not SafeMode then
+    local updatedPath = "autoexec/Bootloader_Updated.lua"
+    if isfile and isfile(updatedPath) then
+        local ok, updatedCode = pcall(readfile, updatedPath)
+        if ok and updatedCode and #updatedCode > 500 then
+            local updatedVersion = updatedCode:match('CURRENT_OMNI_VERSION%s*=%s*"([^"]+)"')
+            if updatedVersion and isNewerVersion(updatedVersion, CURRENT_OMNI_VERSION) then
+                local updatedFn, compileErr = loadstring(updatedCode, "@Bootloader_Updated")
+                if updatedFn then
+                    getgenv()._OmniBootloaderHandoffActive = true
+                    local runOk, runErr = pcall(updatedFn)
+                    if runOk then
+                        getgenv()._OmniBootloaderRunning = false
+                        return -- Handed off cleanly to the updated bootloader!
+                    else
+                        getgenv()._OmniBootloaderHandoffActive = false
+                        warn("[Bootloader]: Updated bootloader runtime error, falling back to base v" .. CURRENT_OMNI_VERSION .. ": " .. tostring(runErr))
+                    end
+                else
+                    warn("[Bootloader]: Updated bootloader compilation error: " .. tostring(compileErr))
+                end
+            end
+        end
+    end
 end
 
 -- Global Rejoin in Safe Mode helper
@@ -230,12 +292,17 @@ local function getGuiParent()
         if ok and hui then return hui end
     end
     local Players = game:GetService("Players")
-    local lp = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
-    return lp:WaitForChild("PlayerGui")
+    local start = os.clock()
+    while not Players.LocalPlayer and (os.clock() - start) < 15 do
+        task.wait(0.1)
+    end
+    if Players.LocalPlayer then
+        return Players.LocalPlayer:WaitForChild("PlayerGui", 10)
+    end
+    return nil
 end
 
 local function initUpdateGate(guiParent, UpdateBadge)
-    local CURRENT_OMNI_VERSION = "1.0"
     local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
     local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
     local LEDGER_PATH = "Omni_Ledger.json"
@@ -279,27 +346,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
             return res
         end
         return "main"
-    end
-
-    local function parseVersion(vStr)
-        local parts = {}
-        for num in tostring(vStr):gmatch("%d+") do
-            table.insert(parts, tonumber(num))
-        end
-        while #parts < 3 do table.insert(parts, 0) end
-        return parts
-    end
-
-    local function isNewerVersion(remote, current)
-        local r = parseVersion(remote)
-        local c = parseVersion(current)
-        for i = 1, math.max(#r, #c) do
-            local rVal = r[i] or 0
-            local cVal = c[i] or 0
-            if rVal > cVal then return true end
-            if rVal < cVal then return false end
-        end
-        return false
     end
 
     -- Ledger Management
@@ -1805,7 +1851,7 @@ local function isScriptFile(path)
     if not path or isfolder(path) then return false end
     local lower = path:lower()
     local name = lower:match("[^/\\]+$")
-    if name == "bootloader.lua" or name == "customautoexec.lua" then return false end
+    if name == "bootloader.lua" or name == "customautoexec.lua" or name == "bootloader_updated.lua" then return false end
     if lower:match("%.off$") or lower:match("%.disabled$") or lower:match("%.bak$") or lower:match("%.tmp$") then
         return false
     end
@@ -2217,6 +2263,19 @@ task.spawn(function()
     -- Normal boot completed successfully without crashes: delete running lockfile
     pcall(delfile, RUNNING_LOCK)
 
+    getgenv()._OmniBootloaderRunning = false
+    getgenv()._OmniBootloaderLoaded = true
+
     print(string.format("[Bootloader]: Boot completed in %.1fms | Discovered: %d | Executed: %d | Success: %d | Errors: %d",
         totalBootMs, Telemetry.discovered, Telemetry.executed, Telemetry.success, Telemetry.errors))
+
+    -- For in-game session users (no autoexec installation), keep Omni alive across teleports
+    if not isfile("autoexec/Bootloader.lua") then
+        local queueOnTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or queueonteleport or (fluxus and fluxus.queue_on_teleport)
+        if type(queueOnTeleport) == "function" then
+            pcall(function()
+                queueOnTeleport('loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()')
+            end)
+        end
+    end
 end)
