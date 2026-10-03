@@ -76,11 +76,12 @@ if not getgenv()._KernelLoadstringShimInstalled then
             if typeof(src) == "Instance" then
                 if src:IsA("LuaSourceContainer") then
                     local ok, code = pcall(function() return (decompile and decompile(src)) or src.Source end)
-                    if ok and type(code) == "string" then
+                    if ok and type(code) == "string" and code ~= "" then
                         return origLoadstring(code, chunkname or ("@" .. src:GetFullName()))
                     end
                 end
-                return nil, "invalid argument #1 to 'loadstring' (string expected, got Instance)"
+                -- Gracefully return a safe no-op callable so callers like TopbarPlus don't throw runtime errors
+                return function() end
             end
             return origLoadstring(src, chunkname)
         end
@@ -1875,17 +1876,21 @@ local function installGlobalHooks()
     end
 
     local origInstanceIndex = getgenv()._VirtualSchedulerOrigIndex
+    local origInstanceNamecall = getgenv()._VirtualSchedulerOrigNamecall
+    local RealRunService = RunService
 
-    local function customIndex(self, key)
-        -- STRICT GENV ISOLATION: Game scripts (checkcaller() == false) MUST NEVER be intercepted!
-        if not checkcaller or not checkcaller() then
-            if origInstanceIndex then
-                return origInstanceIndex(self, key)
+    local customIndex
+    customIndex = (newcclosure and newcclosure or function(fn) return fn end)(function(self, key)
+        -- STRICT CALLER ISOLATION: Game scripts (checkcaller() == false) MUST NEVER be intercepted!
+        if not (checkcaller and checkcaller()) then
+            local orig = origInstanceIndex or getgenv()._VirtualSchedulerOrigIndex
+            if orig then
+                return orig(self, key)
             end
             return
         end
 
-        if self == RunService then
+        if self == RealRunService then
             local sigs = getgenv()._VirtualSchedulerProxiedSignals or ProxiedSignals
             if key == "Heartbeat" or key == "PostSimulation" then
                 return sigs.Heartbeat
@@ -1899,46 +1904,50 @@ local function installGlobalHooks()
                 return ProxiedUnbindFromRenderStep
             end
         end
-        if origInstanceIndex then
-            return origInstanceIndex(self, key)
+        local orig = origInstanceIndex or getgenv()._VirtualSchedulerOrigIndex
+        if orig then
+            return orig(self, key)
         end
-    end
+    end)
+
+    local customNamecall
+    customNamecall = (newcclosure and newcclosure or function(fn) return fn end)(function(self, ...)
+        local method = (getnamecallmethod and getnamecallmethod()) or ""
+
+        -- STRICT CALLER ISOLATION: Game scripts (checkcaller() == false) MUST NEVER be intercepted!
+        if not (checkcaller and checkcaller()) then
+            local orig = origInstanceNamecall or getgenv()._VirtualSchedulerOrigNamecall
+            if orig then
+                return orig(self, ...)
+            end
+            return
+        end
+
+        if self == RealRunService then
+            if method == "BindToRenderStep" then
+                return ProxiedBindToRenderStep(self, ...)
+            elseif method == "UnbindFromRenderStep" then
+                return ProxiedUnbindFromRenderStep(self, ...)
+            end
+        end
+        local orig = origInstanceNamecall or getgenv()._VirtualSchedulerOrigNamecall
+        if orig then
+            return orig(self, ...)
+        end
+    end)
 
     -- Primary: hookmetamethod (Potassium, Synapse, modern Luau executors)
     if hookmetamethod then
         local ok, oldIdx = pcall(hookmetamethod, game, "__index", customIndex)
-        if ok and oldIdx then
-            if not origInstanceIndex then
-                origInstanceIndex = oldIdx
-                getgenv()._VirtualSchedulerOrigIndex = oldIdx
-            end
-            getgenv()._VirtualSchedulerHooksActive = true
+        if ok and oldIdx and not origInstanceIndex then
+            origInstanceIndex = oldIdx
+            getgenv()._VirtualSchedulerOrigIndex = oldIdx
         end
 
-        -- Intercept __namecall for RunService:BindToRenderStep and RunService:UnbindFromRenderStep
-        local origInstanceNamecall = getgenv()._VirtualSchedulerOrigNamecall
-        local function customNamecall(self, ...)
-            if checkcaller and checkcaller() then
-                if self == RunService then
-                    local method = (getnamecallmethod and getnamecallmethod()) or ""
-                    if method == "BindToRenderStep" then
-                        return ProxiedBindToRenderStep(self, ...)
-                    elseif method == "UnbindFromRenderStep" then
-                        return ProxiedUnbindFromRenderStep(self, ...)
-                    end
-                end
-            end
-            if origInstanceNamecall then
-                return origInstanceNamecall(self, ...)
-            end
-        end
-
-        if not origInstanceNamecall then
-            local okNc, oldNc = pcall(hookmetamethod, game, "__namecall", customNamecall)
-            if okNc and oldNc then
-                origInstanceNamecall = oldNc
-                getgenv()._VirtualSchedulerOrigNamecall = oldNc
-            end
+        local okNc, oldNc = pcall(hookmetamethod, game, "__namecall", customNamecall)
+        if okNc and oldNc and not origInstanceNamecall then
+            origInstanceNamecall = oldNc
+            getgenv()._VirtualSchedulerOrigNamecall = oldNc
         end
     end
 
@@ -1958,6 +1967,7 @@ local function installGlobalHooks()
 
     getgenv()._VirtualSchedulerHooksActive = true
     getgenv()._VirtualSchedulerOrigIndex = origInstanceIndex
+    getgenv()._VirtualSchedulerOrigNamecall = origInstanceNamecall
 end
 
 installGlobalHooks()
@@ -3641,6 +3651,7 @@ local function cleanUpScheduler()
     -- Restore original metamethods if they were hooked
     if hookmetamethod and getgenv()._VirtualSchedulerOrigIndex then
         pcall(hookmetamethod, game, "__index", getgenv()._VirtualSchedulerOrigIndex)
+        getgenv()._VirtualSchedulerOrigIndex = nil
     end
     if hookmetamethod and getgenv()._VirtualSchedulerOrigNamecall then
         pcall(hookmetamethod, game, "__namecall", getgenv()._VirtualSchedulerOrigNamecall)
