@@ -3809,317 +3809,326 @@ local cachedGameRows = {}
 local activeExpandedRowKey = nil
 
 -- ==============================================================================
--- DYNAMIC COLUMN WIDTHS & INTERACTIVE RESIZING STATE (File Scope)
+-- UNCORRUPTIBLE RUNTIME ICON DEFINITIONS (File Scope)
 -- ==============================================================================
+local ICONS = {
+    LOCK_OPEN   = utf8.char(0x1F513), -- 🔓
+    LOCK_CLOSED = utf8.char(0x1F512), -- 🔒
+    PAUSE       = utf8.char(0x23F8),  -- ⏸
+    PLAY        = utf8.char(0x25B6),  -- ▶
+    KILL        = utf8.char(0x2715),  -- ✕
+    GRIP        = utf8.char(0x2195),  -- ↕
+    RESIZE      = utf8.char(0x2194),  -- ↔
+    BOLT        = utf8.char(0x26A1),  -- ⚡
+    GAME        = utf8.char(0x1F3AE), -- 🎮
+    GLOBE       = utf8.char(0x1F310), -- 🌐
+    EDIT        = utf8.char(0x270F) .. utf8.char(0xFE0F), -- ✏️
+    DELETE      = utf8.char(0x1F5D1) .. utf8.char(0xFE0F), -- 🗑️
+    WARN        = utf8.char(0x26A0) .. utf8.char(0xFE0F), -- ⚠️
+    HOURGLASS   = utf8.char(0x23F3),  -- ⏳
+    DOT_GREEN   = utf8.char(0x1F7E2), -- 🟢
+    DOT_WHITE   = utf8.char(0x26AA),  -- ⚪
+    INGEST      = utf8.char(0x1F4E5), -- 📥
+    EJECT       = utf8.char(0x1F4E4), -- 📤
+    CHECK       = utf8.char(0x2713),  -- ✓
+    CROSS       = utf8.char(0x274C),  -- ❌
+}
+
+-- ==============================================================================
+-- DYNAMIC MULTI-COLUMN CONFIGURATION & INTERACTIVE RESIZING STATE (File Scope)
+-- ==============================================================================
+local ColumnConfig = {
+    Tasks = {
+        gutter = 0.06,
+        cols = {
+            { id = "Name",    name = "TASK IDENTIFIER & SOURCE", align = Enum.TextXAlignment.Left,   width = 0.36, minWidth = 0.15, maxWidth = 0.65, defaultWidth = 0.36 },
+            { id = "Event",   name = "EVENT",                    align = Enum.TextXAlignment.Left,   width = 0.16, minWidth = 0.08, maxWidth = 0.30, defaultWidth = 0.16 },
+            { id = "Hz",      name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.07, maxWidth = 0.22, defaultWidth = 0.11 },
+            { id = "Lock",    name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.07, minWidth = 0.04, maxWidth = 0.14, defaultWidth = 0.07 },
+            { id = "Cpu",     name = "CPU TIME",                 align = Enum.TextXAlignment.Right,  width = 0.12, minWidth = 0.06, maxWidth = 0.22, defaultWidth = 0.12 },
+            { id = "Actions", name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.12, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.12 },
+        }
+    },
+    Loops = {
+        gutter = 0.06,
+        cols = {
+            { id = "Name",    name = "LOOP CALLER & LOCATION",   align = Enum.TextXAlignment.Left,   width = 0.36, minWidth = 0.15, maxWidth = 0.65, defaultWidth = 0.36 },
+            { id = "Iters",   name = "ITERS",                    align = Enum.TextXAlignment.Left,   width = 0.16, minWidth = 0.08, maxWidth = 0.30, defaultWidth = 0.16 },
+            { id = "Hz",      name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.07, maxWidth = 0.22, defaultWidth = 0.11 },
+            { id = "Lock",    name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.07, minWidth = 0.04, maxWidth = 0.14, defaultWidth = 0.07 },
+            { id = "Cpu",     name = "CPU TIME",                 align = Enum.TextXAlignment.Right,  width = 0.12, minWidth = 0.06, maxWidth = 0.22, defaultWidth = 0.12 },
+            { id = "Actions", name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.12, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.12 },
+        }
+    },
+    Startup = {
+        gutter = 0.06,
+        cols = {
+            { id = "Name",    name = "SCRIPT IDENTIFIER & RELATIVE PATH", align = Enum.TextXAlignment.Left,   width = 0.48, minWidth = 0.20, maxWidth = 0.75, defaultWidth = 0.48 },
+            { id = "Stage",   name = "BOOT STAGE",                        align = Enum.TextXAlignment.Left,   width = 0.16, minWidth = 0.10, maxWidth = 0.30, defaultWidth = 0.16 },
+            { id = "Time",    name = "EXEC TIME",                         align = Enum.TextXAlignment.Right,  width = 0.13, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.13 },
+            { id = "Toggle",  name = "STATE / TOGGLE",                    align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.10, maxWidth = 0.30, defaultWidth = 0.17 },
+        }
+    },
+    Game = {
+        gutter = 0.06,
+        cols = {
+            { id = "Name",    name = "GAME SCRIPT & LINE", align = Enum.TextXAlignment.Left,   width = 0.44, minWidth = 0.20, maxWidth = 0.75, defaultWidth = 0.44 },
+            { id = "Event",   name = "EVENT",              align = Enum.TextXAlignment.Left,   width = 0.18, minWidth = 0.10, maxWidth = 0.35, defaultWidth = 0.18 },
+            { id = "Status",  name = "ENGINE STATUS",      align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.10, maxWidth = 0.30, defaultWidth = 0.17 },
+            { id = "Action",  name = "ACTION",             align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.08, maxWidth = 0.30, defaultWidth = 0.15 },
+        }
+    },
+}
+
+-- Backward compatibility reference
 local ColumnWidths = {
-    Tasks = { name = 0.33, minName = 0.15, maxName = 0.65, defaultName = 0.33 },
-    Loops = { name = 0.35, minName = 0.15, maxName = 0.65, defaultName = 0.35 },
-    Startup = { name = 0.44, minName = 0.15, maxName = 0.70, defaultName = 0.44 },
-    Game = { name = 0.44, minName = 0.15, maxName = 0.70, defaultName = 0.44 },
+    Tasks = { name = 0.36, minName = 0.15, maxName = 0.65, defaultName = 0.36 },
+    Loops = { name = 0.36, minName = 0.15, maxName = 0.65, defaultName = 0.36 },
+    Startup = { name = 0.48, minName = 0.20, maxName = 0.75, defaultName = 0.48 },
+    Game = { name = 0.44, minName = 0.20, maxName = 0.75, defaultName = 0.44 },
 }
 
 local TableHeaders = {}
 local activeDividerDrag = nil
 local allStartupScriptsRef = nil
 
-local function applyRowColumnLayout(row, tabKey)
-    if not row or not row.Parent then return end
-    local cfg = ColumnWidths[tabKey]
+local H_PAD = 10 -- Generous inner padding ensuring header and row text never collides with divider lines
+
+-- FORWARD DECLARATIONS (ensures mutual visibility and eliminates nil calls)
+local updateTableColumnLayout
+local applyRowColumnLayout
+local handleDividerDrag
+local autoFitColumn
+
+local function computeColumnPositions(tabKey)
+    local cfg = ColumnConfig[tabKey]
+    if not cfg then return {}, {} end
+    local positions = {}
+    local widths = {}
+    local curX = cfg.gutter
+    for i, col in ipairs(cfg.cols) do
+        positions[i] = curX
+        widths[i] = col.width
+        curX = curX + col.width
+    end
+    return positions, widths
+end
+
+handleDividerDrag = function(tabKey, dividerIdx, mouseFractionX)
+    local cfg = ColumnConfig[tabKey]
     if not cfg then return end
-    local w = cfg.name
-    local rem = math.max(0.08, 1.0 - (0.08 + w))
+    local k = dividerIdx
+    local cols = cfg.cols
+    local gutter = cfg.gutter
+    
+    local posX = gutter
+    for i = 1, k - 1 do
+        posX = posX + cols[i].width
+    end
+    
+    local minRemaining = 0
+    for j = k + 1, #cols do
+        minRemaining = minRemaining + (cols[j].minWidth or 0.05)
+    end
+    
+    local minX = posX + (cols[k].minWidth or 0.08)
+    local maxX = 1.0 - minRemaining
+    if cols[k].maxWidth then
+        maxX = math.min(maxX, posX + cols[k].maxWidth)
+    end
+    
+    local clampedX = math.clamp(mouseFractionX, minX, math.max(minX, maxX))
+    local newColKWidth = clampedX - posX
+    cols[k].width = newColKWidth
+    
+    local remSpace = 1.0 - clampedX
+    local oldRemSum = 0
+    for j = k + 1, #cols do
+        oldRemSum = oldRemSum + cols[j].width
+    end
+    
+    if oldRemSum > 0.0001 then
+        for j = k + 1, #cols do
+            cols[j].width = remSpace * (cols[j].width / oldRemSum)
+        end
+    else
+        local each = remSpace / (#cols - k)
+        for j = k + 1, #cols do
+            cols[j].width = each
+        end
+    end
+    
+    if ColumnWidths[tabKey] and k == 1 then
+        ColumnWidths[tabKey].name = cols[1].width
+    end
+
+    if updateTableColumnLayout then
+        updateTableColumnLayout(tabKey)
+    end
+end
+
+applyRowColumnLayout = function(row, tabKey)
+    if not row or not row.Parent then return end
+    local positions, widths = computeColumnPositions(tabKey)
+    if #positions == 0 then return end
 
     if tabKey == "Startup" then
-        local wStage = rem * 0.3636
-        local posStage = 0.08 + w + 0.005
-        local wTime = rem * 0.3182
-        local posTime = posStage + wStage
-        local wToggle = rem * 0.3182
-        local posToggle = posTime + wTime
+        local pName, wName = positions[1], widths[1]
+        local pStage, wStage = positions[2], widths[2]
+        local pTime, wTime = positions[3], widths[3]
+        local pToggle, wToggle = positions[4], widths[4]
 
         local nameLbl = row:FindFirstChild("NameLbl")
         if nameLbl then
-            nameLbl.Position = UDim2.new(0.08, 0, 0, 2)
-            nameLbl.Size = UDim2.new(w, -8, 0, 15)
+            nameLbl.Position = UDim2.new(pName, H_PAD, 0, 2)
+            nameLbl.Size = UDim2.new(wName, -H_PAD * 2, 0, 15)
         end
         local pathLbl = row:FindFirstChild("PathLbl")
         if pathLbl then
-            pathLbl.Position = UDim2.new(0.08, 0, 0, 17)
-            pathLbl.Size = UDim2.new(w, -8, 0, 12)
+            pathLbl.Position = UDim2.new(pName, H_PAD, 0, 17)
+            pathLbl.Size = UDim2.new(wName, -H_PAD * 2, 0, 12)
         end
         local stageBadge = row:FindFirstChild("StageBadge")
         if stageBadge then
-            stageBadge.Position = UDim2.new(posStage, 0, 0, 7)
-            stageBadge.Size = UDim2.new(wStage, -8, 0, 18)
+            stageBadge.Position = UDim2.new(pStage, H_PAD, 0, 7)
+            stageBadge.Size = UDim2.new(wStage, -H_PAD * 2, 0, 18)
         end
         local timeLbl = row:FindFirstChild("TimeLbl")
         if timeLbl then
-            timeLbl.Position = UDim2.new(posTime, 0, 0, 0)
-            timeLbl.Size = UDim2.new(wTime, -8, 1, 0)
+            timeLbl.Position = UDim2.new(pTime, H_PAD, 0, 0)
+            timeLbl.Size = UDim2.new(wTime, -H_PAD * 2, 1, 0)
         end
         local toggleBtn = row:FindFirstChild("ToggleBtn")
         if toggleBtn then
-            toggleBtn.Position = UDim2.new(posToggle + math.max(0, (wToggle - 0.08) / 2), 0, 0, 6)
+            toggleBtn.Position = UDim2.new(pToggle + wToggle / 2, -36, 0, 6)
         end
 
     elseif tabKey == "Tasks" then
-        local wEvent = rem * 0.2549
-        local posEvent = 0.08 + w + 0.005
-        local wHz = rem * 0.1961
-        local posHz = posEvent + wEvent
-        local wLock = rem * 0.0980
-        local posLock = posHz + wHz
-        local wCpu = rem * 0.2157
-        local posCpu = posLock + wLock
-        local wActions = rem * 0.2353
-        local posActions = posCpu + wCpu
+        local pName, wName = positions[1], widths[1]
+        local pEvt, wEvt = positions[2], widths[2]
+        local pHz, wHz = positions[3], widths[3]
+        local pLock, wLock = positions[4], widths[4]
+        local pCpu, wCpu = positions[5], widths[5]
+        local pAct, wAct = positions[6], widths[6]
 
         local nameLbl = row:FindFirstChild("NameLbl")
         if nameLbl then
-            nameLbl.Position = UDim2.new(0, 34, 0, 0)
-            nameLbl.Size = UDim2.new(w, -38, 1, 0)
+            nameLbl.Position = UDim2.new(pName, H_PAD, 0, 0)
+            nameLbl.Size = UDim2.new(wName, -H_PAD * 2, 1, 0)
         end
         local eventLbl = row:FindFirstChild("EventLbl")
         if eventLbl then
-            eventLbl.Position = UDim2.new(posEvent, 0, 0, 0)
-            eventLbl.Size = UDim2.new(wEvent, -4, 1, 0)
+            eventLbl.Position = UDim2.new(pEvt, H_PAD, 0, 0)
+            eventLbl.Size = UDim2.new(wEvt, -H_PAD * 2, 1, 0)
         end
         local priBtn = row:FindFirstChild("PriBtn")
         if priBtn then
-            priBtn.Position = UDim2.new(posHz + wHz / 2, -32, 0.5, -10)
+            priBtn.Position = UDim2.new(pHz + wHz / 2, -32, 0.5, -10)
         end
         local lockBtn = row:FindFirstChild("LockBtn")
         if lockBtn then
-            lockBtn.Position = UDim2.new(posLock + wLock / 2, -12, 0.5, -10)
+            lockBtn.Position = UDim2.new(pLock + wLock / 2, -12, 0.5, -10)
         end
         local cpuLbl = row:FindFirstChild("CpuLbl")
         if cpuLbl then
-            cpuLbl.Position = UDim2.new(posCpu, 0, 0, 0)
-            cpuLbl.Size = UDim2.new(wCpu, -4, 1, 0)
+            cpuLbl.Position = UDim2.new(pCpu, H_PAD, 0, 0)
+            cpuLbl.Size = UDim2.new(wCpu, -H_PAD * 2, 1, 0)
         end
-        local btnKill = row:FindFirstChild("BtnKill")
-        local btnPause = row:FindFirstChild("BtnPause")
-        if btnKill and btnPause then
-            btnPause.Position = UDim2.new(posActions + wActions / 2, -30, 0.5, -10)
-            btnKill.Position = UDim2.new(posActions + wActions / 2, 6, 0.5, -10)
-        elseif btnKill then
-            btnKill.Position = UDim2.new(posActions + wActions / 2, -12, 0.5, -10)
+        local actions = row:FindFirstChild("Actions")
+        if actions then
+            actions.Position = UDim2.new(pAct, H_PAD, 0, 0)
+            actions.Size = UDim2.new(wAct, -H_PAD * 2, 1, 0)
         end
 
     elseif tabKey == "Loops" then
-        local wIters = rem * 0.2245
-        local posIters = 0.08 + w + 0.005
-        local wHz = rem * 0.2041
-        local posHz = posIters + wIters
-        local wLock = rem * 0.1020
-        local posLock = posHz + wHz
-        local wCpu = rem * 0.2245
-        local posCpu = posLock + wLock
-        local wActions = rem * 0.2449
-        local posActions = posCpu + wCpu
+        local pName, wName = positions[1], widths[1]
+        local pItr, wItr = positions[2], widths[2]
+        local pHz, wHz = positions[3], widths[3]
+        local pLock, wLock = positions[4], widths[4]
+        local pCpu, wCpu = positions[5], widths[5]
+        local pAct, wAct = positions[6], widths[6]
 
         local nameLbl = row:FindFirstChild("NameLbl")
         if nameLbl then
-            nameLbl.Position = UDim2.new(0, 34, 0, 0)
-            nameLbl.Size = UDim2.new(w, -38, 1, 0)
+            nameLbl.Position = UDim2.new(pName, H_PAD, 0, 0)
+            nameLbl.Size = UDim2.new(wName, -H_PAD * 2, 1, 0)
         end
         local itersLbl = row:FindFirstChild("ItersLbl")
         if itersLbl then
-            itersLbl.Position = UDim2.new(posIters, 0, 0, 0)
-            itersLbl.Size = UDim2.new(wIters, -4, 1, 0)
+            itersLbl.Position = UDim2.new(pItr, H_PAD, 0, 0)
+            itersLbl.Size = UDim2.new(wItr, -H_PAD * 2, 1, 0)
         end
         local hzBtn = row:FindFirstChild("HzBtn")
         if hzBtn then
-            hzBtn.Position = UDim2.new(posHz + wHz / 2, -32, 0.5, -10)
+            hzBtn.Position = UDim2.new(pHz + wHz / 2, -32, 0.5, -10)
         end
         local lockBtn = row:FindFirstChild("LockBtn")
         if lockBtn then
-            lockBtn.Position = UDim2.new(posLock + wLock / 2, -12, 0.5, -10)
+            lockBtn.Position = UDim2.new(pLock + wLock / 2, -12, 0.5, -10)
         end
         local cpuLbl = row:FindFirstChild("CpuLbl")
         if cpuLbl then
-            cpuLbl.Position = UDim2.new(posCpu, 0, 0, 0)
-            cpuLbl.Size = UDim2.new(wCpu, -4, 1, 0)
+            cpuLbl.Position = UDim2.new(pCpu, H_PAD, 0, 0)
+            cpuLbl.Size = UDim2.new(wCpu, -H_PAD * 2, 1, 0)
         end
-        local btnKill = row:FindFirstChild("BtnKill")
-        local btnPause = row:FindFirstChild("BtnPause")
-        if btnKill and btnPause then
-            btnPause.Position = UDim2.new(posActions + wActions / 2, -30, 0.5, -10)
-            btnKill.Position = UDim2.new(posActions + wActions / 2, 6, 0.5, -10)
-        elseif btnKill then
-            btnKill.Position = UDim2.new(posActions + wActions / 2, -12, 0.5, -10)
+        local actions = row:FindFirstChild("Actions")
+        if actions then
+            actions.Position = UDim2.new(pAct, H_PAD, 0, 0)
+            actions.Size = UDim2.new(wAct, -H_PAD * 2, 1, 0)
         end
 
     elseif tabKey == "Game" then
-        local wEvent = rem * 0.3409
-        local posEvent = 0.08 + w + 0.005
-        local wStatus = rem * 0.3409
-        local posStatus = posEvent + wEvent
-        local wAction = rem * 0.3182
-        local posAction = posStatus + wStatus
+        local pName, wName = positions[1], widths[1]
+        local pEvt, wEvt = positions[2], widths[2]
+        local pSts, wSts = positions[3], widths[3]
+        local pAct, wAct = positions[4], widths[4]
 
         local nameLbl = row:FindFirstChild("NameLbl")
         if nameLbl then
-            nameLbl.Position = UDim2.new(0, 34, 0, 0)
-            nameLbl.Size = UDim2.new(w, -38, 1, 0)
+            nameLbl.Position = UDim2.new(pName, H_PAD, 0, 0)
+            nameLbl.Size = UDim2.new(wName, -H_PAD * 2, 1, 0)
         end
         local eventLbl = row:FindFirstChild("EventLbl")
         if eventLbl then
-            eventLbl.Position = UDim2.new(posEvent, 0, 0, 0)
-            eventLbl.Size = UDim2.new(wEvent, -4, 1, 0)
+            eventLbl.Position = UDim2.new(pEvt, H_PAD, 0, 0)
+            eventLbl.Size = UDim2.new(wEvt, -H_PAD * 2, 1, 0)
         end
         local statusLbl = row:FindFirstChild("StatusLbl")
         if statusLbl then
-            statusLbl.Position = UDim2.new(posStatus, 0, 0, 0)
-            statusLbl.Size = UDim2.new(wStatus, -4, 1, 0)
+            statusLbl.Position = UDim2.new(pSts, H_PAD, 0, 0)
+            statusLbl.Size = UDim2.new(wSts, -H_PAD * 2, 1, 0)
         end
         local disconnectBtn = row:FindFirstChild("DisconnectBtn")
         if disconnectBtn then
-            disconnectBtn.Position = UDim2.new(posAction + wAction / 2, -32, 0.5, -10)
+            disconnectBtn.Position = UDim2.new(pAct + wAct / 2, -32, 0.5, -10)
         end
     end
 end
 
-local function updateTableColumnLayout(tabKey)
-    local cfg = ColumnWidths[tabKey]
+updateTableColumnLayout = function(tabKey)
+    local cfg = ColumnConfig[tabKey]
     if not cfg then return end
-    local w = cfg.name
-    local rem = math.max(0.08, 1.0 - (0.08 + w))
+    local positions, widths = computeColumnPositions(tabKey)
+    if #positions == 0 then return end
+
+    if ColumnWidths[tabKey] then
+        ColumnWidths[tabKey].name = cfg.cols[1].width
+    end
 
     local header = TableHeaders[tabKey]
     if header then
-        local divider = header:FindFirstChild("ColDivider_Name")
-        if divider then
-            divider.Position = UDim2.new(0.08 + w, -7, 0, 0)
+        for i, col in ipairs(cfg.cols) do
+            local colLabel = header:FindFirstChild("Col_" .. col.id)
+            if colLabel then
+                colLabel.Position = UDim2.new(positions[i], H_PAD, 0, 0)
+                colLabel.Size = UDim2.new(widths[i], -H_PAD * 2, 1, 0)
+            end
         end
 
-        local colName = header:FindFirstChild("Col_Name")
-        if colName then
-            colName.Size = UDim2.new(w, 0, 1, 0)
-        end
-
-        if tabKey == "Startup" then
-            local wStage = rem * 0.3636
-            local posStage = 0.08 + w + 0.005
-            local wTime = rem * 0.3182
-            local posTime = posStage + wStage
-            local wToggle = rem * 0.3182
-            local posToggle = posTime + wTime
-
-            local colStage = header:FindFirstChild("Col_Stage")
-            if colStage then
-                colStage.Position = UDim2.new(posStage, 0, 0, 0)
-                colStage.Size = UDim2.new(wStage, 0, 1, 0)
-            end
-            local colTime = header:FindFirstChild("Col_Time")
-            if colTime then
-                colTime.Position = UDim2.new(posTime, 0, 0, 0)
-                colTime.Size = UDim2.new(wTime, 0, 1, 0)
-            end
-            local colToggle = header:FindFirstChild("Col_Toggle")
-            if colToggle then
-                colToggle.Position = UDim2.new(posToggle, 0, 0, 0)
-                colToggle.Size = UDim2.new(wToggle, 0, 1, 0)
-            end
-
-        elseif tabKey == "Tasks" then
-            local wEvent = rem * 0.2549
-            local posEvent = 0.08 + w + 0.005
-            local wHz = rem * 0.1961
-            local posHz = posEvent + wEvent
-            local wLock = rem * 0.0980
-            local posLock = posHz + wHz
-            local wCpu = rem * 0.2157
-            local posCpu = posLock + wLock
-            local wActions = rem * 0.2353
-            local posActions = posCpu + wCpu
-
-            local colEvent = header:FindFirstChild("Col_Event")
-            if colEvent then
-                colEvent.Position = UDim2.new(posEvent, 0, 0, 0)
-                colEvent.Size = UDim2.new(wEvent, 0, 1, 0)
-            end
-            local colHz = header:FindFirstChild("Col_Hz")
-            if colHz then
-                colHz.Position = UDim2.new(posHz, 0, 0, 0)
-                colHz.Size = UDim2.new(wHz, 0, 1, 0)
-            end
-            local colLock = header:FindFirstChild("Col_Lock")
-            if colLock then
-                colLock.Position = UDim2.new(posLock, 0, 0, 0)
-                colLock.Size = UDim2.new(wLock, 0, 1, 0)
-            end
-            local colCpu = header:FindFirstChild("Col_Cpu")
-            if colCpu then
-                colCpu.Position = UDim2.new(posCpu, 0, 0, 0)
-                colCpu.Size = UDim2.new(wCpu, 0, 1, 0)
-            end
-            local colActions = header:FindFirstChild("Col_Actions")
-            if colActions then
-                colActions.Position = UDim2.new(posActions, 0, 0, 0)
-                colActions.Size = UDim2.new(wActions, 0, 1, 0)
-            end
-
-        elseif tabKey == "Loops" then
-            local wIters = rem * 0.2245
-            local posIters = 0.08 + w + 0.005
-            local wHz = rem * 0.2041
-            local posHz = posIters + wIters
-            local wLock = rem * 0.1020
-            local posLock = posHz + wHz
-            local wCpu = rem * 0.2245
-            local posCpu = posLock + wLock
-            local wActions = rem * 0.2449
-            local posActions = posCpu + wCpu
-
-            local colIters = header:FindFirstChild("Col_Iters")
-            if colIters then
-                colIters.Position = UDim2.new(posIters, 0, 0, 0)
-                colIters.Size = UDim2.new(wIters, 0, 1, 0)
-            end
-            local colHz = header:FindFirstChild("Col_Hz")
-            if colHz then
-                colHz.Position = UDim2.new(posHz, 0, 0, 0)
-                colHz.Size = UDim2.new(wHz, 0, 1, 0)
-            end
-            local colLock = header:FindFirstChild("Col_Lock")
-            if colLock then
-                colLock.Position = UDim2.new(posLock, 0, 0, 0)
-                colLock.Size = UDim2.new(wLock, 0, 1, 0)
-            end
-            local colCpu = header:FindFirstChild("Col_Cpu")
-            if colCpu then
-                colCpu.Position = UDim2.new(posCpu, 0, 0, 0)
-                colCpu.Size = UDim2.new(wCpu, 0, 1, 0)
-            end
-            local colActions = header:FindFirstChild("Col_Actions")
-            if colActions then
-                colActions.Position = UDim2.new(posActions, 0, 0, 0)
-                colActions.Size = UDim2.new(wActions, 0, 1, 0)
-            end
-
-        elseif tabKey == "Game" then
-            local wEvent = rem * 0.3409
-            local posEvent = 0.08 + w + 0.005
-            local wStatus = rem * 0.3409
-            local posStatus = posEvent + wEvent
-            local wAction = rem * 0.3182
-            local posAction = posStatus + wStatus
-
-            local colEvent = header:FindFirstChild("Col_Event")
-            if colEvent then
-                colEvent.Position = UDim2.new(posEvent, 0, 0, 0)
-                colEvent.Size = UDim2.new(wEvent, 0, 1, 0)
-            end
-            local colStatus = header:FindFirstChild("Col_Status")
-            if colStatus then
-                colStatus.Position = UDim2.new(posStatus, 0, 0, 0)
-                colStatus.Size = UDim2.new(wStatus, 0, 1, 0)
-            end
-            local colAction = header:FindFirstChild("Col_Action")
-            if colAction then
-                colAction.Position = UDim2.new(posAction, 0, 0, 0)
-                colAction.Size = UDim2.new(wAction, 0, 1, 0)
+        for i = 1, #cfg.cols - 1 do
+            local divider = header:FindFirstChild("ColDivider_" .. i)
+            if divider then
+                divider.Position = UDim2.new(positions[i + 1], -9, 0, 0)
             end
         end
     end
@@ -4138,136 +4147,163 @@ local function updateTableColumnLayout(tabKey)
     end
 end
 
-local function autoFitColumn(tabKey)
-    local cfg = ColumnWidths[tabKey]
-    if not cfg then return end
+autoFitColumn = function(tabKey, divIdx)
+    divIdx = divIdx or 1
+    local cfg = ColumnConfig[tabKey]
+    if not cfg or not cfg.cols[divIdx] then return end
+    local targetCol = cfg.cols[divIdx]
+
     local header = TableHeaders[tabKey]
     local headerWidth = (header and header.AbsoluteSize.X > 50) and header.AbsoluteSize.X or 800
-
     local longestText = ""
     local TextService = game:GetService("TextService")
 
-    if tabKey == "Startup" then
-        if allStartupScriptsRef then
+    if divIdx == 1 then
+        if tabKey == "Startup" and allStartupScriptsRef then
             for _, s in ipairs(allStartupScriptsRef) do
                 local t1 = s.name or ""
                 local t2 = s.file or ""
                 if #t1 > #longestText then longestText = t1 end
                 if #t2 > #longestText then longestText = t2 end
             end
-        end
-    elseif tabKey == "Tasks" then
-        for _, r in pairs(cachedTaskRows) do
-            local lbl = r:FindFirstChild("NameLbl")
-            if lbl and lbl.Text and #lbl.Text > #longestText then
-                longestText = lbl.Text
+        elseif tabKey == "Tasks" then
+            for _, r in pairs(cachedTaskRows) do
+                local lbl = r:FindFirstChild("NameLbl")
+                if lbl and lbl.Text and #lbl.Text > #longestText then longestText = lbl.Text end
+            end
+        elseif tabKey == "Loops" then
+            for _, r in pairs(cachedLoopRows) do
+                local lbl = r:FindFirstChild("NameLbl")
+                if lbl and lbl.Text and #lbl.Text > #longestText then longestText = lbl.Text end
+            end
+        elseif tabKey == "Game" then
+            for _, r in pairs(cachedGameRows) do
+                local lbl = r:FindFirstChild("NameLbl")
+                if lbl and lbl.Text and #lbl.Text > #longestText then longestText = lbl.Text end
             end
         end
-    elseif tabKey == "Loops" then
-        for _, r in pairs(cachedLoopRows) do
-            local lbl = r:FindFirstChild("NameLbl")
-            if lbl and lbl.Text and #lbl.Text > #longestText then
-                longestText = lbl.Text
+    elseif divIdx == 2 then
+        if tabKey == "Tasks" or tabKey == "Game" then
+            for _, r in pairs(tabKey == "Tasks" and cachedTaskRows or cachedGameRows) do
+                local lbl = r:FindFirstChild("EventLbl")
+                if lbl and lbl.Text and #lbl.Text > #longestText then longestText = lbl.Text end
+            end
+        elseif tabKey == "Startup" and allStartupScriptsRef then
+            for _, s in ipairs(allStartupScriptsRef) do
+                local t = s.stage or ""
+                if #t > #longestText then longestText = t end
+            end
+        elseif tabKey == "Loops" then
+            for _, r in pairs(cachedLoopRows) do
+                local lbl = r:FindFirstChild("ItersLbl")
+                if lbl and lbl.Text and #lbl.Text > #longestText then longestText = lbl.Text end
             end
         end
-    elseif tabKey == "Game" then
-        for _, r in pairs(cachedGameRows) do
-            local lbl = r:FindFirstChild("NameLbl")
-            if lbl and lbl.Text and #lbl.Text > #longestText then
-                longestText = lbl.Text
-            end
-        end
+    end
+
+    local posX = cfg.gutter
+    for i = 1, divIdx - 1 do
+        posX = posX + cfg.cols[i].width
     end
 
     if #longestText > 0 then
         local textSize = TextService:GetTextSize(longestText, 11, Enum.Font.GothamMedium, Vector2.new(10000, 20))
-        local neededPx = textSize.X + 60
+        local neededPx = textSize.X + 40
         local targetFraction = neededPx / headerWidth
-        cfg.name = math.clamp(targetFraction, cfg.minName, cfg.maxName)
+        targetFraction = math.clamp(targetFraction, targetCol.minWidth or 0.08, targetCol.maxWidth or 0.65)
+        handleDividerDrag(tabKey, divIdx, posX + targetFraction)
     else
-        cfg.name = cfg.defaultName
+        handleDividerDrag(tabKey, divIdx, posX + (targetCol.defaultWidth or targetCol.width))
     end
-    updateTableColumnLayout(tabKey)
 end
 
-local function setupHeaderDivider(headerContainer, tabKey)
-    local cfg = ColumnWidths[tabKey]
+getgenv()._OmniTaskManager_HandleDividerDrag = handleDividerDrag
+getgenv()._OmniTaskManager_AutoFitColumn = autoFitColumn
+
+local function setupHeaderDividers(headerContainer, tabKey)
+    local cfg = ColumnConfig[tabKey]
     if not cfg then return end
+    local positions = computeColumnPositions(tabKey)
 
-    local divider = Instance.new("TextButton")
-    divider.Name = "ColDivider_Name"
-    divider.Size = UDim2.new(0, 14, 1, 0)
-    divider.Position = UDim2.new(0.08 + cfg.name, -7, 0, 0)
-    divider.BackgroundTransparency = 1
-    divider.Text = ""
-    divider.AutoButtonColor = false
-    divider.ZIndex = 25
-    divider.Parent = headerContainer
+    for i = 1, #cfg.cols - 1 do
+        local divIdx = i
+        local divider = Instance.new("TextButton")
+        divider.Name = "ColDivider_" .. divIdx
+        divider.Size = UDim2.new(0, 18, 1, 0)
+        divider.Position = UDim2.new(positions[divIdx + 1], -9, 0, 0)
+        divider.BackgroundTransparency = 1
+        divider.Text = ""
+        divider.AutoButtonColor = false
+        divider.ZIndex = 25
+        divider.Parent = headerContainer
 
-    local line = Instance.new("Frame")
-    line.Name = "Line"
-    line.Size = UDim2.new(0, 1, 0.7, 0)
-    line.Position = UDim2.new(0.5, 0, 0.15, 0)
-    line.BackgroundColor3 = Color3.fromRGB(55, 65, 85)
-    line.BorderSizePixel = 0
-    line.ZIndex = 26
-    line.Parent = divider
+        local line = Instance.new("Frame")
+        line.Name = "Line"
+        line.Size = UDim2.new(0, 1, 0.7, 0)
+        line.Position = UDim2.new(0.5, 0, 0.15, 0)
+        line.BackgroundColor3 = Color3.fromRGB(55, 65, 85)
+        line.BorderSizePixel = 0
+        line.ZIndex = 26
+        line.Parent = divider
 
-    local gripIcon = Instance.new("TextLabel")
-    gripIcon.Name = "GripIcon"
-    gripIcon.Size = UDim2.new(0, 18, 0, 16)
-    gripIcon.Position = UDim2.new(0.5, -9, 0.5, -8)
-    gripIcon.BackgroundTransparency = 1
-    gripIcon.Font = Enum.Font.GothamBold
-    gripIcon.TextSize = 11
-    gripIcon.TextColor3 = Color3.fromRGB(80, 200, 255)
-    gripIcon.Text = "↔"
-    gripIcon.Visible = false
-    gripIcon.ZIndex = 28
-    gripIcon.Parent = divider
+        local gripIcon = Instance.new("TextLabel")
+        gripIcon.Name = "GripIcon"
+        gripIcon.Size = UDim2.new(0, 18, 0, 16)
+        gripIcon.Position = UDim2.new(0.5, -9, 0.5, -8)
+        gripIcon.BackgroundTransparency = 1
+        gripIcon.Font = Enum.Font.GothamBold
+        gripIcon.TextSize = 11
+        gripIcon.TextColor3 = Color3.fromRGB(80, 200, 255)
+        gripIcon.Text = ICONS.RESIZE
+        gripIcon.Visible = false
+        gripIcon.ZIndex = 28
+        gripIcon.Parent = divider
 
-    local lastClickTime = 0
+        local lastClickTime = 0
 
-    divider.MouseEnter:Connect(function()
-        if not activeDividerDrag then
+        divider.MouseEnter:Connect(function()
+            if not activeDividerDrag then
+                line.BackgroundColor3 = Color3.fromRGB(80, 200, 255)
+                line.Size = UDim2.new(0, 2, 0.85, 0)
+                line.Position = UDim2.new(0.5, -1, 0.075, 0)
+                gripIcon.Visible = true
+            end
+        end)
+
+        divider.MouseLeave:Connect(function()
+            if not activeDividerDrag then
+                line.BackgroundColor3 = Color3.fromRGB(55, 65, 85)
+                line.Size = UDim2.new(0, 1, 0.7, 0)
+                line.Position = UDim2.new(0.5, 0, 0.15, 0)
+                gripIcon.Visible = false
+            end
+        end)
+
+        divider.MouseButton1Down:Connect(function()
+            local now = tick()
+            if now - lastClickTime < 0.35 then
+                lastClickTime = 0
+                autoFitColumn(tabKey, divIdx)
+                return
+            end
+            lastClickTime = now
+
+            activeDividerDrag = {
+                tabKey = tabKey,
+                dividerIdx = divIdx,
+                header = headerContainer,
+                divider = divider,
+                line = line,
+                gripIcon = gripIcon,
+            }
             line.BackgroundColor3 = Color3.fromRGB(80, 200, 255)
-            line.Size = UDim2.new(0, 2, 0.85, 0)
-            line.Position = UDim2.new(0.5, -1, 0.075, 0)
+            line.Size = UDim2.new(0, 2, 1, 0)
+            line.Position = UDim2.new(0.5, -1, 0, 0)
             gripIcon.Visible = true
-        end
-    end)
-
-    divider.MouseLeave:Connect(function()
-        if not activeDividerDrag then
-            line.BackgroundColor3 = Color3.fromRGB(55, 65, 85)
-            line.Size = UDim2.new(0, 1, 0.7, 0)
-            line.Position = UDim2.new(0.5, 0, 0.15, 0)
-            gripIcon.Visible = false
-        end
-    end)
-
-    divider.MouseButton1Down:Connect(function()
-        local now = tick()
-        if now - lastClickTime < 0.35 then
-            lastClickTime = 0
-            autoFitColumn(tabKey)
-            return
-        end
-        lastClickTime = now
-
-        activeDividerDrag = {
-            tabKey = tabKey,
-            header = headerContainer,
-            divider = divider,
-            line = line,
-            gripIcon = gripIcon,
-        }
-        line.BackgroundColor3 = Color3.fromRGB(80, 200, 255)
-        line.Size = UDim2.new(0, 2, 1, 0)
-        line.Position = UDim2.new(0.5, -1, 0, 0)
-        gripIcon.Visible = true
-    end)
+        end)
+    end
 end
+
 
 local MIN_WIDTH = 640
 local MIN_HEIGHT = 380
@@ -4712,11 +4748,7 @@ table.insert(hudWindowConnections, UserInputService.InputChanged:Connect(functio
         local headerW = header.AbsoluteSize.X
         if headerW > 50 then
             local relX = (mouseX - headerX) / headerW
-            local cfg = ColumnWidths[activeDividerDrag.tabKey]
-            if cfg then
-                cfg.name = math.clamp(relX - 0.08, cfg.minName, cfg.maxName)
-                updateTableColumnLayout(activeDividerDrag.tabKey)
-            end
+            handleDividerDrag(activeDividerDrag.tabKey, activeDividerDrag.dividerIdx, relX)
         end
     end
     if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
@@ -4899,10 +4931,15 @@ local function createHeaderContainer(name)
     return header
 end
 
-local function addHeaderColumn(parent, text, sizeX, posX, align)
+local function addHeaderColumn(parent, text, sizeX, posX, align, isGutter)
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(sizeX, 0, 1, 0)
-    lbl.Position = UDim2.new(posX, 0, 0, 0)
+    if isGutter then
+        lbl.Size = UDim2.new(sizeX, 0, 1, 0)
+        lbl.Position = UDim2.new(posX, 0, 0, 0)
+    else
+        lbl.Size = UDim2.new(sizeX, -H_PAD * 2, 1, 0)
+        lbl.Position = UDim2.new(posX, H_PAD, 0, 0)
+    end
     lbl.BackgroundTransparency = 1
     lbl.Font = Enum.Font.GothamBold
     lbl.TextSize = 10
@@ -4917,46 +4954,38 @@ end
 local TableHeaderTasks = createHeaderContainer("TableHeaderTasks")
 TableHeaders.Tasks = TableHeaderTasks
 TableHeaderTasks.Visible = true
-local hStat = addHeaderColumn(TableHeaderTasks, "STAT", 0.05, 0.02, Enum.TextXAlignment.Center); hStat.Name = "Col_Stat"
-local hName = addHeaderColumn(TableHeaderTasks, "TASK IDENTIFIER & SOURCE", ColumnWidths.Tasks.name, 0.08, Enum.TextXAlignment.Left); hName.Name = "Col_Name"
-local hEvt  = addHeaderColumn(TableHeaderTasks, "EVENT", 0.13, 0.42, Enum.TextXAlignment.Left); hEvt.Name = "Col_Event"
-local hHz   = addHeaderColumn(TableHeaderTasks, "TARGET HZ", 0.10, 0.56, Enum.TextXAlignment.Center); hHz.Name = "Col_Hz"
-local hLock = addHeaderColumn(TableHeaderTasks, "LOCK", 0.05, 0.67, Enum.TextXAlignment.Center); hLock.Name = "Col_Lock"
-local hCpu  = addHeaderColumn(TableHeaderTasks, "CPU TIME", 0.11, 0.73, Enum.TextXAlignment.Right); hCpu.Name = "Col_Cpu"
-local hAct  = addHeaderColumn(TableHeaderTasks, "ACTIONS", 0.12, 0.86, Enum.TextXAlignment.Center); hAct.Name = "Col_Actions"
-setupHeaderDivider(TableHeaderTasks, "Tasks")
+addHeaderColumn(TableHeaderTasks, "STAT", ColumnConfig.Tasks.gutter, 0.00, Enum.TextXAlignment.Center, true).Name = "Col_Stat"
+for _, col in ipairs(ColumnConfig.Tasks.cols) do
+    addHeaderColumn(TableHeaderTasks, col.name, col.width, 0, col.align).Name = "Col_" .. col.id
+end
+setupHeaderDividers(TableHeaderTasks, "Tasks")
 
 -- 4. Loops Header
 local TableHeaderLoops = createHeaderContainer("TableHeaderLoops")
 TableHeaders.Loops = TableHeaderLoops
-local lStat = addHeaderColumn(TableHeaderLoops, "STAT", 0.05, 0.02, Enum.TextXAlignment.Center); lStat.Name = "Col_Stat"
-local lName = addHeaderColumn(TableHeaderLoops, "LOOP CALLER & LOCATION", ColumnWidths.Loops.name, 0.08, Enum.TextXAlignment.Left); lName.Name = "Col_Name"
-local lItr  = addHeaderColumn(TableHeaderLoops, "ITERS", 0.11, 0.44, Enum.TextXAlignment.Left); lItr.Name = "Col_Iters"
-local lHz   = addHeaderColumn(TableHeaderLoops, "TARGET HZ", 0.10, 0.56, Enum.TextXAlignment.Center); lHz.Name = "Col_Hz"
-local lLock = addHeaderColumn(TableHeaderLoops, "LOCK", 0.05, 0.67, Enum.TextXAlignment.Center); lLock.Name = "Col_Lock"
-local lCpu  = addHeaderColumn(TableHeaderLoops, "CPU TIME", 0.11, 0.73, Enum.TextXAlignment.Right); lCpu.Name = "Col_Cpu"
-local lAct  = addHeaderColumn(TableHeaderLoops, "ACTIONS", 0.12, 0.86, Enum.TextXAlignment.Center); lAct.Name = "Col_Actions"
-setupHeaderDivider(TableHeaderLoops, "Loops")
+addHeaderColumn(TableHeaderLoops, "STAT", ColumnConfig.Loops.gutter, 0.00, Enum.TextXAlignment.Center, true).Name = "Col_Stat"
+for _, col in ipairs(ColumnConfig.Loops.cols) do
+    addHeaderColumn(TableHeaderLoops, col.name, col.width, 0, col.align).Name = "Col_" .. col.id
+end
+setupHeaderDividers(TableHeaderLoops, "Loops")
 
 -- 3. Startup Header
 local TableHeaderStartup = createHeaderContainer("TableHeaderStartup")
 TableHeaders.Startup = TableHeaderStartup
-local sStat = addHeaderColumn(TableHeaderStartup, "STAT", 0.05, 0.02, Enum.TextXAlignment.Center); sStat.Name = "Col_Stat"
-local sName = addHeaderColumn(TableHeaderStartup, "SCRIPT IDENTIFIER & RELATIVE PATH", ColumnWidths.Startup.name, 0.08, Enum.TextXAlignment.Left); sName.Name = "Col_Name"
-local sStg  = addHeaderColumn(TableHeaderStartup, "BOOT STAGE", 0.16, 0.53, Enum.TextXAlignment.Left); sStg.Name = "Col_Stage"
-local sTime = addHeaderColumn(TableHeaderStartup, "EXEC TIME", 0.14, 0.70, Enum.TextXAlignment.Right); sTime.Name = "Col_Time"
-local sTog  = addHeaderColumn(TableHeaderStartup, "STATE / TOGGLE", 0.14, 0.85, Enum.TextXAlignment.Center); sTog.Name = "Col_Toggle"
-setupHeaderDivider(TableHeaderStartup, "Startup")
+addHeaderColumn(TableHeaderStartup, "STAT", ColumnConfig.Startup.gutter, 0.00, Enum.TextXAlignment.Center, true).Name = "Col_Stat"
+for _, col in ipairs(ColumnConfig.Startup.cols) do
+    addHeaderColumn(TableHeaderStartup, col.name, col.width, 0, col.align).Name = "Col_" .. col.id
+end
+setupHeaderDividers(TableHeaderStartup, "Startup")
 
 -- 5. Game Tasks Header
 local TableHeaderGame = createHeaderContainer("TableHeaderGame")
 TableHeaders.Game = TableHeaderGame
-local gStat = addHeaderColumn(TableHeaderGame, "STAT", 0.05, 0.02, Enum.TextXAlignment.Center); gStat.Name = "Col_Stat"
-local gName = addHeaderColumn(TableHeaderGame, "GAME SCRIPT & LINE", ColumnWidths.Game.name, 0.08, Enum.TextXAlignment.Left); gName.Name = "Col_Name"
-local gEvt  = addHeaderColumn(TableHeaderGame, "EVENT", 0.15, 0.54, Enum.TextXAlignment.Left); gEvt.Name = "Col_Event"
-local gSts  = addHeaderColumn(TableHeaderGame, "ENGINE STATUS", 0.15, 0.70, Enum.TextXAlignment.Center); gSts.Name = "Col_Status"
-local gAct  = addHeaderColumn(TableHeaderGame, "ACTION", 0.14, 0.86, Enum.TextXAlignment.Center); gAct.Name = "Col_Action"
-setupHeaderDivider(TableHeaderGame, "Game")
+addHeaderColumn(TableHeaderGame, "STAT", ColumnConfig.Game.gutter, 0.00, Enum.TextXAlignment.Center, true).Name = "Col_Stat"
+for _, col in ipairs(ColumnConfig.Game.cols) do
+    addHeaderColumn(TableHeaderGame, col.name, col.width, 0, col.align).Name = "Col_" .. col.id
+end
+setupHeaderDividers(TableHeaderGame, "Game")
 
 updateTableColumnLayout("Tasks")
 updateTableColumnLayout("Loops")
@@ -5764,7 +5793,7 @@ local function renderTaskRow(taskObj, idx)
         gripLbl.Font = Enum.Font.GothamBold
         gripLbl.TextSize = 12
         gripLbl.TextColor3 = Color3.fromRGB(90, 115, 145)
-        gripLbl.Text = "?"
+        gripLbl.Text = ICONS.GRIP
         gripLbl.Parent = row
 
         local dot = Instance.new("Frame")
@@ -5845,7 +5874,7 @@ local function renderTaskRow(taskObj, idx)
         lockBtn.Font = Enum.Font.GothamBold
         lockBtn.TextSize = 10
         lockBtn.TextColor3 = Color3.fromRGB(120, 135, 160)
-        lockBtn.Text = "??"
+        lockBtn.Text = ICONS.LOCK_OPEN
         lockBtn.Parent = row
         local lockCorner = Instance.new("UICorner")
         lockCorner.CornerRadius = UDim.new(0, 4)
@@ -5883,7 +5912,7 @@ local function renderTaskRow(taskObj, idx)
         pauseBtn.Font = Enum.Font.GothamBold
         pauseBtn.TextSize = 10
         pauseBtn.TextColor3 = Color3.fromRGB(200, 215, 240)
-        pauseBtn.Text = "?"
+        pauseBtn.Text = ICONS.PAUSE
         pauseBtn.Parent = actions
         local pauseCorner = Instance.new("UICorner")
         pauseCorner.CornerRadius = UDim.new(0, 4)
@@ -5897,7 +5926,7 @@ local function renderTaskRow(taskObj, idx)
         killBtn.Font = Enum.Font.GothamBold
         killBtn.TextSize = 10
         killBtn.TextColor3 = Color3.fromRGB(255, 140, 140)
-        killBtn.Text = "X"
+        killBtn.Text = ICONS.KILL
         killBtn.Parent = actions
         local killCorner = Instance.new("UICorner")
         killCorner.CornerRadius = UDim.new(0, 4)
@@ -5925,7 +5954,7 @@ local function renderTaskRow(taskObj, idx)
             end
             if sliderLbl then
                 local text = (rel >= 0.95) and string.format("%dHz", maxHz) or string.format("%dHz", targetHz)
-                if taskObj.isAsync then text = "?" .. text end
+                if taskObj.isAsync then text = ICONS.BOLT .. " " .. text end
                 sliderLbl.Text = text
             end
 
@@ -5969,7 +5998,7 @@ local function renderTaskRow(taskObj, idx)
         end)
 
         lockBtn.MouseButton1Click:Connect(function()
-            local willLock = not (lockBtn.Text == "??")
+            local willLock = not (lockBtn.Text == ICONS.LOCK_CLOSED)
             if getgenv().SetSchedulerTaskLocked then
                 getgenv().SetSchedulerTaskLocked(taskObj.id, willLock)
             end
@@ -5977,7 +6006,7 @@ local function renderTaskRow(taskObj, idx)
 
         pauseBtn.MouseButton1Click:Connect(function()
             if getgenv().SetSchedulerTaskPaused then
-                local willPause = (pauseBtn.Text == "?")
+                local willPause = (pauseBtn.Text == ICONS.PAUSE)
                 getgenv().SetSchedulerTaskPaused(taskObj.id, willPause)
             end
         end)
@@ -6021,25 +6050,25 @@ local function renderTaskRow(taskObj, idx)
 
     if taskObj.paused then
         if dot then dot.BackgroundColor3 = Color3.fromRGB(120, 130, 150) end
-        if pauseBtn then pauseBtn.Text = "?"; pauseBtn.TextColor3 = Color3.fromRGB(100, 220, 140) end
+        if pauseBtn then pauseBtn.Text = ICONS.PLAY; pauseBtn.TextColor3 = Color3.fromRGB(100, 220, 140) end
     elseif taskObj.errorCount and taskObj.errorCount > 0 then
         if dot then dot.BackgroundColor3 = Color3.fromRGB(255, 75, 75) end
-        if pauseBtn then pauseBtn.Text = "?"; pauseBtn.TextColor3 = Color3.fromRGB(200, 215, 240) end
+        if pauseBtn then pauseBtn.Text = ICONS.PAUSE; pauseBtn.TextColor3 = Color3.fromRGB(200, 215, 240) end
     elseif taskObj.autoThrottled and not taskObj.locked then
         if dot then dot.BackgroundColor3 = Color3.fromRGB(255, 180, 50) end
-        if pauseBtn then pauseBtn.Text = "?"; pauseBtn.TextColor3 = Color3.fromRGB(200, 215, 240) end
+        if pauseBtn then pauseBtn.Text = ICONS.PAUSE; pauseBtn.TextColor3 = Color3.fromRGB(200, 215, 240) end
     else
         if dot then dot.BackgroundColor3 = Color3.fromRGB(50, 220, 120) end
-        if pauseBtn then pauseBtn.Text = "?"; pauseBtn.TextColor3 = Color3.fromRGB(200, 215, 240) end
+        if pauseBtn then pauseBtn.Text = ICONS.PAUSE; pauseBtn.TextColor3 = Color3.fromRGB(200, 215, 240) end
     end
 
     if lockBtn then
         if taskObj.locked then
-            lockBtn.Text = "??"
+            lockBtn.Text = ICONS.LOCK_CLOSED
             lockBtn.BackgroundColor3 = Color3.fromRGB(60, 45, 15)
             lockBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
         else
-            lockBtn.Text = "??"
+            lockBtn.Text = ICONS.LOCK_OPEN
             lockBtn.BackgroundColor3 = Color3.fromRGB(25, 30, 42)
             lockBtn.TextColor3 = Color3.fromRGB(120, 135, 160)
         end
@@ -6050,7 +6079,7 @@ local function renderTaskRow(taskObj, idx)
         if taskObj.errorCount and taskObj.errorCount > 0 then
             displayName = string.format("%s (ERR: %d)", displayName, taskObj.errorCount)
         end
-        local badge = (taskObj.isExecutor ~= false) and "? " or "?? "
+        local badge = (taskObj.isExecutor ~= false) and (ICONS.BOLT .. " ") or (ICONS.GAME .. " ")
         nameLbl.Text = badge .. displayName
     end
     if eventLbl then
@@ -6095,7 +6124,7 @@ local function renderTaskRow(taskObj, idx)
                 text = string.format("%.1fHz%s", effHz, taskObj.autoThrottled and "*" or "")
             end
             if taskObj.isAsync then
-                text = "?" .. text
+                text = ICONS.BOLT .. text
             end
             sliderLbl.Text = text
         end
@@ -8053,21 +8082,21 @@ local function renderStartupRow(scriptObj, idx)
         toggleBtn.Font = Enum.Font.GothamBold
         toggleBtn.TextSize = 9
         toggleBtn.TextColor3 = Color3.fromRGB(100, 240, 150)
-        toggleBtn.Text = "?? ON"
+        toggleBtn.Text = ICONS.DOT_GREEN .. " ON"
         toggleBtn.Parent = row
         local toggleCorner = Instance.new("UICorner")
         toggleCorner.CornerRadius = UDim.new(0, 3)
         toggleCorner.Parent = toggleBtn
 
         toggleBtn.MouseButton1Click:Connect(function()
-            toggleBtn.Text = "?..."
+            toggleBtn.Text = ICONS.HOURGLASS .. "..."
             local ok, newDisabledState, newPath = toggleStartupScript(scriptObj.file)
             if ok then
                 scriptObj.enabled = not newDisabledState
                 if newPath then
                     scriptObj.file = newPath
                 end
-                toggleBtn.Text = scriptObj.enabled and "?? ON" or "? OFF"
+                toggleBtn.Text = scriptObj.enabled and (ICONS.DOT_GREEN .. " ON") or (ICONS.DOT_WHITE .. " OFF")
                 toggleBtn.BackgroundColor3 = scriptObj.enabled and Color3.fromRGB(25, 50, 35) or Color3.fromRGB(45, 30, 30)
                 toggleBtn.TextColor3 = scriptObj.enabled and Color3.fromRGB(100, 240, 150) or Color3.fromRGB(240, 120, 120)
                 dot.BackgroundColor3 = scriptObj.enabled and Color3.fromRGB(50, 220, 120) or Color3.fromRGB(100, 110, 125)
@@ -8080,7 +8109,7 @@ local function renderStartupRow(scriptObj, idx)
                 toggleBtn.Text = "ERR"
                 task.delay(1.5, function()
                     if toggleBtn then
-                        toggleBtn.Text = scriptObj.enabled and "?? ON" or "? OFF"
+                        toggleBtn.Text = scriptObj.enabled and (ICONS.DOT_GREEN .. " ON") or (ICONS.DOT_WHITE .. " OFF")
                     end
                 end)
             end
@@ -8175,7 +8204,7 @@ local function renderStartupRow(scriptObj, idx)
 
         scopeBtn.MouseButton1Click:Connect(function()
             if scriptObj.stage == "Kernel" then return end
-            scopeBtn.Text = "? Moving..."
+            scopeBtn.Text = ICONS.HOURGLASS .. " Moving..."
             local ok, errOrPath = toggleScriptScope(scriptObj)
             if ok then
                 local oldKey = key
@@ -8187,11 +8216,11 @@ local function renderStartupRow(scriptObj, idx)
                     refreshStartupTab(true)
                 end
             else
-                scopeBtn.Text = "? " .. tostring(errOrPath):sub(1, 15)
+                scopeBtn.Text = ICONS.WARN .. " " .. tostring(errOrPath):sub(1, 15)
                 task.delay(1.5, function()
                     if scopeBtn and scopeBtn.Parent then
                         local isSpec = isScriptGameSpecific(scriptObj.file)
-                        scopeBtn.Text = isSpec and "?? Scope: Game Specific" or "?? Scope: Global"
+                        scopeBtn.Text = isSpec and (ICONS.GAME .. " Scope: Game Specific") or (ICONS.GLOBE .. " Scope: Global")
                     end
                 end)
             end
@@ -8206,7 +8235,7 @@ local function renderStartupRow(scriptObj, idx)
         editBtn.Font = Enum.Font.GothamMedium
         editBtn.TextSize = 10
         editBtn.TextColor3 = Color3.fromRGB(160, 240, 190)
-        editBtn.Text = "?? Edit Script"
+        editBtn.Text = ICONS.EDIT .. " Edit Script"
         editBtn.LayoutOrder = 2
         editBtn.Parent = btnContainer
 
@@ -8251,7 +8280,7 @@ local function renderStartupRow(scriptObj, idx)
         deleteBtn.Font = Enum.Font.GothamMedium
         deleteBtn.TextSize = 10
         deleteBtn.TextColor3 = Color3.fromRGB(255, 140, 140)
-        deleteBtn.Text = "??? Delete"
+        deleteBtn.Text = ICONS.DELETE .. " Delete"
         deleteBtn.LayoutOrder = 3
         deleteBtn.Parent = btnContainer
 
@@ -8298,7 +8327,7 @@ local function renderStartupRow(scriptObj, idx)
             if not isConfirmingDelete then
                 isConfirmingDelete = true
                 deleteBtn:SetAttribute("Confirming", true)
-                deleteBtn.Text = "?? Confirm?"
+                deleteBtn.Text = ICONS.WARN .. " Confirm?"
                 deleteBtn.BackgroundColor3 = Color3.fromRGB(80, 25, 25)
                 deleteBtn.TextColor3 = Color3.fromRGB(255, 220, 220)
                 deleteBtn.Size = UDim2.new(0, 115, 0, 24)
@@ -8306,7 +8335,7 @@ local function renderStartupRow(scriptObj, idx)
                     if isConfirmingDelete and deleteBtn and deleteBtn.Parent then
                         isConfirmingDelete = false
                         deleteBtn:SetAttribute("Confirming", nil)
-                        deleteBtn.Text = "??? Delete"
+                        deleteBtn.Text = ICONS.DELETE .. " Delete"
                         deleteBtn.BackgroundColor3 = Color3.fromRGB(42, 22, 24)
                         deleteBtn.TextColor3 = Color3.fromRGB(255, 140, 140)
                         deleteBtn.Size = UDim2.new(0, 110, 0, 24)
@@ -8315,7 +8344,7 @@ local function renderStartupRow(scriptObj, idx)
             else
                 isConfirmingDelete = false
                 deleteBtn:SetAttribute("Confirming", nil)
-                deleteBtn.Text = "? Deleting..."
+                deleteBtn.Text = ICONS.HOURGLASS .. " Deleting..."
                 local target = normStartupPath(scriptObj.file)
                 if not isfile(target) and isfile("workspace/" .. target) then
                     target = "workspace/" .. target
@@ -8423,7 +8452,7 @@ local function renderStartupRow(scriptObj, idx)
         end
     end
     if toggleBtn then
-        toggleBtn.Text = isEnabled and "?? ON" or "? OFF"
+        toggleBtn.Text = isEnabled and (ICONS.DOT_GREEN .. " ON") or (ICONS.DOT_WHITE .. " OFF")
         toggleBtn.BackgroundColor3 = isEnabled and Color3.fromRGB(25, 50, 35) or Color3.fromRGB(45, 30, 30)
         toggleBtn.TextColor3 = isEnabled and Color3.fromRGB(100, 240, 150) or Color3.fromRGB(240, 120, 120)
     end
@@ -8440,12 +8469,12 @@ local function renderStartupRow(scriptObj, idx)
             local scopeBtn = btnContainer:FindFirstChild("ScopeBtn")
             if scopeBtn then
                 if scriptObj.stage == "Kernel" then
-                    scopeBtn.Text = "?? Scope: Kernel (Global)"
+                    scopeBtn.Text = ICONS.BOLT .. " Scope: Kernel (Global)"
                     scopeBtn.TextColor3 = Color3.fromRGB(110, 125, 145)
                     scopeBtn.BackgroundColor3 = Color3.fromRGB(20, 24, 32)
                 else
                     local isSpec = isScriptGameSpecific(scriptObj.file)
-                    scopeBtn.Text = isSpec and "?? Scope: Game Specific" or "?? Scope: Global"
+                    scopeBtn.Text = isSpec and (ICONS.GAME .. " Scope: Game Specific") or (ICONS.GLOBE .. " Scope: Global")
                     scopeBtn.TextColor3 = Color3.fromRGB(190, 220, 255)
                     scopeBtn.BackgroundColor3 = Color3.fromRGB(26, 34, 48)
                 end
@@ -8454,11 +8483,11 @@ local function renderStartupRow(scriptObj, idx)
             local deleteBtn = btnContainer:FindFirstChild("DeleteBtn")
             if deleteBtn then
                 if scriptObj.stage == "Kernel" or (scriptObj.file and scriptObj.file:lower():find("kerneltaskmanager")) then
-                    deleteBtn.Text = "?? Locked"
+                    deleteBtn.Text = ICONS.LOCK_CLOSED .. " Locked"
                     deleteBtn.TextColor3 = Color3.fromRGB(110, 125, 145)
                     deleteBtn.BackgroundColor3 = Color3.fromRGB(20, 24, 32)
                 elseif not deleteBtn:GetAttribute("Confirming") then
-                    deleteBtn.Text = "??? Delete"
+                    deleteBtn.Text = ICONS.DELETE .. " Delete"
                     deleteBtn.TextColor3 = Color3.fromRGB(255, 140, 140)
                     deleteBtn.BackgroundColor3 = Color3.fromRGB(42, 22, 24)
                     deleteBtn.Size = UDim2.new(0, 110, 0, 24)
@@ -8551,7 +8580,7 @@ local function renderLoopRow(loopObj, idx)
         gripLbl.Font = Enum.Font.GothamBold
         gripLbl.TextSize = 12
         gripLbl.TextColor3 = Color3.fromRGB(90, 115, 145)
-        gripLbl.Text = "?"
+        gripLbl.Text = ICONS.GRIP
         gripLbl.Parent = row
 
         local dot = Instance.new("Frame")
@@ -8632,7 +8661,7 @@ local function renderLoopRow(loopObj, idx)
         lockBtn.Font = Enum.Font.GothamBold
         lockBtn.TextSize = 10
         lockBtn.TextColor3 = Color3.fromRGB(120, 135, 160)
-        lockBtn.Text = "??"
+        lockBtn.Text = ICONS.LOCK_OPEN
         lockBtn.Parent = row
         local lockCorner = Instance.new("UICorner")
         lockCorner.CornerRadius = UDim.new(0, 4)
@@ -8670,7 +8699,7 @@ local function renderLoopRow(loopObj, idx)
         pauseBtn.Font = Enum.Font.GothamBold
         pauseBtn.TextSize = 10
         pauseBtn.TextColor3 = Color3.fromRGB(200, 215, 240)
-        pauseBtn.Text = "?"
+        pauseBtn.Text = ICONS.PAUSE
         pauseBtn.Parent = actions
         local pauseCorner = Instance.new("UICorner")
         pauseCorner.CornerRadius = UDim.new(0, 4)
@@ -8684,7 +8713,7 @@ local function renderLoopRow(loopObj, idx)
         killBtn.Font = Enum.Font.GothamBold
         killBtn.TextSize = 11
         killBtn.TextColor3 = Color3.fromRGB(255, 140, 140)
-        killBtn.Text = "X"
+        killBtn.Text = ICONS.KILL
         killBtn.Parent = actions
         local killCorner = Instance.new("UICorner")
         killCorner.CornerRadius = UDim.new(0, 4)
@@ -8753,14 +8782,14 @@ local function renderLoopRow(loopObj, idx)
         end)
 
         lockBtn.MouseButton1Click:Connect(function()
-            local willLock = not (lockBtn.Text == "??")
+            local willLock = not (lockBtn.Text == ICONS.LOCK_CLOSED)
             if getgenv().SetLoopLocked then
                 getgenv().SetLoopLocked(loopObj.id, willLock)
             end
         end)
 
         pauseBtn.MouseButton1Click:Connect(function()
-            local willPause = (pauseBtn.Text == "?")
+            local willPause = (pauseBtn.Text == ICONS.PAUSE)
             if getgenv().SetLoopPaused then
                 getgenv().SetLoopPaused(loopObj.id, willPause)
             end
@@ -8810,7 +8839,7 @@ local function renderLoopRow(loopObj, idx)
     local nameLbl = row:FindFirstChild("NameLbl")
     if nameLbl then
         local displayName = loopObj.caller or loopObj.name or "UnknownLoop"
-        local badge = (loopObj.isExecutor ~= false) and "? " or "?? "
+        local badge = (loopObj.isExecutor ~= false) and (ICONS.BOLT .. " ") or (ICONS.GAME .. " ")
         nameLbl.Text = badge .. displayName
     end
 
@@ -8849,7 +8878,7 @@ local function renderLoopRow(loopObj, idx)
 
     local lockBtn = row:FindFirstChild("LockBtn")
     if lockBtn then
-        lockBtn.Text = if loopObj.locked then "??" else "??"
+        lockBtn.Text = if loopObj.locked then ICONS.LOCK_CLOSED else ICONS.LOCK_OPEN
         lockBtn.BackgroundColor3 = if loopObj.locked then Color3.fromRGB(45, 40, 20) else Color3.fromRGB(25, 30, 42)
         lockBtn.TextColor3 = if loopObj.locked then Color3.fromRGB(255, 200, 50) else Color3.fromRGB(120, 135, 160)
     end
@@ -8867,7 +8896,7 @@ local function renderLoopRow(loopObj, idx)
     if actions then
         local pauseBtn = actions:FindFirstChild("PauseBtn")
         if pauseBtn then
-            pauseBtn.Text = if loopObj.paused then "?" else "?"
+            pauseBtn.Text = if loopObj.paused then ICONS.PLAY else ICONS.PAUSE
             pauseBtn.BackgroundColor3 = if loopObj.paused then Color3.fromRGB(25, 55, 35) else Color3.fromRGB(28, 34, 48)
             pauseBtn.TextColor3 = if loopObj.paused then Color3.fromRGB(100, 240, 140) else Color3.fromRGB(200, 215, 240)
         end
@@ -8965,7 +8994,7 @@ local function renderGameTaskRow(entry, idx)
         actionBtn.Font = Enum.Font.GothamBold
         actionBtn.TextSize = 10
         actionBtn.TextColor3 = Color3.fromRGB(100, 230, 160)
-        actionBtn.Text = "?? Ingest"
+        actionBtn.Text = ICONS.INGEST .. " Ingest"
         actionBtn.AutoButtonColor = true
         actionBtn.Parent = row
         local actionCorner = Instance.new("UICorner")
@@ -9010,7 +9039,7 @@ local function renderGameTaskRow(entry, idx)
             end
         end
         if actionBtn then
-            actionBtn.Text = "?? Eject"
+            actionBtn.Text = ICONS.EJECT .. " Eject"
             actionBtn.BackgroundColor3 = Color3.fromRGB(60, 28, 32)
             actionBtn.TextColor3 = Color3.fromRGB(255, 140, 140)
         end
@@ -9025,7 +9054,7 @@ local function renderGameTaskRow(entry, idx)
             end
         end
         if actionBtn then
-            actionBtn.Text = "?? Ingest"
+            actionBtn.Text = ICONS.INGEST .. " Ingest"
             actionBtn.BackgroundColor3 = Color3.fromRGB(28, 48, 40)
             actionBtn.TextColor3 = Color3.fromRGB(100, 230, 160)
         end
@@ -9453,6 +9482,8 @@ cleanUpHUD = function()
     getgenv()._KernelTaskManagerGui = nil
     getgenv()._KernelTaskManagerCleanUp = nil
     getgenv().ToggleTaskManagerHUD = nil
+    getgenv()._OmniTaskManager_HandleDividerDrag = nil
+    getgenv()._OmniTaskManager_AutoFitColumn = nil
 end
 
 getgenv()._KernelTaskManagerGui = ScreenGui
@@ -9477,6 +9508,8 @@ local function unifiedCleanUp()
     getgenv().ToggleTaskManagerHUD = nil
     getgenv()._KernelTaskManagerLoaded = nil
     getgenv()._VirtualSchedulerLoaded = nil
+    getgenv()._OmniTaskManager_HandleDividerDrag = nil
+    getgenv()._OmniTaskManager_AutoFitColumn = nil
 end
 
 getgenv()._KernelTaskManagerCleanUp = cleanUpHUD
