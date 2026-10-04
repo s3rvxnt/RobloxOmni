@@ -99,11 +99,28 @@ local origSignalConnects = {}
 local TaskSupervisor = {}
 local TaskDAG = {}
 
--- Helper: Safe caller context extraction without throwing
-local function captureCallerContext(stackLevel)
-    local ok, source, line, name, arity = pcall(debug.info, stackLevel or 3, "slna")
-    if ok and source then
-        return source, line or 0, (name and name ~= "") and name or "[anonymous]", arity or 0
+-- Helper: Clean filename / source string
+local function cleanSourcePath(src)
+    if not src or src == "" then return "[anonymous]" end
+    local clean = tostring(src):gsub("^[@%[]", ""):gsub("^string \"", ""):gsub("\"%]$", "")
+    local fileName = clean:match("([^/\\]+)$") or clean
+    return fileName
+end
+
+-- Helper: Safe caller context extraction without throwing or capturing internal wrappers
+local function captureCallerContext(minLevel)
+    local startLvl = minLevel or 4
+    if debug and debug.info then
+        for lvl = startLvl, 12 do
+            local ok, source, line, name, arity = pcall(debug.info, lvl, "slna")
+            if ok and source and source ~= "[C]" then
+                local lower = tostring(source):lower()
+                if lower:find("tasksupervisor", 1, true) == nil and lower:find("taskdag", 1, true) == nil then
+                    local fileName = cleanSourcePath(source)
+                    return fileName, line or 0, (name and name ~= "") and name or "[anonymous]", arity or 0
+                end
+            end
+        end
     end
     return "[unknown]", 0, "[anonymous]", 0
 end
@@ -113,7 +130,8 @@ local function inspectFunction(targetFn)
     if type(targetFn) == "function" then
         local ok, source, line, name, arity = pcall(debug.info, targetFn, "slna")
         if ok and source then
-            return source, line or 0, (name and name ~= "") and name or "[anonymous]", arity or 0
+            local fileName = cleanSourcePath(source)
+            return fileName, line or 0, (name and name ~= "") and name or "[anonymous]", arity or 0
         end
     end
     return nil, nil, nil, nil
@@ -123,11 +141,15 @@ end
 local function registerTask(thread, targetFn, schedType, parentTaskId, callerLevel)
     local taskId = generateTaskId()
     local fnSource, fnLine, fnName, fnArity = inspectFunction(targetFn)
-    local callerSource, callerLine, callerName, callerArity = captureCallerContext(callerLevel or 3)
+    local callerSource, callerLine, callerName, callerArity = captureCallerContext(callerLevel or 4)
 
-    local finalName = fnName or callerName or "[anonymous]"
-    local finalSource = fnSource or callerSource or "[unknown]"
-    local finalLine = fnLine or callerLine or 0
+    local finalName = (fnName and fnName ~= "" and fnName ~= "[anonymous]") and fnName
+        or (callerName and callerName ~= "" and callerName ~= "[anonymous]" and callerName)
+        or "[anonymous]"
+    local finalSource = (fnSource and fnSource ~= "" and fnSource ~= "[unknown]") and fnSource
+        or (callerSource and callerSource ~= "" and callerSource)
+        or "[unknown]"
+    local finalLine = (fnLine and fnLine > 0) and fnLine or callerLine or 0
     local finalArity = fnArity or callerArity or 0
 
     local taskNode = {
@@ -634,17 +656,22 @@ end
 local function instrumentSchedulers()
     -- 1. task.spawn
     local customTaskSpawn = function(fnOrThread, ...)
+        -- STRICT CALLER ISOLATION: Game scripts (checkcaller() == false) MUST NEVER be intercepted!
+        if checkcaller and not checkcaller() then
+            return origTaskSpawn(fnOrThread, ...)
+        end
+
         local callerThread = origCoroutineRunning()
         local parentTaskId = (callerThread and threadToTask[callerThread] and threadToTask[callerThread].id) or nil
 
         if type(fnOrThread) == "function" then
             local th = origCoroutineCreate(fnOrThread)
-            registerTask(th, fnOrThread, "spawn", parentTaskId, 3)
+            pcall(registerTask, th, fnOrThread, "spawn", parentTaskId, 4)
             return origTaskSpawn(th, ...)
         elseif type(fnOrThread) == "thread" then
             local node = threadToTask[fnOrThread]
             if not node then
-                registerTask(fnOrThread, nil, "spawn", parentTaskId, 3)
+                pcall(registerTask, fnOrThread, nil, "spawn", parentTaskId, 4)
             else
                 node.scheduledType = "spawn"
                 if not node.parentId and parentTaskId and parentTaskId ~= node.id then
@@ -662,17 +689,22 @@ local function instrumentSchedulers()
 
     -- 2. task.defer
     local customTaskDefer = function(fnOrThread, ...)
+        -- STRICT CALLER ISOLATION: Game scripts (checkcaller() == false) MUST NEVER be intercepted!
+        if checkcaller and not checkcaller() then
+            return origTaskDefer(fnOrThread, ...)
+        end
+
         local callerThread = origCoroutineRunning()
         local parentTaskId = (callerThread and threadToTask[callerThread] and threadToTask[callerThread].id) or nil
 
         if type(fnOrThread) == "function" then
             local th = origCoroutineCreate(fnOrThread)
-            registerTask(th, fnOrThread, "defer", parentTaskId, 3)
+            pcall(registerTask, th, fnOrThread, "defer", parentTaskId, 4)
             return origTaskDefer(th, ...)
         elseif type(fnOrThread) == "thread" then
             local node = threadToTask[fnOrThread]
             if not node then
-                registerTask(fnOrThread, nil, "defer", parentTaskId, 3)
+                pcall(registerTask, fnOrThread, nil, "defer", parentTaskId, 4)
             else
                 node.scheduledType = "defer"
                 if not node.parentId and parentTaskId and parentTaskId ~= node.id then
@@ -690,17 +722,22 @@ local function instrumentSchedulers()
 
     -- 3. task.delay
     local customTaskDelay = function(duration, fnOrThread, ...)
+        -- STRICT CALLER ISOLATION: Game scripts (checkcaller() == false) MUST NEVER be intercepted!
+        if checkcaller and not checkcaller() then
+            return origTaskDelay(duration, fnOrThread, ...)
+        end
+
         local callerThread = origCoroutineRunning()
         local parentTaskId = (callerThread and threadToTask[callerThread] and threadToTask[callerThread].id) or nil
 
         if type(fnOrThread) == "function" then
             local th = origCoroutineCreate(fnOrThread)
-            registerTask(th, fnOrThread, "delay", parentTaskId, 3)
+            pcall(registerTask, th, fnOrThread, "delay", parentTaskId, 4)
             return origTaskDelay(duration, th, ...)
         elseif type(fnOrThread) == "thread" then
             local node = threadToTask[fnOrThread]
             if not node then
-                registerTask(fnOrThread, nil, "delay", parentTaskId, 3)
+                pcall(registerTask, fnOrThread, nil, "delay", parentTaskId, 4)
             else
                 node.scheduledType = "delay"
                 if not node.parentId and parentTaskId and parentTaskId ~= node.id then
@@ -718,6 +755,11 @@ local function instrumentSchedulers()
 
     -- 4. task.wait (incorporates structured pausing & delta tracking)
     local customTaskWait = function(dt)
+        -- STRICT CALLER ISOLATION: Game scripts (checkcaller() == false) MUST NEVER be intercepted!
+        if checkcaller and not checkcaller() then
+            return origTaskWait(dt)
+        end
+
         local curThread = origCoroutineRunning()
         local node = curThread and threadToTask[curThread]
         if node then
@@ -751,6 +793,11 @@ local function instrumentSchedulers()
 
     -- 5. task.cancel
     local customTaskCancel = function(th)
+        -- STRICT CALLER ISOLATION: Game scripts (checkcaller() == false) MUST NEVER be intercepted!
+        if checkcaller and not checkcaller() then
+            return origTaskCancel(th)
+        end
+
         if type(th) == "thread" then
             local node = threadToTask[th]
             if node then
@@ -763,19 +810,29 @@ local function instrumentSchedulers()
 
     -- 6. coroutine.create
     local customCoroutineCreate = function(fn)
+        -- STRICT CALLER ISOLATION: Game scripts (checkcaller() == false) MUST NEVER be intercepted!
+        if checkcaller and not checkcaller() then
+            return origCoroutineCreate(fn)
+        end
+
         local callerThread = origCoroutineRunning()
         local parentTaskId = (callerThread and threadToTask[callerThread] and threadToTask[callerThread].id) or nil
         local th = origCoroutineCreate(fn)
-        registerTask(th, fn, "create", parentTaskId, 3)
+        pcall(registerTask, th, fn, "create", parentTaskId, 4)
         return th
     end
 
     -- 7. coroutine.wrap
     local customCoroutineWrap = function(fn)
+        -- STRICT CALLER ISOLATION: Game scripts (checkcaller() == false) MUST NEVER be intercepted!
+        if checkcaller and not checkcaller() then
+            return origCoroutineWrap(fn)
+        end
+
         local callerThread = origCoroutineRunning()
         local parentTaskId = (callerThread and threadToTask[callerThread] and threadToTask[callerThread].id) or nil
         local th = origCoroutineCreate(fn)
-        registerTask(th, fn, "wrap", parentTaskId, 3)
+        pcall(registerTask, th, fn, "wrap", parentTaskId, 4)
         return function(...)
             local status = origCoroutineStatus(th)
             if status == "dead" then
@@ -826,6 +883,11 @@ local function hookSignal(signal, signalName)
         local origConnect = signal.Connect
         origSignalConnects[signal] = { kind = "table", orig = origConnect }
         signal.Connect = function(sig, callback)
+            -- STRICT CALLER ISOLATION: Game scripts (checkcaller() == false) MUST NEVER be intercepted!
+            if checkcaller and not checkcaller() then
+                return origConnect(sig, callback)
+            end
+
             local callerThread = origCoroutineRunning()
             local curTask = callerThread and threadToTask[callerThread]
             local conn = origConnect(sig, callback)
@@ -841,6 +903,11 @@ local function hookSignal(signal, signalName)
     elseif typeof(signal) == "RBXScriptSignal" and hookfunction then
         local origConnect
         origConnect = hookfunction(signal.Connect, function(sig, callback)
+            -- STRICT CALLER ISOLATION: Game scripts (checkcaller() == false) MUST NEVER be intercepted!
+            if checkcaller and not checkcaller() then
+                return origConnect(sig, callback)
+            end
+
             local callerThread = origCoroutineRunning()
             local curTask = callerThread and threadToTask[callerThread]
             local conn = origConnect(sig, callback)
