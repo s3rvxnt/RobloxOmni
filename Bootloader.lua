@@ -1538,6 +1538,11 @@ local function initUpdateGate(guiParent, UpdateBadge)
                         name = "KernelTaskManager"
                     },
                     {
+                        repoPath = "kernel/TaskSupervisor.lua",
+                        localPath = "autoexec/kernel/TaskSupervisor.lua",
+                        name = "TaskSupervisor"
+                    },
+                    {
                         repoPath = "gameloaded/OmniEnhancementSuite.lua",
                         localPath = "autoexec/gameloaded/OmniEnhancementSuite.lua",
                         name = "OmniEnhancementSuite"
