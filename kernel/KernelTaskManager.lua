@@ -3832,6 +3832,8 @@ local ICONS = {
     EJECT       = utf8.char(0x1F4E4), -- 📤
     CHECK       = utf8.char(0x2713),  -- ✓
     CROSS       = utf8.char(0x274C),  -- ❌
+    ARROW_UP    = utf8.char(0x25B2),  -- ▲
+    ARROW_DOWN  = utf8.char(0x25BC),  -- ▼
 }
 
 -- ==============================================================================
@@ -3840,42 +3842,42 @@ local ICONS = {
 local ColumnConfig = {
     Tasks = {
         cols = {
-            { id = "Stat",    name = "STAT",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
-            { id = "Name",    name = "TASK IDENTIFIER & SOURCE", align = Enum.TextXAlignment.Center, width = 0.38, minWidth = 0.18,  maxWidth = 0.65, defaultWidth = 0.38 },
-            { id = "Event",   name = "EVENT",                    align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.10,  maxWidth = 0.25, defaultWidth = 0.15 },
-            { id = "Hz",      name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.085, maxWidth = 0.20, defaultWidth = 0.11 },
-            { id = "Lock",    name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
-            { id = "Cpu",     name = "CPU TIME",                 align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.075, maxWidth = 0.20, defaultWidth = 0.11 },
-            { id = "Actions", name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.085, maxWidth = 0.22, defaultWidth = 0.13 },
+            { id = "Priority", name = "PRIORITY",                 align = Enum.TextXAlignment.Center, width = 0.08, minWidth = 0.05, maxWidth = 0.15, defaultWidth = 0.08 },
+            { id = "Name",     name = "TASK IDENTIFIER & SOURCE", align = Enum.TextXAlignment.Center, width = 0.36, minWidth = 0.18, maxWidth = 0.65, defaultWidth = 0.36 },
+            { id = "Event",    name = "EVENT",                    align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.10, maxWidth = 0.25, defaultWidth = 0.15 },
+            { id = "Hz",       name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.085, maxWidth = 0.20, defaultWidth = 0.11 },
+            { id = "Lock",     name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
+            { id = "Cpu",      name = "CPU TIME",                 align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.075, maxWidth = 0.20, defaultWidth = 0.11 },
+            { id = "Actions",  name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.085, maxWidth = 0.22, defaultWidth = 0.13 },
         }
     },
     Loops = {
         cols = {
-            { id = "Stat",    name = "STAT",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
-            { id = "Name",    name = "LOOP CALLER & LOCATION",   align = Enum.TextXAlignment.Center, width = 0.38, minWidth = 0.18,  maxWidth = 0.65, defaultWidth = 0.38 },
-            { id = "Iters",   name = "ITERS",                    align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.10,  maxWidth = 0.25, defaultWidth = 0.15 },
-            { id = "Hz",      name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.085, maxWidth = 0.20, defaultWidth = 0.11 },
-            { id = "Lock",    name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
-            { id = "Cpu",     name = "CPU TIME",                 align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.075, maxWidth = 0.20, defaultWidth = 0.11 },
-            { id = "Actions", name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.085, maxWidth = 0.22, defaultWidth = 0.13 },
+            { id = "Priority", name = "PRIORITY",                 align = Enum.TextXAlignment.Center, width = 0.08, minWidth = 0.05, maxWidth = 0.15, defaultWidth = 0.08 },
+            { id = "Name",     name = "LOOP CALLER & LOCATION",   align = Enum.TextXAlignment.Center, width = 0.36, minWidth = 0.18, maxWidth = 0.65, defaultWidth = 0.36 },
+            { id = "Iters",    name = "ITERS",                    align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.10, maxWidth = 0.25, defaultWidth = 0.15 },
+            { id = "Hz",       name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.085, maxWidth = 0.20, defaultWidth = 0.11 },
+            { id = "Lock",     name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
+            { id = "Cpu",      name = "CPU TIME",                 align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.075, maxWidth = 0.20, defaultWidth = 0.11 },
+            { id = "Actions",  name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.085, maxWidth = 0.22, defaultWidth = 0.13 },
         }
     },
     Startup = {
         cols = {
-            { id = "Stat",    name = "STAT",                              align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
-            { id = "Name",    name = "SCRIPT IDENTIFIER & RELATIVE PATH", align = Enum.TextXAlignment.Center, width = 0.47, minWidth = 0.22,  maxWidth = 0.70, defaultWidth = 0.47 },
-            { id = "Stage",   name = "BOOT STAGE",                        align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.11,  maxWidth = 0.28, defaultWidth = 0.17 },
-            { id = "Time",    name = "EXEC TIME",                         align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.085, maxWidth = 0.22, defaultWidth = 0.13 },
-            { id = "Toggle",  name = "STATE / TOGGLE",                    align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.11,  maxWidth = 0.28, defaultWidth = 0.17 },
+            { id = "Priority", name = "PRIORITY",                          align = Enum.TextXAlignment.Center, width = 0.08, minWidth = 0.05, maxWidth = 0.15, defaultWidth = 0.08 },
+            { id = "Name",     name = "SCRIPT IDENTIFIER & RELATIVE PATH", align = Enum.TextXAlignment.Center, width = 0.45, minWidth = 0.22, maxWidth = 0.70, defaultWidth = 0.45 },
+            { id = "Stage",    name = "BOOT STAGE",                        align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.11, maxWidth = 0.28, defaultWidth = 0.17 },
+            { id = "Time",     name = "EXEC TIME",                         align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.085, maxWidth = 0.22, defaultWidth = 0.13 },
+            { id = "Toggle",   name = "STATE / TOGGLE",                    align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.11, maxWidth = 0.28, defaultWidth = 0.17 },
         }
     },
     Game = {
         cols = {
             { id = "Stat",    name = "STAT",               align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
-            { id = "Name",    name = "GAME SCRIPT & LINE", align = Enum.TextXAlignment.Center, width = 0.44, minWidth = 0.22,  maxWidth = 0.70, defaultWidth = 0.44 },
-            { id = "Event",   name = "EVENT",              align = Enum.TextXAlignment.Center, width = 0.18, minWidth = 0.11,  maxWidth = 0.30, defaultWidth = 0.18 },
-            { id = "Status",  name = "ENGINE STATUS",      align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.11,  maxWidth = 0.28, defaultWidth = 0.17 },
-            { id = "Action",  name = "ACTION",             align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.09,  maxWidth = 0.25, defaultWidth = 0.15 },
+            { id = "Name",    name = "GAME SCRIPT & LINE", align = Enum.TextXAlignment.Center, width = 0.44, minWidth = 0.22, maxWidth = 0.70, defaultWidth = 0.44 },
+            { id = "Event",   name = "EVENT",              align = Enum.TextXAlignment.Center, width = 0.18, minWidth = 0.11, maxWidth = 0.30, defaultWidth = 0.18 },
+            { id = "Status",  name = "ENGINE STATUS",      align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.11, maxWidth = 0.28, defaultWidth = 0.17 },
+            { id = "Action",  name = "ACTION",             align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.09, maxWidth = 0.25, defaultWidth = 0.15 },
         }
     },
 }
@@ -3899,6 +3901,282 @@ local updateTableColumnLayout
 local applyRowColumnLayout
 local handleDividerDrag
 local autoFitColumn
+
+-- ==============================================================================
+-- INTERACTIVE COLUMN SORTING ENGINE & STATE
+-- ==============================================================================
+local TableSortState = {
+    Tasks = { colId = "Priority", ascending = false },
+    Loops = { colId = "Priority", ascending = false },
+    Startup = { colId = "Priority", ascending = false },
+    Game = { colId = "Event", ascending = true },
+}
+
+local RS_EVENT_ORDER = {
+    ["superstep"] = 0,
+    ["renderstepped"] = 1,
+    ["prerender"] = 1,
+    ["stepped"] = 2,
+    ["presimulation"] = 2,
+    ["heartbeat"] = 3,
+    ["postsimulation"] = 3,
+}
+
+local function getEventRank(ev)
+    if not ev then return 99 end
+    local clean = tostring(ev):lower():gsub("%s+", "")
+    return RS_EVENT_ORDER[clean] or 50
+end
+
+local STARTUP_STAGE_RANKS = {
+    ["kernel"] = 1,
+    ["preinit"] = 2,
+    ["gameloaded"] = 3,
+    ["characterready"] = 4,
+    ["deferred"] = 5,
+}
+
+local function sortTaskList(tasks, colId, ascending)
+    table.sort(tasks, function(a, b)
+        if colId == "Priority" then
+            local priA = getNumericTaskPriority(a)
+            local priB = getNumericTaskPriority(b)
+            if priA ~= priB then
+                if ascending then return priA < priB else return priA > priB end
+            end
+        elseif colId == "Name" then
+            local nA = tostring(a.name or a.id or ""):lower()
+            local nB = tostring(b.name or b.id or ""):lower()
+            if nA ~= nB then
+                if ascending then return nA < nB else return nA > nB end
+            end
+        elseif colId == "Event" then
+            local rA = getEventRank(a.event)
+            local rB = getEventRank(b.event)
+            if rA ~= rB then
+                if ascending then return rA < rB else return rA > rB end
+            end
+        elseif colId == "Hz" then
+            local hzA = tonumber(a.targetHz or a.effectiveHz) or 60
+            local hzB = tonumber(b.targetHz or b.effectiveHz) or 60
+            if hzA == 0 then hzA = 9999 end
+            if hzB == 0 then hzB = 9999 end
+            if hzA ~= hzB then
+                if ascending then return hzA < hzB else return hzA > hzB end
+            end
+        elseif colId == "Lock" then
+            local lA = (a.locked == true)
+            local lB = (b.locked == true)
+            if lA ~= lB then
+                if ascending then return not lA and lB else return lA and not lB end
+            end
+        elseif colId == "Cpu" then
+            local cA = tonumber(a.avgTimeMs) or 0
+            local cB = tonumber(b.avgTimeMs) or 0
+            if cA ~= cB then
+                if ascending then return cA < cB else return cA > cB end
+            end
+        elseif colId == "Actions" then
+            local pA = (a.paused == true)
+            local pB = (b.paused == true)
+            if pA ~= pB then
+                if ascending then return not pA and pB else return pA and not pB end
+            end
+        end
+
+        local pA = getNumericTaskPriority(a)
+        local pB = getNumericTaskPriority(b)
+        if pA ~= pB then return pA > pB end
+        return tostring(a.id or "") < tostring(b.id or "")
+    end)
+end
+
+local function sortLoopList(loops, colId, ascending)
+    table.sort(loops, function(a, b)
+        if colId == "Priority" then
+            local priA = tonumber(a.priority) or 50
+            local priB = tonumber(b.priority) or 50
+            if priA ~= priB then
+                if ascending then return priA < priB else return priA > priB end
+            end
+        elseif colId == "Name" then
+            local nA = tostring(a.caller or a.name or a.id or ""):lower()
+            local nB = tostring(b.caller or b.name or b.id or ""):lower()
+            if nA ~= nB then
+                if ascending then return nA < nB else return nA > nB end
+            end
+        elseif colId == "Iters" then
+            local iA = tonumber(a.iterations) or 0
+            local iB = tonumber(b.iterations) or 0
+            if iA ~= iB then
+                if ascending then return iA < iB else return iA > iB end
+            end
+        elseif colId == "Hz" then
+            local hzA = tonumber(a.targetHz) or 60
+            local hzB = tonumber(b.targetHz) or 60
+            if hzA == 0 then hzA = 9999 end
+            if hzB == 0 then hzB = 9999 end
+            if hzA ~= hzB then
+                if ascending then return hzA < hzB else return hzA > hzB end
+            end
+        elseif colId == "Lock" then
+            local lA = (a.locked == true)
+            local lB = (b.locked == true)
+            if lA ~= lB then
+                if ascending then return not lA and lB else return lA and not lB end
+            end
+        elseif colId == "Cpu" then
+            local cA = tonumber(a.avgTimeMs) or 0
+            local cB = tonumber(b.avgTimeMs) or 0
+            if cA ~= cB then
+                if ascending then return cA < cB else return cA > cB end
+            end
+        elseif colId == "Actions" then
+            local pA = (a.paused == true)
+            local pB = (b.paused == true)
+            if pA ~= pB then
+                if ascending then return not pA and pB else return pA and not pB end
+            end
+        end
+
+        local pA = tonumber(a.priority) or 50
+        local pB = tonumber(b.priority) or 50
+        if pA ~= pB then return pA > pB end
+        return tostring(a.id or "") < tostring(b.id or "")
+    end)
+end
+
+local function sortStartupList(scripts, colId, ascending)
+    table.sort(scripts, function(a, b)
+        if colId == "Priority" then
+            local priA = tonumber(a.priority) or 0
+            local priB = tonumber(b.priority) or 0
+            if priA ~= priB then
+                if ascending then return priA < priB else return priA > priB end
+            end
+        elseif colId == "Name" then
+            local nA = tostring(a.name or a.file or ""):lower()
+            local nB = tostring(b.name or b.file or ""):lower()
+            if nA ~= nB then
+                if ascending then return nA < nB else return nA > nB end
+            end
+        elseif colId == "Stage" then
+            local sA = STARTUP_STAGE_RANKS[tostring(a.stage or ""):lower()] or 10
+            local sB = STARTUP_STAGE_RANKS[tostring(b.stage or ""):lower()] or 10
+            if sA ~= sB then
+                if ascending then return sA < sB else return sA > sB end
+            end
+        elseif colId == "Time" then
+            local tA = tonumber(a.execTime or a.compileTime) or 0
+            local tB = tonumber(b.execTime or b.compileTime) or 0
+            if tA ~= tB then
+                if ascending then return tA < tB else return tA > tB end
+            end
+        elseif colId == "Toggle" then
+            local eA = (a.enabled ~= false)
+            local eB = (b.enabled ~= false)
+            if eA ~= eB then
+                if ascending then return not eA and eB else return eA and not eB end
+            end
+        end
+
+        local pA = tonumber(a.priority) or 0
+        local pB = tonumber(b.priority) or 0
+        if pA ~= pB then return pA > pB end
+        return tostring(a.file or "") < tostring(b.file or "")
+    end)
+end
+
+local function sortGameTaskList(gameTasks, colId, ascending)
+    table.sort(gameTasks, function(a, b)
+        if colId == "Event" then
+            local rA = getEventRank(a.event)
+            local rB = getEventRank(b.event)
+            if rA ~= rB then
+                if ascending then return rA < rB else return rA > rB end
+            end
+        elseif colId == "Name" then
+            local nA = tostring(a.name or a.id or ""):lower()
+            local nB = tostring(b.name or b.id or ""):lower()
+            if nA ~= nB then
+                if ascending then return nA < nB else return nA > nB end
+            end
+        elseif colId == "Status" then
+            local sA = tostring(a.status or ""):lower()
+            local sB = tostring(b.status or ""):lower()
+            if sA ~= sB then
+                if ascending then return sA < sB else return sA > sB end
+            end
+        end
+        return tostring(a.id or "") < tostring(b.id or "")
+    end)
+end
+
+local function updateHeaderSortIndicators(tabKey)
+    local state = TableSortState[tabKey]
+    local cfg = ColumnConfig[tabKey]
+    local header = TableHeaders[tabKey]
+    if not state or not cfg or not header then return end
+
+    for _, col in ipairs(cfg.cols) do
+        local btn = header:FindFirstChild("Col_" .. col.id)
+        if btn then
+            if col.id == state.colId then
+                local arrow = state.ascending and ICONS.ARROW_UP or ICONS.ARROW_DOWN
+                btn.Text = col.name .. " " .. arrow
+                btn.TextColor3 = Color3.fromRGB(240, 245, 255)
+            else
+                btn.Text = col.name
+                btn.TextColor3 = Color3.fromRGB(140, 155, 180)
+            end
+        end
+    end
+end
+
+local function toggleTableSort(tabKey, colId)
+    local state = TableSortState[tabKey]
+    if not state then return end
+
+    if state.colId == colId then
+        state.ascending = not state.ascending
+    else
+        state.colId = colId
+        if colId == "Name" then
+            state.ascending = true
+        elseif colId == "Event" then
+            state.ascending = true
+        elseif colId == "Hz" then
+            state.ascending = false
+        elseif colId == "Priority" then
+            state.ascending = false
+        elseif colId == "Cpu" then
+            state.ascending = false
+        elseif colId == "Iters" then
+            state.ascending = false
+        elseif colId == "Lock" then
+            state.ascending = false
+        elseif colId == "Actions" then
+            state.ascending = false
+        elseif colId == "Stage" then
+            state.ascending = true
+        elseif colId == "Time" then
+            state.ascending = false
+        elseif colId == "Toggle" then
+            state.ascending = false
+        else
+            state.ascending = true
+        end
+    end
+
+    updateHeaderSortIndicators(tabKey)
+
+    if tabKey == "Startup" and refreshStartupTab then
+        refreshStartupTab(true)
+    end
+end
+
+getgenv()._OmniTaskManager_SortTable = toggleTableSort
+getgenv()._OmniTaskManager_GetSortState = function() return TableSortState end
 
 local function computeColumnPositions(tabKey)
     local cfg = ColumnConfig[tabKey]
@@ -3988,7 +4266,7 @@ applyRowColumnLayout = function(row, tabKey)
     if #positions == 0 then return end
 
     if tabKey == "Startup" then
-        local pStat, wStat = positions[1], widths[1]
+        local pPri, wPri = positions[1], widths[1]
         local pName, wName = positions[2], widths[2]
         local pStage, wStage = positions[3], widths[3]
         local pTime, wTime = positions[4], widths[4]
@@ -3996,7 +4274,13 @@ applyRowColumnLayout = function(row, tabKey)
 
         local dot = row:FindFirstChild("Dot")
         if dot then
-            dot.Position = UDim2.new(pStat + wStat / 2, -4, 0.5, -4)
+            dot.Position = UDim2.new(pPri + wPri / 2, -18, 0.5, -4)
+        end
+        local priLbl = row:FindFirstChild("PriLbl")
+        if priLbl then
+            priLbl.Position = UDim2.new(pPri + wPri / 2, -4, 0, 0)
+            priLbl.Size = UDim2.new(0, 32, 1, 0)
+            priLbl.TextXAlignment = Enum.TextXAlignment.Left
         end
         local nameLbl = row:FindFirstChild("NameLbl")
         if nameLbl then
@@ -4025,7 +4309,7 @@ applyRowColumnLayout = function(row, tabKey)
         end
 
     elseif tabKey == "Tasks" then
-        local pStat, wStat = positions[1], widths[1]
+        local pPri, wPri = positions[1], widths[1]
         local pName, wName = positions[2], widths[2]
         local pEvt, wEvt = positions[3], widths[3]
         local pHz, wHz = positions[4], widths[4]
@@ -4035,13 +4319,19 @@ applyRowColumnLayout = function(row, tabKey)
 
         local gripLbl = row:FindFirstChild("GripLbl")
         if gripLbl then
-            gripLbl.Position = UDim2.new(pStat + wStat / 2, -14, 0.5, -8)
+            gripLbl.Position = UDim2.new(pPri + wPri / 2, -26, 0.5, -8)
             gripLbl.Size = UDim2.new(0, 12, 0, 16)
         end
         local dot = row:FindFirstChild("Dot")
         if dot then
-            dot.Position = UDim2.new(pStat + wStat / 2, 2, 0.5, -4)
+            dot.Position = UDim2.new(pPri + wPri / 2, -10, 0.5, -4)
             dot.Size = UDim2.new(0, 8, 0, 8)
+        end
+        local priLbl = row:FindFirstChild("PriLbl")
+        if priLbl then
+            priLbl.Position = UDim2.new(pPri + wPri / 2, 3, 0, 0)
+            priLbl.Size = UDim2.new(0, 26, 1, 0)
+            priLbl.TextXAlignment = Enum.TextXAlignment.Left
         end
         local nameLbl = row:FindFirstChild("NameLbl")
         if nameLbl then
@@ -4075,7 +4365,7 @@ applyRowColumnLayout = function(row, tabKey)
         end
 
     elseif tabKey == "Loops" then
-        local pStat, wStat = positions[1], widths[1]
+        local pPri, wPri = positions[1], widths[1]
         local pName, wName = positions[2], widths[2]
         local pItr, wItr = positions[3], widths[3]
         local pHz, wHz = positions[4], widths[4]
@@ -4085,13 +4375,19 @@ applyRowColumnLayout = function(row, tabKey)
 
         local gripLbl = row:FindFirstChild("GripLbl")
         if gripLbl then
-            gripLbl.Position = UDim2.new(pStat + wStat / 2, -14, 0.5, -8)
+            gripLbl.Position = UDim2.new(pPri + wPri / 2, -26, 0.5, -8)
             gripLbl.Size = UDim2.new(0, 12, 0, 16)
         end
         local dot = row:FindFirstChild("Dot")
         if dot then
-            dot.Position = UDim2.new(pStat + wStat / 2, 2, 0.5, -4)
+            dot.Position = UDim2.new(pPri + wPri / 2, -10, 0.5, -4)
             dot.Size = UDim2.new(0, 8, 0, 8)
+        end
+        local priLbl = row:FindFirstChild("PriLbl")
+        if priLbl then
+            priLbl.Position = UDim2.new(pPri + wPri / 2, 3, 0, 0)
+            priLbl.Size = UDim2.new(0, 26, 1, 0)
+            priLbl.TextXAlignment = Enum.TextXAlignment.Left
         end
         local nameLbl = row:FindFirstChild("NameLbl")
         if nameLbl then
@@ -4214,7 +4510,7 @@ autoFitColumn = function(tabKey, divIdx)
     local TextService = game:GetService("TextService")
 
     if divIdx == 1 then
-        longestText = "STAT"
+        longestText = "PRIORITY"
     elseif divIdx == 2 then
         if tabKey == "Startup" and allStartupScriptsRef then
             for _, s in ipairs(allStartupScriptsRef) do
@@ -4988,18 +5284,34 @@ local function createHeaderContainer(name)
     return header
 end
 
-local function addHeaderColumn(parent, text, sizeX, posX, align)
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(sizeX, -H_PAD * 2, 1, 0)
-    lbl.Position = UDim2.new(posX, H_PAD, 0, 0)
-    lbl.BackgroundTransparency = 1
-    lbl.Font = Enum.Font.GothamBold
-    lbl.TextSize = 10
-    lbl.TextColor3 = Color3.fromRGB(140, 155, 180)
-    lbl.TextXAlignment = align or Enum.TextXAlignment.Center
-    lbl.Text = text
-    lbl.Parent = parent
-    return lbl
+local function addHeaderColumn(parent, text, sizeX, posX, align, tabKey, colId)
+    local btn = Instance.new("TextButton")
+    btn.Name = "Col_" .. (colId or "")
+    btn.Size = UDim2.new(sizeX, -H_PAD * 2, 1, 0)
+    btn.Position = UDim2.new(posX, H_PAD, 0, 0)
+    btn.BackgroundTransparency = 1
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 10
+    btn.TextColor3 = Color3.fromRGB(140, 155, 180)
+    btn.TextXAlignment = align or Enum.TextXAlignment.Center
+    btn.Text = text
+    btn.AutoButtonColor = false
+    btn.ZIndex = 12
+    btn.Parent = parent
+
+    btn.MouseEnter:Connect(function()
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end)
+    btn.MouseLeave:Connect(function()
+        local isSorted = (TableSortState[tabKey] and TableSortState[tabKey].colId == colId)
+        btn.TextColor3 = isSorted and Color3.fromRGB(240, 245, 255) or Color3.fromRGB(140, 155, 180)
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        toggleTableSort(tabKey, colId)
+    end)
+
+    return btn
 end
 
 -- 1. Tasks Header
@@ -5007,7 +5319,7 @@ local TableHeaderTasks = createHeaderContainer("TableHeaderTasks")
 TableHeaders.Tasks = TableHeaderTasks
 TableHeaderTasks.Visible = true
 for _, col in ipairs(ColumnConfig.Tasks.cols) do
-    addHeaderColumn(TableHeaderTasks, col.name, col.width, 0, col.align).Name = "Col_" .. col.id
+    addHeaderColumn(TableHeaderTasks, col.name, col.width, 0, col.align, "Tasks", col.id)
 end
 setupHeaderDividers(TableHeaderTasks, "Tasks")
 
@@ -5015,7 +5327,7 @@ setupHeaderDividers(TableHeaderTasks, "Tasks")
 local TableHeaderLoops = createHeaderContainer("TableHeaderLoops")
 TableHeaders.Loops = TableHeaderLoops
 for _, col in ipairs(ColumnConfig.Loops.cols) do
-    addHeaderColumn(TableHeaderLoops, col.name, col.width, 0, col.align).Name = "Col_" .. col.id
+    addHeaderColumn(TableHeaderLoops, col.name, col.width, 0, col.align, "Loops", col.id)
 end
 setupHeaderDividers(TableHeaderLoops, "Loops")
 
@@ -5023,7 +5335,7 @@ setupHeaderDividers(TableHeaderLoops, "Loops")
 local TableHeaderStartup = createHeaderContainer("TableHeaderStartup")
 TableHeaders.Startup = TableHeaderStartup
 for _, col in ipairs(ColumnConfig.Startup.cols) do
-    addHeaderColumn(TableHeaderStartup, col.name, col.width, 0, col.align).Name = "Col_" .. col.id
+    addHeaderColumn(TableHeaderStartup, col.name, col.width, 0, col.align, "Startup", col.id)
 end
 setupHeaderDividers(TableHeaderStartup, "Startup")
 
@@ -5031,7 +5343,7 @@ setupHeaderDividers(TableHeaderStartup, "Startup")
 local TableHeaderGame = createHeaderContainer("TableHeaderGame")
 TableHeaders.Game = TableHeaderGame
 for _, col in ipairs(ColumnConfig.Game.cols) do
-    addHeaderColumn(TableHeaderGame, col.name, col.width, 0, col.align).Name = "Col_" .. col.id
+    addHeaderColumn(TableHeaderGame, col.name, col.width, 0, col.align, "Game", col.id)
 end
 setupHeaderDividers(TableHeaderGame, "Game")
 
@@ -5039,6 +5351,11 @@ updateTableColumnLayout("Tasks")
 updateTableColumnLayout("Loops")
 updateTableColumnLayout("Startup")
 updateTableColumnLayout("Game")
+
+updateHeaderSortIndicators("Tasks")
+updateHeaderSortIndicators("Loops")
+updateHeaderSortIndicators("Startup")
+updateHeaderSortIndicators("Game")
 
 -- ==============================================================================
 -- SCROLLING LIST CONTAINERS
@@ -5855,6 +6172,18 @@ local function renderTaskRow(taskObj, idx)
         dotCorner.CornerRadius = UDim.new(1, 0)
         dotCorner.Parent = dot
 
+        local priLbl = Instance.new("TextLabel")
+        priLbl.Name = "PriLbl"
+        priLbl.Size = UDim2.new(0, 26, 1, 0)
+        priLbl.Position = UDim2.new(0, 32, 0, 0)
+        priLbl.BackgroundTransparency = 1
+        priLbl.Font = Enum.Font.GothamBold
+        priLbl.TextSize = 11
+        priLbl.TextColor3 = Color3.fromRGB(200, 220, 245)
+        priLbl.TextXAlignment = Enum.TextXAlignment.Left
+        priLbl.Text = "50"
+        priLbl.Parent = row
+
         local nameLbl = Instance.new("TextLabel")
         nameLbl.Name = "NameLbl"
         nameLbl.Size = UDim2.new(0.32, 0, 1, 0)
@@ -6088,6 +6417,21 @@ local function renderTaskRow(taskObj, idx)
 
     -- Update row content
     local dot = row:FindFirstChild("Dot")
+    local priLbl = row:FindFirstChild("PriLbl")
+    if not priLbl then
+        priLbl = Instance.new("TextLabel")
+        priLbl.Name = "PriLbl"
+        priLbl.Size = UDim2.new(0, 26, 1, 0)
+        priLbl.Position = UDim2.new(0, 32, 0, 0)
+        priLbl.BackgroundTransparency = 1
+        priLbl.Font = Enum.Font.GothamBold
+        priLbl.TextSize = 11
+        priLbl.TextColor3 = Color3.fromRGB(200, 220, 245)
+        priLbl.TextXAlignment = Enum.TextXAlignment.Left
+        priLbl.Parent = row
+    end
+    local priVal = taskObj.priority or taskObj.basePriority or 50
+    priLbl.Text = tostring(priVal)
     local nameLbl = row:FindFirstChild("NameLbl")
     local eventLbl = row:FindFirstChild("EventLbl")
     local priBtn = row:FindFirstChild("PriBtn")
@@ -7862,6 +8206,10 @@ table.insert(hudWindowConnections, UserInputService.InputEnded:Connect(function(
                 end
             end
 
+            TableSortState.Tasks.colId = "Priority"
+            TableSortState.Tasks.ascending = false
+            updateHeaderSortIndicators("Tasks")
+
             saveSchedulerOverrides(true)
             emitProfile()
         end)
@@ -7918,6 +8266,10 @@ table.insert(hudWindowConnections, UserInputService.InputEnded:Connect(function(
                 end
             end
 
+            TableSortState.Loops.colId = "Priority"
+            TableSortState.Loops.ascending = false
+            updateHeaderSortIndicators("Loops")
+
             saveSchedulerOverrides(true)
             emitProfile()
         end)
@@ -7952,6 +8304,18 @@ local function renderStartupRow(scriptObj, idx)
         local dotCorner = Instance.new("UICorner")
         dotCorner.CornerRadius = UDim.new(1, 0)
         dotCorner.Parent = dot
+
+        local priLbl = Instance.new("TextLabel")
+        priLbl.Name = "PriLbl"
+        priLbl.Size = UDim2.new(0, 32, 1, 0)
+        priLbl.Position = UDim2.new(0.02, 22, 0, 0)
+        priLbl.BackgroundTransparency = 1
+        priLbl.Font = Enum.Font.GothamBold
+        priLbl.TextSize = 10
+        priLbl.TextColor3 = Color3.fromRGB(200, 220, 245)
+        priLbl.TextXAlignment = Enum.TextXAlignment.Left
+        priLbl.Text = "100"
+        priLbl.Parent = row
 
         local nameLbl = Instance.new("TextLabel")
         nameLbl.Name = "NameLbl"
@@ -8450,6 +8814,20 @@ local function renderStartupRow(scriptObj, idx)
     row.LayoutOrder = idx * 10
     row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
     local dot = row:FindFirstChild("Dot")
+    local priLbl = row:FindFirstChild("PriLbl")
+    if not priLbl then
+        priLbl = Instance.new("TextLabel")
+        priLbl.Name = "PriLbl"
+        priLbl.Size = UDim2.new(0, 32, 1, 0)
+        priLbl.Position = UDim2.new(0.02, 22, 0, 0)
+        priLbl.BackgroundTransparency = 1
+        priLbl.Font = Enum.Font.GothamBold
+        priLbl.TextSize = 10
+        priLbl.TextColor3 = Color3.fromRGB(200, 220, 245)
+        priLbl.TextXAlignment = Enum.TextXAlignment.Left
+        priLbl.Parent = row
+    end
+    priLbl.Text = tostring(scriptObj.priority or 100)
     local nameLbl = row:FindFirstChild("NameLbl")
     local pathLbl = row:FindFirstChild("PathLbl")
     local stageBadge = row:FindFirstChild("StageBadge")
@@ -8555,6 +8933,9 @@ refreshStartupTab = function(force)
     local seenKeys = {}
     local visibleCount = 0
     local startupScripts = scanStartupScripts(force)
+    if TableSortState.Startup and TableSortState.Startup.colId then
+        sortStartupList(startupScripts, TableSortState.Startup.colId, TableSortState.Startup.ascending)
+    end
     currentStartupBoundaries = getStageBoundaryInfo(startupScripts)
     allStartupScriptsRef = startupScripts
     for idx, scriptObj in ipairs(startupScripts) do
@@ -8641,6 +9022,18 @@ local function renderLoopRow(loopObj, idx)
         local dotCorner = Instance.new("UICorner")
         dotCorner.CornerRadius = UDim.new(1, 0)
         dotCorner.Parent = dot
+
+        local priLbl = Instance.new("TextLabel")
+        priLbl.Name = "PriLbl"
+        priLbl.Size = UDim2.new(0, 26, 1, 0)
+        priLbl.Position = UDim2.new(0, 32, 0, 0)
+        priLbl.BackgroundTransparency = 1
+        priLbl.Font = Enum.Font.GothamBold
+        priLbl.TextSize = 11
+        priLbl.TextColor3 = Color3.fromRGB(200, 220, 245)
+        priLbl.TextXAlignment = Enum.TextXAlignment.Left
+        priLbl.Text = "50"
+        priLbl.Parent = row
 
         local nameLbl = Instance.new("TextLabel")
         nameLbl.Name = "NameLbl"
@@ -8872,6 +9265,21 @@ local function renderLoopRow(loopObj, idx)
 
     -- Update row state
     local dot = row:FindFirstChild("Dot")
+    local priLbl = row:FindFirstChild("PriLbl")
+    if not priLbl then
+        priLbl = Instance.new("TextLabel")
+        priLbl.Name = "PriLbl"
+        priLbl.Size = UDim2.new(0, 26, 1, 0)
+        priLbl.Position = UDim2.new(0, 32, 0, 0)
+        priLbl.BackgroundTransparency = 1
+        priLbl.Font = Enum.Font.GothamBold
+        priLbl.TextSize = 11
+        priLbl.TextColor3 = Color3.fromRGB(200, 220, 245)
+        priLbl.TextXAlignment = Enum.TextXAlignment.Left
+        priLbl.Parent = row
+    end
+    local priVal = loopObj.priority or 50
+    priLbl.Text = tostring(priVal)
     if dot then
         if loopObj.paused then
             dot.BackgroundColor3 = Color3.fromRGB(255, 160, 40) -- Orange
@@ -9197,7 +9605,14 @@ task.spawn(function()
                     if tasksSubMode == "advanced" then
                         local seenIds = {}
                         local visibleCount = 0
-                        local gameTasks = DiscoveredGameTaskOrder or {}
+                        local rawGameTasks = DiscoveredGameTaskOrder or {}
+                        local gameTasks = {}
+                        for _, gt in ipairs(rawGameTasks) do
+                            table.insert(gameTasks, gt)
+                        end
+                        if TableSortState.Game and TableSortState.Game.colId then
+                            sortGameTaskList(gameTasks, TableSortState.Game.colId, TableSortState.Game.ascending)
+                        end
                         for idx, entry in ipairs(gameTasks) do
                             seenIds[entry.id] = true
                             local textMatches = (filterText == "")
@@ -9231,7 +9646,14 @@ task.spawn(function()
                         if not TaskDrag.isDragging then
                             local seenIds = {}
                             local visibleCount = 0
-                            local tasks = profile.tasks or {}
+                            local rawTasks = profile.tasks or {}
+                            local tasks = {}
+                            for _, t in ipairs(rawTasks) do
+                                table.insert(tasks, t)
+                            end
+                            if TableSortState.Tasks and TableSortState.Tasks.colId then
+                                sortTaskList(tasks, TableSortState.Tasks.colId, TableSortState.Tasks.ascending)
+                            end
                             for idx, taskObj in ipairs(tasks) do
                                 local textMatches = (filterText == "")
                                     or (taskObj.name and taskObj.name:lower():find(filterText, 1, true))
@@ -9282,7 +9704,14 @@ task.spawn(function()
                     if not LoopDrag.isDragging then
                         local seenIds = {}
                         local visibleCount = 0
-                        local loops = (profile.loops) or (getgenv().GetLoopProfile and getgenv().GetLoopProfile().loops) or {}
+                        local rawLoops = (profile.loops) or (getgenv().GetLoopProfile and getgenv().GetLoopProfile().loops) or {}
+                        local loops = {}
+                        for _, l in ipairs(rawLoops) do
+                            table.insert(loops, l)
+                        end
+                        if TableSortState.Loops and TableSortState.Loops.colId then
+                            sortLoopList(loops, TableSortState.Loops.colId, TableSortState.Loops.ascending)
+                        end
                         for idx, loopObj in ipairs(loops) do
                             local textMatches = (filterText == "")
                                 or (loopObj.name and loopObj.name:lower():find(filterText, 1, true))
