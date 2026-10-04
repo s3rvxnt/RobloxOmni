@@ -5909,86 +5909,88 @@ BtnShowDisabled.Text = ""
 BtnShowDisabled.Visible = false
 BtnShowDisabled.Parent = Footer
 
-local bsdLbl = Instance.new("TextLabel")
-bsdLbl.Name = "Label"
-bsdLbl.Size = UDim2.new(1, -24, 1, 0)
-bsdLbl.Position = UDim2.new(0, 2, 0, 0)
-bsdLbl.BackgroundTransparency = 1
-bsdLbl.Font = Enum.Font.GothamMedium
-bsdLbl.TextSize = 11
-bsdLbl.TextColor3 = Color3.fromRGB(160, 175, 195)
-bsdLbl.Text = "show disabled"
-bsdLbl.TextXAlignment = Enum.TextXAlignment.Left
-bsdLbl.Parent = BtnShowDisabled
-
-local bsdBox = Instance.new("Frame")
-bsdBox.Name = "Box"
-bsdBox.Size = UDim2.new(0, 16, 0, 16)
-bsdBox.Position = UDim2.new(1, -18, 0.5, -8)
-bsdBox.BackgroundColor3 = showDisabled and Color3.fromRGB(28, 45, 70) or Color3.fromRGB(14, 18, 26)
-bsdBox.BorderSizePixel = 0
-bsdBox.Parent = BtnShowDisabled
-local boxCorner = Instance.new("UICorner")
-boxCorner.CornerRadius = UDim.new(0, 3)
-boxCorner.Parent = bsdBox
-local boxStroke = Instance.new("UIStroke")
-boxStroke.Color = showDisabled and Color3.fromRGB(70, 125, 190) or Color3.fromRGB(48, 62, 85)
-boxStroke.Thickness = 1
-boxStroke.Parent = bsdBox
-
-local xMark = Instance.new("Frame")
-xMark.Name = "XMark"
-xMark.Size = UDim2.new(1, 0, 1, 0)
-xMark.BackgroundTransparency = 1
-xMark.Visible = showDisabled
-xMark.Parent = bsdBox
-
-local xLine1 = Instance.new("Frame")
-xLine1.Name = "Line1"
-xLine1.Size = UDim2.new(0, 10, 0, 2)
-xLine1.AnchorPoint = Vector2.new(0.5, 0.5)
-xLine1.Position = UDim2.new(0.5, 0, 0.5, 0)
-xLine1.Rotation = 45
-xLine1.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
-xLine1.BorderSizePixel = 0
-xLine1.Parent = xMark
-local c1 = Instance.new("UICorner", xLine1)
-c1.CornerRadius = UDim.new(0, 1)
-
-local xLine2 = Instance.new("Frame")
-xLine2.Name = "Line2"
-xLine2.Size = UDim2.new(0, 10, 0, 2)
-xLine2.AnchorPoint = Vector2.new(0.5, 0.5)
-xLine2.Position = UDim2.new(0.5, 0, 0.5, 0)
-xLine2.Rotation = -45
-xLine2.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
-xLine2.BorderSizePixel = 0
-xLine2.Parent = xMark
-local c2 = Instance.new("UICorner", xLine2)
-c2.CornerRadius = UDim.new(0, 1)
-
-BtnShowDisabled.MouseButton1Click:Connect(function()
-    showDisabled = not showDisabled
-    xMark.Visible = showDisabled
-    bsdBox.BackgroundColor3 = showDisabled and Color3.fromRGB(28, 45, 70) or Color3.fromRGB(14, 18, 26)
-    boxStroke.Color = showDisabled and Color3.fromRGB(70, 125, 190) or Color3.fromRGB(48, 62, 85)
-    if refreshStartupTab then
-        refreshStartupTab()
-    end
-end)
-
-BtnShowDisabled.MouseEnter:Connect(function()
-    bsdLbl.TextColor3 = Color3.fromRGB(210, 225, 245)
-    if not showDisabled then
-        boxStroke.Color = Color3.fromRGB(70, 90, 120)
-    end
-end)
-BtnShowDisabled.MouseLeave:Connect(function()
+do
+    local bsdLbl = Instance.new("TextLabel")
+    bsdLbl.Name = "Label"
+    bsdLbl.Size = UDim2.new(1, -24, 1, 0)
+    bsdLbl.Position = UDim2.new(0, 2, 0, 0)
+    bsdLbl.BackgroundTransparency = 1
+    bsdLbl.Font = Enum.Font.GothamMedium
+    bsdLbl.TextSize = 11
     bsdLbl.TextColor3 = Color3.fromRGB(160, 175, 195)
-    if not showDisabled then
-        boxStroke.Color = Color3.fromRGB(48, 62, 85)
-    end
-end)
+    bsdLbl.Text = "show disabled"
+    bsdLbl.TextXAlignment = Enum.TextXAlignment.Left
+    bsdLbl.Parent = BtnShowDisabled
+
+    local bsdBox = Instance.new("Frame")
+    bsdBox.Name = "Box"
+    bsdBox.Size = UDim2.new(0, 16, 0, 16)
+    bsdBox.Position = UDim2.new(1, -18, 0.5, -8)
+    bsdBox.BackgroundColor3 = showDisabled and Color3.fromRGB(28, 45, 70) or Color3.fromRGB(14, 18, 26)
+    bsdBox.BorderSizePixel = 0
+    bsdBox.Parent = BtnShowDisabled
+    local boxCorner = Instance.new("UICorner")
+    boxCorner.CornerRadius = UDim.new(0, 3)
+    boxCorner.Parent = bsdBox
+    local boxStroke = Instance.new("UIStroke")
+    boxStroke.Color = showDisabled and Color3.fromRGB(70, 125, 190) or Color3.fromRGB(48, 62, 85)
+    boxStroke.Thickness = 1
+    boxStroke.Parent = bsdBox
+
+    local xMark = Instance.new("Frame")
+    xMark.Name = "XMark"
+    xMark.Size = UDim2.new(1, 0, 1, 0)
+    xMark.BackgroundTransparency = 1
+    xMark.Visible = showDisabled
+    xMark.Parent = bsdBox
+
+    local xLine1 = Instance.new("Frame")
+    xLine1.Name = "Line1"
+    xLine1.Size = UDim2.new(0, 10, 0, 2)
+    xLine1.AnchorPoint = Vector2.new(0.5, 0.5)
+    xLine1.Position = UDim2.new(0.5, 0, 0.5, 0)
+    xLine1.Rotation = 45
+    xLine1.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+    xLine1.BorderSizePixel = 0
+    xLine1.Parent = xMark
+    local c1 = Instance.new("UICorner", xLine1)
+    c1.CornerRadius = UDim.new(0, 1)
+
+    local xLine2 = Instance.new("Frame")
+    xLine2.Name = "Line2"
+    xLine2.Size = UDim2.new(0, 10, 0, 2)
+    xLine2.AnchorPoint = Vector2.new(0.5, 0.5)
+    xLine2.Position = UDim2.new(0.5, 0, 0.5, 0)
+    xLine2.Rotation = -45
+    xLine2.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+    xLine2.BorderSizePixel = 0
+    xLine2.Parent = xMark
+    local c2 = Instance.new("UICorner", xLine2)
+    c2.CornerRadius = UDim.new(0, 1)
+
+    BtnShowDisabled.MouseButton1Click:Connect(function()
+        showDisabled = not showDisabled
+        xMark.Visible = showDisabled
+        bsdBox.BackgroundColor3 = showDisabled and Color3.fromRGB(28, 45, 70) or Color3.fromRGB(14, 18, 26)
+        boxStroke.Color = showDisabled and Color3.fromRGB(70, 125, 190) or Color3.fromRGB(48, 62, 85)
+        if refreshStartupTab then
+            refreshStartupTab()
+        end
+    end)
+
+    BtnShowDisabled.MouseEnter:Connect(function()
+        bsdLbl.TextColor3 = Color3.fromRGB(210, 225, 245)
+        if not showDisabled then
+            boxStroke.Color = Color3.fromRGB(70, 90, 120)
+        end
+    end)
+    BtnShowDisabled.MouseLeave:Connect(function()
+        bsdLbl.TextColor3 = Color3.fromRGB(160, 175, 195)
+        if not showDisabled then
+            boxStroke.Color = Color3.fromRGB(48, 62, 85)
+        end
+    end)
+end
 
 local BtnAddNewStartup = Instance.new("TextButton")
 BtnAddNewStartup.Name = "BtnAddNewStartup"
@@ -6003,28 +6005,33 @@ BtnAddNewStartup.TextColor3 = Color3.fromRGB(100, 180, 255)
 BtnAddNewStartup.Text = "+ Add new"
 BtnAddNewStartup.Visible = false
 BtnAddNewStartup.Parent = Footer
-local addCorner = Instance.new("UICorner")
-addCorner.CornerRadius = UDim.new(0, 4)
-addCorner.Parent = BtnAddNewStartup
-local addStroke = Instance.new("UIStroke")
-addStroke.Color = Color3.fromRGB(45, 70, 105)
-addStroke.Thickness = 1
-addStroke.Parent = BtnAddNewStartup
 
-BtnAddNewStartup.MouseEnter:Connect(function()
-    BtnAddNewStartup.BackgroundColor3 = Color3.fromRGB(38, 62, 95)
-    BtnAddNewStartup.TextColor3 = Color3.fromRGB(130, 205, 255)
-end)
-BtnAddNewStartup.MouseLeave:Connect(function()
-    BtnAddNewStartup.BackgroundColor3 = Color3.fromRGB(28, 45, 70)
-    BtnAddNewStartup.TextColor3 = Color3.fromRGB(100, 180, 255)
-end)
+do
+    local addCorner = Instance.new("UICorner")
+    addCorner.CornerRadius = UDim.new(0, 4)
+    addCorner.Parent = BtnAddNewStartup
+    local addStroke = Instance.new("UIStroke")
+    addStroke.Color = Color3.fromRGB(45, 70, 105)
+    addStroke.Thickness = 1
+    addStroke.Parent = BtnAddNewStartup
 
-BtnAddNewStartup.MouseButton1Click:Connect(function()
-    if openNewScriptModal then
-        openNewScriptModal()
-    end
-end)
+    BtnAddNewStartup.MouseEnter:Connect(function()
+        BtnAddNewStartup.BackgroundColor3 = Color3.fromRGB(38, 62, 95)
+        BtnAddNewStartup.TextColor3 = Color3.fromRGB(130, 205, 255)
+        addStroke.Color = Color3.fromRGB(60, 95, 145)
+    end)
+    BtnAddNewStartup.MouseLeave:Connect(function()
+        BtnAddNewStartup.BackgroundColor3 = Color3.fromRGB(28, 45, 70)
+        BtnAddNewStartup.TextColor3 = Color3.fromRGB(100, 180, 255)
+        addStroke.Color = Color3.fromRGB(45, 70, 105)
+    end)
+
+    BtnAddNewStartup.MouseButton1Click:Connect(function()
+        if openNewScriptModal then
+            openNewScriptModal()
+        end
+    end)
+end
 
 -- Tasks Sub-View Toggle (Active Tasks vs Native Game Tasks Ingestion)
 local function updateTasksSubView()
@@ -6775,10 +6782,7 @@ StartupDropIndicator.BorderSizePixel = 0
 StartupDropIndicator.Visible = false
 StartupDropIndicator.ZIndex = 120
 StartupDropIndicator.Parent = ScrollListStartup
-
-local indCorner = Instance.new("UICorner")
-indCorner.CornerRadius = UDim.new(1, 0)
-indCorner.Parent = StartupDropIndicator
+Instance.new("UICorner", StartupDropIndicator).CornerRadius = UDim.new(1, 0)
 
 local StartupDragGhost = Instance.new("Frame")
 StartupDragGhost.Name = "StartupDragGhost"
@@ -6789,16 +6793,15 @@ StartupDragGhost.BorderSizePixel = 0
 StartupDragGhost.Visible = false
 StartupDragGhost.ZIndex = 250
 StartupDragGhost.Parent = MainFrame
+Instance.new("UICorner", StartupDragGhost).CornerRadius = UDim.new(0, 4)
 
-local ghostCorner = Instance.new("UICorner")
-ghostCorner.CornerRadius = UDim.new(0, 4)
-ghostCorner.Parent = StartupDragGhost
-
-local ghostStroke = Instance.new("UIStroke")
-ghostStroke.Thickness = 1.5
-ghostStroke.Color = Color3.fromRGB(70, 160, 255)
-ghostStroke.Transparency = 0.3
-ghostStroke.Parent = StartupDragGhost
+do
+    local ghostStroke = Instance.new("UIStroke")
+    ghostStroke.Thickness = 1.5
+    ghostStroke.Color = Color3.fromRGB(70, 160, 255)
+    ghostStroke.Transparency = 0.3
+    ghostStroke.Parent = StartupDragGhost
+end
 
 local ghostDot = Instance.new("Frame")
 ghostDot.Name = "GhostDot"
@@ -6808,9 +6811,7 @@ ghostDot.BackgroundColor3 = Color3.fromRGB(50, 220, 120)
 ghostDot.BorderSizePixel = 0
 ghostDot.ZIndex = 251
 ghostDot.Parent = StartupDragGhost
-local gdCorner = Instance.new("UICorner")
-gdCorner.CornerRadius = UDim.new(1, 0)
-gdCorner.Parent = ghostDot
+Instance.new("UICorner", ghostDot).CornerRadius = UDim.new(1, 0)
 
 local ghostName = Instance.new("TextLabel")
 ghostName.Name = "GhostName"
@@ -6836,9 +6837,7 @@ ghostBadge.TextSize = 9
 ghostBadge.TextColor3 = Color3.fromRGB(100, 180, 255)
 ghostBadge.ZIndex = 251
 ghostBadge.Parent = StartupDragGhost
-local gbCorner = Instance.new("UICorner")
-gbCorner.CornerRadius = UDim.new(0, 3)
-gbCorner.Parent = ghostBadge
+Instance.new("UICorner", ghostBadge).CornerRadius = UDim.new(0, 3)
 
 local ghostGrip = Instance.new("TextLabel")
 ghostGrip.Name = "GhostGrip"
@@ -7996,7 +7995,9 @@ do
             end
         end)
     end
+end
 
+do
     -- ==============================================================================
     -- PRIORITY EDIT MODAL (Option 3: Stepper, Direct Number Input, Presets)
     -- ==============================================================================
@@ -8400,6 +8401,7 @@ do
     end
 end
 
+do
     -- ==============================================================================
     -- TOPOLOGY UPVALUE & STATE TABLE INSPECTOR MODAL
     -- ==============================================================================
@@ -8731,6 +8733,7 @@ end
         UserInputService.MouseIconEnabled = true
         TM.Modal.Visible = true
     end
+end
 
 local function isScriptGameSpecific(filePath)
     local lower = normStartupPath(filePath):lower()
@@ -12060,7 +12063,6 @@ cleanUpHUD = function()
     for _, r in pairs(cachedTopologyCards) do pcall(function() r:Destroy() end) end
     cachedTopologyCards = {}
     topologyExpandedCards = {}
-    if TM and TM.Modal then pcall(function() TM.Modal:Destroy() end) end
     TableHeaders = {}
     activeDividerDrag = nil
     if ScreenGui then
