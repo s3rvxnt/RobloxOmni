@@ -3657,57 +3657,6 @@ local function cleanUpScheduler(isTeardown)
     end
     getgenv()._VirtualSchedulerPersistedIngestedKeys = nil
 
-    -- Restore original metamethods if they were hooked
-    if hookmetamethod and getgenv()._VirtualSchedulerOrigIndex then
-        pcall(hookmetamethod, game, "__index", getgenv()._VirtualSchedulerOrigIndex)
-        getgenv()._VirtualSchedulerOrigIndex = nil
-    end
-    if hookmetamethod and getgenv()._VirtualSchedulerOrigNamecall then
-        pcall(hookmetamethod, game, "__namecall", getgenv()._VirtualSchedulerOrigNamecall)
-        getgenv()._VirtualSchedulerOrigNamecall = nil
-    end
-    if hookfunction and getgenv()._VirtualSchedulerOrigFireServer then
-        pcall(hookfunction, Instance.new("RemoteEvent").FireServer, getgenv()._VirtualSchedulerOrigFireServer)
-        getgenv()._VirtualSchedulerOrigFireServer = nil
-    end
-    if hookfunction and getgenv()._VirtualSchedulerOrigInvokeServer then
-        pcall(hookfunction, Instance.new("RemoteFunction").InvokeServer, getgenv()._VirtualSchedulerOrigInvokeServer)
-        getgenv()._VirtualSchedulerOrigInvokeServer = nil
-    end
-    if hookmetamethod and getgenv()._VirtualSchedulerOrigConnIndex then
-        pcall(function()
-            local raw = getgenv()._VirtualSchedulerRawSignals or rawSignals
-            local sig = raw and (raw.Heartbeat or raw.Stepped or raw.RenderStepped)
-            if sig then
-                local temp = sig:Connect(function() end)
-                pcall(hookmetamethod, temp, "__index", getgenv()._VirtualSchedulerOrigConnIndex)
-                if getgenv()._VirtualSchedulerOrigConnNamecall then
-                    pcall(hookmetamethod, temp, "__namecall", getgenv()._VirtualSchedulerOrigConnNamecall)
-                end
-                temp:Disconnect()
-            end
-        end)
-        getgenv()._VirtualSchedulerOrigConnIndex = nil
-        getgenv()._VirtualSchedulerOrigConnNamecall = nil
-    end
-    if hookfunction and getgenv()._VirtualSchedulerOrigInstanceNew then
-        pcall(hookfunction, Instance.new, getgenv()._VirtualSchedulerOrigInstanceNew)
-        getgenv()._VirtualSchedulerOrigInstanceNew = nil
-    end
-    if hookfunction and type(Drawing) == "table" and getgenv()._VirtualSchedulerOrigDrawingNew then
-        pcall(hookfunction, Drawing.new, getgenv()._VirtualSchedulerOrigDrawingNew)
-        getgenv()._VirtualSchedulerOrigDrawingNew = nil
-    end
-    if hookfunction and getgenv()._KernelOrigTaskWait and task and task.wait then
-        pcall(hookfunction, task.wait, getgenv()._KernelOrigTaskWait)
-        getgenv()._KernelOrigTaskWait = nil
-    end
-    if hookfunction and getgenv()._KernelOrigWait and wait then
-        pcall(hookfunction, wait, getgenv()._KernelOrigWait)
-        getgenv()._KernelOrigWait = nil
-    end
-    getgenv()._VirtualSchedulerHooksActive = false
-
     -- Clear global environment proxies pointing to this DataModel
     if getgenv().RunService == ProxiedRunService then
         getgenv().RunService = rawRunService
@@ -10678,41 +10627,6 @@ local function unifiedCleanUp(isTeardown)
     getgenv()._OmniTaskManager_SortTable = nil
     getgenv()._OmniTaskManager_GetSortState = nil
 end
-
--- Non-blocking Client Teardown & Teleport Watchers (Zero-Yield, Zero-Deadlock)
-local function setupAutoTeardown()
-    pcall(function()
-        if game.Close then
-            local conn = game.Close:Connect(function()
-                unifiedCleanUp(true)
-            end)
-            table.insert(teardownConnections, conn)
-        end
-    end)
-
-    local function hookTeleport()
-        local lp = Players.LocalPlayer
-        if lp and lp.OnTeleport then
-            local conn = lp.OnTeleport:Connect(function(state)
-                if state == Enum.TeleportState.Started or state == Enum.TeleportState.InProgress then
-                    unifiedCleanUp(true)
-                end
-            end)
-            table.insert(teardownConnections, conn)
-        elseif not lp then
-            local conn
-            conn = Players:GetPropertyChangedSignal("LocalPlayer"):Connect(function()
-                if Players.LocalPlayer then
-                    conn:Disconnect()
-                    hookTeleport()
-                end
-            end)
-            table.insert(teardownConnections, conn)
-        end
-    end
-    pcall(hookTeleport)
-end
-setupAutoTeardown()
 
 getgenv()._KernelTaskManagerCleanUp = cleanUpHUD
 getgenv()._VirtualSchedulerCleanUp = cleanUpScheduler

@@ -213,15 +213,6 @@ if not SafeMode then
             end)
             lp = Players.LocalPlayer
         end
-        if lp then
-            pcall(function()
-                lp.OnTeleport:Connect(function(state)
-                    if state == Enum.TeleportState.Started then
-                        pcall(delfile, RUNNING_LOCK)
-                    end
-                end)
-            end)
-        end
     end)
 end
 
