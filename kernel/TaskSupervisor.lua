@@ -545,22 +545,54 @@ function TaskSupervisor.orderedShutdown(targetTaskId)
     return shutdownReport
 end
 
+function TaskSupervisor.getAllConnections()
+    categorizeAllTasks()
+    local result = {}
+    for id, node in pairs(tasksById) do
+        if node.connections then
+            for conn, meta in pairs(node.connections) do
+                local isAlive = true
+                if typeof(conn) == "RBXScriptConnection" and conn.Connected == false then isAlive = false end
+                if type(conn) == "table" and conn.Connected == false then isAlive = false end
+                if isAlive then
+                    table.insert(result, {
+                        taskId = node.id,
+                        taskName = node.name,
+                        source = node.source,
+                        line = node.line,
+                        category = node.category,
+                        signal = meta.signal or "Signal",
+                        connectedAt = meta.connectedAt or os.clock(),
+                        uptime = os.clock() - (meta.connectedAt or os.clock()),
+                    })
+                end
+            end
+        end
+    end
+    table.sort(result, function(a, b) return a.connectedAt < b.connectedAt end)
+    return result
+end
+
 function TaskSupervisor.visualizeTree(rootTaskId, includeDead)
     categorizeAllTasks()
     local lines = {}
 
     local function formatNodeLine(node, prefix, isLast)
         local branch = isLast and "└── " or "├── "
-        local activeConns = 0
+        local connList = {}
         if node.connections then
-            for conn, _ in pairs(node.connections) do
+            for conn, meta in pairs(node.connections) do
                 local isAlive = true
                 if typeof(conn) == "RBXScriptConnection" and conn.Connected == false then isAlive = false end
                 if type(conn) == "table" and conn.Connected == false then isAlive = false end
-                if isAlive then activeConns = activeConns + 1 end
+                if isAlive then
+                    table.insert(connList, meta)
+                end
             end
         end
+        table.sort(connList, function(a, b) return (a.signal or "") < (b.signal or "") end)
 
+        local activeConns = #connList
         local sigStr = activeConns > 0 and string.format(", %d signals", activeConns) or ""
         local pauseStr = node.isPaused and " [PAUSED]" or ""
         local durationMs = (node.totalDuration or 0) * 1000
@@ -572,9 +604,20 @@ function TaskSupervisor.visualizeTree(rootTaskId, includeDead)
         local nextPrefix = prefix .. (isLast and "    " or "│   ")
         local childList = {}
         for _, cNode in pairs(node.children) do
-            table.insert(childList, cNode)
+            if includeDead or isSubtreeAlive(cNode) then
+                table.insert(childList, cNode)
+            end
         end
         table.sort(childList, function(a, b) return a.createdAt < b.createdAt end)
+
+        -- Render attached signal connections directly under the task node
+        for sIdx, cMeta in ipairs(connList) do
+            local isLastItem = (sIdx == #connList) and (#childList == 0)
+            local cBranch = isLastItem and "└── " or "├── "
+            local uptime = os.clock() - (cMeta.connectedAt or os.clock())
+            table.insert(lines, string.format("%s%s🔗 [Signal] %s (uptime: %.1fs)", nextPrefix, cBranch, cMeta.signal or "Signal", uptime))
+        end
+
         for i, cNode in ipairs(childList) do
             formatNodeLine(cNode, nextPrefix, i == #childList)
         end
@@ -890,6 +933,11 @@ local function hookSignal(signal, signalName)
 
             local callerThread = origCoroutineRunning()
             local curTask = callerThread and threadToTask[callerThread]
+            if not curTask and callerThread then
+                pcall(registerTask, callerThread, callback, "signal", nil, 4)
+                curTask = threadToTask[callerThread]
+            end
+
             local conn = origConnect(sig, callback)
             if curTask and conn then
                 curTask.connections[conn] = {
@@ -910,6 +958,11 @@ local function hookSignal(signal, signalName)
 
             local callerThread = origCoroutineRunning()
             local curTask = callerThread and threadToTask[callerThread]
+            if not curTask and callerThread then
+                pcall(registerTask, callerThread, callback, "signal", nil, 4)
+                curTask = threadToTask[callerThread]
+            end
+
             local conn = origConnect(sig, callback)
             if curTask and conn then
                 curTask.connections[conn] = {
