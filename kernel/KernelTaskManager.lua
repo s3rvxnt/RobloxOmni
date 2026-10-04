@@ -3839,60 +3839,60 @@ local ICONS = {
 -- ==============================================================================
 local ColumnConfig = {
     Tasks = {
-        gutter = 0.06,
         cols = {
-            { id = "Name",    name = "TASK IDENTIFIER & SOURCE", align = Enum.TextXAlignment.Left,   width = 0.36, minWidth = 0.15, maxWidth = 0.65, defaultWidth = 0.36 },
-            { id = "Event",   name = "EVENT",                    align = Enum.TextXAlignment.Left,   width = 0.16, minWidth = 0.08, maxWidth = 0.30, defaultWidth = 0.16 },
-            { id = "Hz",      name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.07, maxWidth = 0.22, defaultWidth = 0.11 },
-            { id = "Lock",    name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.07, minWidth = 0.04, maxWidth = 0.14, defaultWidth = 0.07 },
-            { id = "Cpu",     name = "CPU TIME",                 align = Enum.TextXAlignment.Right,  width = 0.12, minWidth = 0.06, maxWidth = 0.22, defaultWidth = 0.12 },
-            { id = "Actions", name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.12, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.12 },
+            { id = "Stat",    name = "STAT",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
+            { id = "Name",    name = "TASK IDENTIFIER & SOURCE", align = Enum.TextXAlignment.Center, width = 0.38, minWidth = 0.18,  maxWidth = 0.65, defaultWidth = 0.38 },
+            { id = "Event",   name = "EVENT",                    align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.10,  maxWidth = 0.25, defaultWidth = 0.15 },
+            { id = "Hz",      name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.085, maxWidth = 0.20, defaultWidth = 0.11 },
+            { id = "Lock",    name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
+            { id = "Cpu",     name = "CPU TIME",                 align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.075, maxWidth = 0.20, defaultWidth = 0.11 },
+            { id = "Actions", name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.085, maxWidth = 0.22, defaultWidth = 0.13 },
         }
     },
     Loops = {
-        gutter = 0.06,
         cols = {
-            { id = "Name",    name = "LOOP CALLER & LOCATION",   align = Enum.TextXAlignment.Left,   width = 0.36, minWidth = 0.15, maxWidth = 0.65, defaultWidth = 0.36 },
-            { id = "Iters",   name = "ITERS",                    align = Enum.TextXAlignment.Left,   width = 0.16, minWidth = 0.08, maxWidth = 0.30, defaultWidth = 0.16 },
-            { id = "Hz",      name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.07, maxWidth = 0.22, defaultWidth = 0.11 },
-            { id = "Lock",    name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.07, minWidth = 0.04, maxWidth = 0.14, defaultWidth = 0.07 },
-            { id = "Cpu",     name = "CPU TIME",                 align = Enum.TextXAlignment.Right,  width = 0.12, minWidth = 0.06, maxWidth = 0.22, defaultWidth = 0.12 },
-            { id = "Actions", name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.12, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.12 },
+            { id = "Stat",    name = "STAT",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
+            { id = "Name",    name = "LOOP CALLER & LOCATION",   align = Enum.TextXAlignment.Center, width = 0.38, minWidth = 0.18,  maxWidth = 0.65, defaultWidth = 0.38 },
+            { id = "Iters",   name = "ITERS",                    align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.10,  maxWidth = 0.25, defaultWidth = 0.15 },
+            { id = "Hz",      name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.085, maxWidth = 0.20, defaultWidth = 0.11 },
+            { id = "Lock",    name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
+            { id = "Cpu",     name = "CPU TIME",                 align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.075, maxWidth = 0.20, defaultWidth = 0.11 },
+            { id = "Actions", name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.085, maxWidth = 0.22, defaultWidth = 0.13 },
         }
     },
     Startup = {
-        gutter = 0.06,
         cols = {
-            { id = "Name",    name = "SCRIPT IDENTIFIER & RELATIVE PATH", align = Enum.TextXAlignment.Left,   width = 0.48, minWidth = 0.20, maxWidth = 0.75, defaultWidth = 0.48 },
-            { id = "Stage",   name = "BOOT STAGE",                        align = Enum.TextXAlignment.Left,   width = 0.16, minWidth = 0.10, maxWidth = 0.30, defaultWidth = 0.16 },
-            { id = "Time",    name = "EXEC TIME",                         align = Enum.TextXAlignment.Right,  width = 0.13, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.13 },
-            { id = "Toggle",  name = "STATE / TOGGLE",                    align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.10, maxWidth = 0.30, defaultWidth = 0.17 },
+            { id = "Stat",    name = "STAT",                              align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
+            { id = "Name",    name = "SCRIPT IDENTIFIER & RELATIVE PATH", align = Enum.TextXAlignment.Center, width = 0.47, minWidth = 0.22,  maxWidth = 0.70, defaultWidth = 0.47 },
+            { id = "Stage",   name = "BOOT STAGE",                        align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.11,  maxWidth = 0.28, defaultWidth = 0.17 },
+            { id = "Time",    name = "EXEC TIME",                         align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.085, maxWidth = 0.22, defaultWidth = 0.13 },
+            { id = "Toggle",  name = "STATE / TOGGLE",                    align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.11,  maxWidth = 0.28, defaultWidth = 0.17 },
         }
     },
     Game = {
-        gutter = 0.06,
         cols = {
-            { id = "Name",    name = "GAME SCRIPT & LINE", align = Enum.TextXAlignment.Left,   width = 0.44, minWidth = 0.20, maxWidth = 0.75, defaultWidth = 0.44 },
-            { id = "Event",   name = "EVENT",              align = Enum.TextXAlignment.Left,   width = 0.18, minWidth = 0.10, maxWidth = 0.35, defaultWidth = 0.18 },
-            { id = "Status",  name = "ENGINE STATUS",      align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.10, maxWidth = 0.30, defaultWidth = 0.17 },
-            { id = "Action",  name = "ACTION",             align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.08, maxWidth = 0.30, defaultWidth = 0.15 },
+            { id = "Stat",    name = "STAT",               align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
+            { id = "Name",    name = "GAME SCRIPT & LINE", align = Enum.TextXAlignment.Center, width = 0.44, minWidth = 0.22,  maxWidth = 0.70, defaultWidth = 0.44 },
+            { id = "Event",   name = "EVENT",              align = Enum.TextXAlignment.Center, width = 0.18, minWidth = 0.11,  maxWidth = 0.30, defaultWidth = 0.18 },
+            { id = "Status",  name = "ENGINE STATUS",      align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.11,  maxWidth = 0.28, defaultWidth = 0.17 },
+            { id = "Action",  name = "ACTION",             align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.09,  maxWidth = 0.25, defaultWidth = 0.15 },
         }
     },
 }
 
 -- Backward compatibility reference
 local ColumnWidths = {
-    Tasks = { name = 0.36, minName = 0.15, maxName = 0.65, defaultName = 0.36 },
-    Loops = { name = 0.36, minName = 0.15, maxName = 0.65, defaultName = 0.36 },
-    Startup = { name = 0.48, minName = 0.20, maxName = 0.75, defaultName = 0.48 },
-    Game = { name = 0.44, minName = 0.20, maxName = 0.75, defaultName = 0.44 },
+    Tasks = { name = 0.38, minName = 0.18, maxName = 0.65, defaultName = 0.38 },
+    Loops = { name = 0.38, minName = 0.18, maxName = 0.65, defaultName = 0.38 },
+    Startup = { name = 0.47, minName = 0.22, maxName = 0.70, defaultName = 0.47 },
+    Game = { name = 0.44, minName = 0.22, maxName = 0.70, defaultName = 0.44 },
 }
 
 local TableHeaders = {}
 local activeDividerDrag = nil
 local allStartupScriptsRef = nil
 
-local H_PAD = 10 -- Generous inner padding ensuring header and row text never collides with divider lines
+local H_PAD = 6 -- Small, crisp inner padding ensuring header and row content never collides with divider lines
 
 -- FORWARD DECLARATIONS (ensures mutual visibility and eliminates nil calls)
 local updateTableColumnLayout
@@ -3905,7 +3905,7 @@ local function computeColumnPositions(tabKey)
     if not cfg then return {}, {} end
     local positions = {}
     local widths = {}
-    local curX = cfg.gutter
+    local curX = 0.0
     for i, col in ipairs(cfg.cols) do
         positions[i] = curX
         widths[i] = col.width
@@ -3914,52 +3914,67 @@ local function computeColumnPositions(tabKey)
     return positions, widths
 end
 
+local function allocateRemainingWidths(cols, startIdx, remSpace)
+    local n = #cols
+    local totalMin = 0
+    local excess = {}
+    local totalExcess = 0
+
+    for j = startIdx, n do
+        local minW = cols[j].minWidth or 0.05
+        totalMin = totalMin + minW
+        local exc = math.max(0, cols[j].width - minW)
+        excess[j] = exc
+        totalExcess = totalExcess + exc
+    end
+
+    local availableExcess = math.max(0, remSpace - totalMin)
+    if totalExcess > 0.0001 then
+        for j = startIdx, n do
+            local minW = cols[j].minWidth or 0.05
+            cols[j].width = minW + availableExcess * (excess[j] / totalExcess)
+        end
+    else
+        local count = n - startIdx + 1
+        local each = availableExcess / count
+        for j = startIdx, n do
+            local minW = cols[j].minWidth or 0.05
+            cols[j].width = minW + each
+        end
+    end
+end
+
 handleDividerDrag = function(tabKey, dividerIdx, mouseFractionX)
     local cfg = ColumnConfig[tabKey]
     if not cfg then return end
     local k = dividerIdx
     local cols = cfg.cols
-    local gutter = cfg.gutter
-    
-    local posX = gutter
+
+    local posX = 0.0
     for i = 1, k - 1 do
         posX = posX + cols[i].width
     end
-    
+
     local minRemaining = 0
     for j = k + 1, #cols do
         minRemaining = minRemaining + (cols[j].minWidth or 0.05)
     end
-    
-    local minX = posX + (cols[k].minWidth or 0.08)
+
+    local minX = posX + (cols[k].minWidth or 0.05)
     local maxX = 1.0 - minRemaining
     if cols[k].maxWidth then
         maxX = math.min(maxX, posX + cols[k].maxWidth)
     end
-    
+
     local clampedX = math.clamp(mouseFractionX, minX, math.max(minX, maxX))
     local newColKWidth = clampedX - posX
     cols[k].width = newColKWidth
-    
-    local remSpace = 1.0 - clampedX
-    local oldRemSum = 0
-    for j = k + 1, #cols do
-        oldRemSum = oldRemSum + cols[j].width
-    end
-    
-    if oldRemSum > 0.0001 then
-        for j = k + 1, #cols do
-            cols[j].width = remSpace * (cols[j].width / oldRemSum)
-        end
-    else
-        local each = remSpace / (#cols - k)
-        for j = k + 1, #cols do
-            cols[j].width = each
-        end
-    end
-    
-    if ColumnWidths[tabKey] and k == 1 then
-        ColumnWidths[tabKey].name = cols[1].width
+
+    local remSpace = math.max(minRemaining, 1.0 - clampedX)
+    allocateRemainingWidths(cols, k + 1, remSpace)
+
+    if ColumnWidths[tabKey] and cols[2] then
+        ColumnWidths[tabKey].name = cols[2].width
     end
 
     if updateTableColumnLayout then
@@ -3973,11 +3988,16 @@ applyRowColumnLayout = function(row, tabKey)
     if #positions == 0 then return end
 
     if tabKey == "Startup" then
-        local pName, wName = positions[1], widths[1]
-        local pStage, wStage = positions[2], widths[2]
-        local pTime, wTime = positions[3], widths[3]
-        local pToggle, wToggle = positions[4], widths[4]
+        local pStat, wStat = positions[1], widths[1]
+        local pName, wName = positions[2], widths[2]
+        local pStage, wStage = positions[3], widths[3]
+        local pTime, wTime = positions[4], widths[4]
+        local pToggle, wToggle = positions[5], widths[5]
 
+        local dot = row:FindFirstChild("Dot")
+        if dot then
+            dot.Position = UDim2.new(pStat + wStat / 2, -4, 0.5, -4)
+        end
         local nameLbl = row:FindFirstChild("NameLbl")
         if nameLbl then
             nameLbl.Position = UDim2.new(pName, H_PAD, 0, 2)
@@ -3990,13 +4010,14 @@ applyRowColumnLayout = function(row, tabKey)
         end
         local stageBadge = row:FindFirstChild("StageBadge")
         if stageBadge then
-            stageBadge.Position = UDim2.new(pStage, H_PAD, 0, 7)
-            stageBadge.Size = UDim2.new(wStage, -H_PAD * 2, 0, 18)
+            stageBadge.Position = UDim2.new(pStage + wStage / 2 - 40, 0, 0, 7)
+            stageBadge.Size = UDim2.new(0, 80, 0, 18)
         end
         local timeLbl = row:FindFirstChild("TimeLbl")
         if timeLbl then
             timeLbl.Position = UDim2.new(pTime, H_PAD, 0, 0)
             timeLbl.Size = UDim2.new(wTime, -H_PAD * 2, 1, 0)
+            timeLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
         local toggleBtn = row:FindFirstChild("ToggleBtn")
         if toggleBtn then
@@ -4004,13 +4025,24 @@ applyRowColumnLayout = function(row, tabKey)
         end
 
     elseif tabKey == "Tasks" then
-        local pName, wName = positions[1], widths[1]
-        local pEvt, wEvt = positions[2], widths[2]
-        local pHz, wHz = positions[3], widths[3]
-        local pLock, wLock = positions[4], widths[4]
-        local pCpu, wCpu = positions[5], widths[5]
-        local pAct, wAct = positions[6], widths[6]
+        local pStat, wStat = positions[1], widths[1]
+        local pName, wName = positions[2], widths[2]
+        local pEvt, wEvt = positions[3], widths[3]
+        local pHz, wHz = positions[4], widths[4]
+        local pLock, wLock = positions[5], widths[5]
+        local pCpu, wCpu = positions[6], widths[6]
+        local pAct, wAct = positions[7], widths[7]
 
+        local gripLbl = row:FindFirstChild("GripLbl")
+        if gripLbl then
+            gripLbl.Position = UDim2.new(pStat + wStat / 2, -14, 0.5, -8)
+            gripLbl.Size = UDim2.new(0, 12, 0, 16)
+        end
+        local dot = row:FindFirstChild("Dot")
+        if dot then
+            dot.Position = UDim2.new(pStat + wStat / 2, 2, 0.5, -4)
+            dot.Size = UDim2.new(0, 8, 0, 8)
+        end
         local nameLbl = row:FindFirstChild("NameLbl")
         if nameLbl then
             nameLbl.Position = UDim2.new(pName, H_PAD, 0, 0)
@@ -4020,6 +4052,7 @@ applyRowColumnLayout = function(row, tabKey)
         if eventLbl then
             eventLbl.Position = UDim2.new(pEvt, H_PAD, 0, 0)
             eventLbl.Size = UDim2.new(wEvt, -H_PAD * 2, 1, 0)
+            eventLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
         local priBtn = row:FindFirstChild("PriBtn")
         if priBtn then
@@ -4033,6 +4066,7 @@ applyRowColumnLayout = function(row, tabKey)
         if cpuLbl then
             cpuLbl.Position = UDim2.new(pCpu, H_PAD, 0, 0)
             cpuLbl.Size = UDim2.new(wCpu, -H_PAD * 2, 1, 0)
+            cpuLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
         local actions = row:FindFirstChild("Actions")
         if actions then
@@ -4041,13 +4075,24 @@ applyRowColumnLayout = function(row, tabKey)
         end
 
     elseif tabKey == "Loops" then
-        local pName, wName = positions[1], widths[1]
-        local pItr, wItr = positions[2], widths[2]
-        local pHz, wHz = positions[3], widths[3]
-        local pLock, wLock = positions[4], widths[4]
-        local pCpu, wCpu = positions[5], widths[5]
-        local pAct, wAct = positions[6], widths[6]
+        local pStat, wStat = positions[1], widths[1]
+        local pName, wName = positions[2], widths[2]
+        local pItr, wItr = positions[3], widths[3]
+        local pHz, wHz = positions[4], widths[4]
+        local pLock, wLock = positions[5], widths[5]
+        local pCpu, wCpu = positions[6], widths[6]
+        local pAct, wAct = positions[7], widths[7]
 
+        local gripLbl = row:FindFirstChild("GripLbl")
+        if gripLbl then
+            gripLbl.Position = UDim2.new(pStat + wStat / 2, -14, 0.5, -8)
+            gripLbl.Size = UDim2.new(0, 12, 0, 16)
+        end
+        local dot = row:FindFirstChild("Dot")
+        if dot then
+            dot.Position = UDim2.new(pStat + wStat / 2, 2, 0.5, -4)
+            dot.Size = UDim2.new(0, 8, 0, 8)
+        end
         local nameLbl = row:FindFirstChild("NameLbl")
         if nameLbl then
             nameLbl.Position = UDim2.new(pName, H_PAD, 0, 0)
@@ -4057,6 +4102,7 @@ applyRowColumnLayout = function(row, tabKey)
         if itersLbl then
             itersLbl.Position = UDim2.new(pItr, H_PAD, 0, 0)
             itersLbl.Size = UDim2.new(wItr, -H_PAD * 2, 1, 0)
+            itersLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
         local hzBtn = row:FindFirstChild("HzBtn")
         if hzBtn then
@@ -4070,6 +4116,7 @@ applyRowColumnLayout = function(row, tabKey)
         if cpuLbl then
             cpuLbl.Position = UDim2.new(pCpu, H_PAD, 0, 0)
             cpuLbl.Size = UDim2.new(wCpu, -H_PAD * 2, 1, 0)
+            cpuLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
         local actions = row:FindFirstChild("Actions")
         if actions then
@@ -4078,11 +4125,16 @@ applyRowColumnLayout = function(row, tabKey)
         end
 
     elseif tabKey == "Game" then
-        local pName, wName = positions[1], widths[1]
-        local pEvt, wEvt = positions[2], widths[2]
-        local pSts, wSts = positions[3], widths[3]
-        local pAct, wAct = positions[4], widths[4]
+        local pStat, wStat = positions[1], widths[1]
+        local pName, wName = positions[2], widths[2]
+        local pEvt, wEvt = positions[3], widths[3]
+        local pSts, wSts = positions[4], widths[4]
+        local pAct, wAct = positions[5], widths[5]
 
+        local dot = row:FindFirstChild("Dot")
+        if dot then
+            dot.Position = UDim2.new(pStat + wStat / 2, -4, 0.5, -4)
+        end
         local nameLbl = row:FindFirstChild("NameLbl")
         if nameLbl then
             nameLbl.Position = UDim2.new(pName, H_PAD, 0, 0)
@@ -4092,11 +4144,13 @@ applyRowColumnLayout = function(row, tabKey)
         if eventLbl then
             eventLbl.Position = UDim2.new(pEvt, H_PAD, 0, 0)
             eventLbl.Size = UDim2.new(wEvt, -H_PAD * 2, 1, 0)
+            eventLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
         local statusLbl = row:FindFirstChild("StatusLbl")
         if statusLbl then
             statusLbl.Position = UDim2.new(pSts, H_PAD, 0, 0)
             statusLbl.Size = UDim2.new(wSts, -H_PAD * 2, 1, 0)
+            statusLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
         local disconnectBtn = row:FindFirstChild("DisconnectBtn")
         if disconnectBtn then
@@ -4111,8 +4165,8 @@ updateTableColumnLayout = function(tabKey)
     local positions, widths = computeColumnPositions(tabKey)
     if #positions == 0 then return end
 
-    if ColumnWidths[tabKey] then
-        ColumnWidths[tabKey].name = cfg.cols[1].width
+    if ColumnWidths[tabKey] and cfg.cols[2] then
+        ColumnWidths[tabKey].name = cfg.cols[2].width
     end
 
     local header = TableHeaders[tabKey]
@@ -4122,6 +4176,7 @@ updateTableColumnLayout = function(tabKey)
             if colLabel then
                 colLabel.Position = UDim2.new(positions[i], H_PAD, 0, 0)
                 colLabel.Size = UDim2.new(widths[i], -H_PAD * 2, 1, 0)
+                colLabel.TextXAlignment = col.align or Enum.TextXAlignment.Center
             end
         end
 
@@ -4148,7 +4203,7 @@ updateTableColumnLayout = function(tabKey)
 end
 
 autoFitColumn = function(tabKey, divIdx)
-    divIdx = divIdx or 1
+    divIdx = divIdx or 2
     local cfg = ColumnConfig[tabKey]
     if not cfg or not cfg.cols[divIdx] then return end
     local targetCol = cfg.cols[divIdx]
@@ -4159,6 +4214,8 @@ autoFitColumn = function(tabKey, divIdx)
     local TextService = game:GetService("TextService")
 
     if divIdx == 1 then
+        longestText = "STAT"
+    elseif divIdx == 2 then
         if tabKey == "Startup" and allStartupScriptsRef then
             for _, s in ipairs(allStartupScriptsRef) do
                 local t1 = s.name or ""
@@ -4182,7 +4239,7 @@ autoFitColumn = function(tabKey, divIdx)
                 if lbl and lbl.Text and #lbl.Text > #longestText then longestText = lbl.Text end
             end
         end
-    elseif divIdx == 2 then
+    elseif divIdx == 3 then
         if tabKey == "Tasks" or tabKey == "Game" then
             for _, r in pairs(tabKey == "Tasks" and cachedTaskRows or cachedGameRows) do
                 local lbl = r:FindFirstChild("EventLbl")
@@ -4201,16 +4258,16 @@ autoFitColumn = function(tabKey, divIdx)
         end
     end
 
-    local posX = cfg.gutter
+    local posX = 0.0
     for i = 1, divIdx - 1 do
         posX = posX + cfg.cols[i].width
     end
 
     if #longestText > 0 then
         local textSize = TextService:GetTextSize(longestText, 11, Enum.Font.GothamMedium, Vector2.new(10000, 20))
-        local neededPx = textSize.X + 40
+        local neededPx = textSize.X + 24
         local targetFraction = neededPx / headerWidth
-        targetFraction = math.clamp(targetFraction, targetCol.minWidth or 0.08, targetCol.maxWidth or 0.65)
+        targetFraction = math.clamp(targetFraction, targetCol.minWidth or 0.05, targetCol.maxWidth or 0.65)
         handleDividerDrag(tabKey, divIdx, posX + targetFraction)
     else
         handleDividerDrag(tabKey, divIdx, posX + (targetCol.defaultWidth or targetCol.width))
@@ -4931,20 +4988,15 @@ local function createHeaderContainer(name)
     return header
 end
 
-local function addHeaderColumn(parent, text, sizeX, posX, align, isGutter)
+local function addHeaderColumn(parent, text, sizeX, posX, align)
     local lbl = Instance.new("TextLabel")
-    if isGutter then
-        lbl.Size = UDim2.new(sizeX, 0, 1, 0)
-        lbl.Position = UDim2.new(posX, 0, 0, 0)
-    else
-        lbl.Size = UDim2.new(sizeX, -H_PAD * 2, 1, 0)
-        lbl.Position = UDim2.new(posX, H_PAD, 0, 0)
-    end
+    lbl.Size = UDim2.new(sizeX, -H_PAD * 2, 1, 0)
+    lbl.Position = UDim2.new(posX, H_PAD, 0, 0)
     lbl.BackgroundTransparency = 1
     lbl.Font = Enum.Font.GothamBold
     lbl.TextSize = 10
     lbl.TextColor3 = Color3.fromRGB(140, 155, 180)
-    lbl.TextXAlignment = align or Enum.TextXAlignment.Left
+    lbl.TextXAlignment = align or Enum.TextXAlignment.Center
     lbl.Text = text
     lbl.Parent = parent
     return lbl
@@ -4954,7 +5006,6 @@ end
 local TableHeaderTasks = createHeaderContainer("TableHeaderTasks")
 TableHeaders.Tasks = TableHeaderTasks
 TableHeaderTasks.Visible = true
-addHeaderColumn(TableHeaderTasks, "STAT", ColumnConfig.Tasks.gutter, 0.00, Enum.TextXAlignment.Center, true).Name = "Col_Stat"
 for _, col in ipairs(ColumnConfig.Tasks.cols) do
     addHeaderColumn(TableHeaderTasks, col.name, col.width, 0, col.align).Name = "Col_" .. col.id
 end
@@ -4963,7 +5014,6 @@ setupHeaderDividers(TableHeaderTasks, "Tasks")
 -- 4. Loops Header
 local TableHeaderLoops = createHeaderContainer("TableHeaderLoops")
 TableHeaders.Loops = TableHeaderLoops
-addHeaderColumn(TableHeaderLoops, "STAT", ColumnConfig.Loops.gutter, 0.00, Enum.TextXAlignment.Center, true).Name = "Col_Stat"
 for _, col in ipairs(ColumnConfig.Loops.cols) do
     addHeaderColumn(TableHeaderLoops, col.name, col.width, 0, col.align).Name = "Col_" .. col.id
 end
@@ -4972,7 +5022,6 @@ setupHeaderDividers(TableHeaderLoops, "Loops")
 -- 3. Startup Header
 local TableHeaderStartup = createHeaderContainer("TableHeaderStartup")
 TableHeaders.Startup = TableHeaderStartup
-addHeaderColumn(TableHeaderStartup, "STAT", ColumnConfig.Startup.gutter, 0.00, Enum.TextXAlignment.Center, true).Name = "Col_Stat"
 for _, col in ipairs(ColumnConfig.Startup.cols) do
     addHeaderColumn(TableHeaderStartup, col.name, col.width, 0, col.align).Name = "Col_" .. col.id
 end
@@ -4981,7 +5030,6 @@ setupHeaderDividers(TableHeaderStartup, "Startup")
 -- 5. Game Tasks Header
 local TableHeaderGame = createHeaderContainer("TableHeaderGame")
 TableHeaders.Game = TableHeaderGame
-addHeaderColumn(TableHeaderGame, "STAT", ColumnConfig.Game.gutter, 0.00, Enum.TextXAlignment.Center, true).Name = "Col_Stat"
 for _, col in ipairs(ColumnConfig.Game.cols) do
     addHeaderColumn(TableHeaderGame, col.name, col.width, 0, col.align).Name = "Col_" .. col.id
 end
