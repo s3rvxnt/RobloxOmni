@@ -2822,10 +2822,7 @@ end
 
 local function hookedTaskWait(duration)
     local waitFn = origTaskWait or rawTaskWait
-    -- STRICT CALLER ISOLATION: Game engine scripts (checkcaller() == false) must never be intercepted!
-    if not (checkcaller and checkcaller()) then
-        return waitFn(duration)
-    end
+    local isCallerExec = (checkcaller and checkcaller()) or false
 
     local curThread = coroutine.running()
 
@@ -2840,7 +2837,7 @@ local function hookedTaskWait(duration)
             ignoredThreads[curThread] = true
             return waitFn(duration)
         end
-        local isExec = true
+        local isExec = isExecutorOrigin(caller, caller, isCallerExec)
         loop = registerOrUpdateLoop(curThread, caller, duration, isExec)
     else
         registerOrUpdateLoop(curThread, loop.caller, duration, loop.isExecutor)
@@ -2874,11 +2871,7 @@ end
 
 local function hookedWait(duration)
     local waitFn = origWait or rawWait or origTaskWait or rawTaskWait
-    -- STRICT CALLER ISOLATION: Game engine scripts (checkcaller() == false) must never be intercepted!
-    if not (checkcaller and checkcaller()) then
-        local d, t = waitFn(duration)
-        return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
-    end
+    local isCallerExec = (checkcaller and checkcaller()) or false
 
     local curThread = coroutine.running()
 
@@ -2895,7 +2888,7 @@ local function hookedWait(duration)
             local d, t = waitFn(duration)
             return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
         end
-        local isExec = true
+        local isExec = isExecutorOrigin(caller, caller, isCallerExec)
         loop = registerOrUpdateLoop(curThread, caller, duration, isExec)
     else
         registerOrUpdateLoop(curThread, loop.caller, duration, loop.isExecutor)
