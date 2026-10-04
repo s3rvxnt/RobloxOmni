@@ -606,12 +606,34 @@ local function StepToRadius(step)
     return 3 + (step - 1) * (12 / 9)
 end
 
+local charPartsCache = setmetatable({}, { __mode = "k" })
+local charAppliedAlpha = setmetatable({}, { __mode = "k" })
+
+local function getCharParts(char)
+    local parts = charPartsCache[char]
+    if not parts then
+        parts = {}
+        for _, desc in ipairs(char:GetDescendants()) do
+            if desc:IsA("BasePart") and desc.Name ~= "HumanoidRootPart" then
+                table.insert(parts, desc)
+            end
+        end
+        charPartsCache[char] = parts
+    end
+    return parts
+end
+
 local function ApplyCharTransparency(char, alpha)
-    for _, desc in ipairs(char:GetDescendants()) do
-        if desc:IsA("BasePart") and desc.Name ~= "HumanoidRootPart" then
-            pcall(function()
-                desc.LocalTransparencyModifier = alpha
-            end)
+    local last = charAppliedAlpha[char]
+    if last and math.abs(last - alpha) < 0.005 then return end
+    charAppliedAlpha[char] = alpha
+    local parts = getCharParts(char)
+    for i = #parts, 1, -1 do
+        local p = parts[i]
+        if p and p.Parent then
+            p.LocalTransparencyModifier = alpha
+        else
+            table.remove(parts, i)
         end
     end
 end
@@ -701,6 +723,8 @@ function PersonalSpaceBubble.Disable()
     end
     charAlphas = {}
     charInside = {}
+    charPartsCache = setmetatable({}, { __mode = "k" })
+    charAppliedAlpha = setmetatable({}, { __mode = "k" })
 end
 
 -- ============================================================================

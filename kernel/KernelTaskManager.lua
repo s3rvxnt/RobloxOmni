@@ -110,6 +110,8 @@ local function isSelfOrKernel(name)
         or lower:find("utils", 1, true) ~= nil
         or lower:find("remoteexecute", 1, true) ~= nil
         or lower:find("customautoexec", 1, true) ~= nil
+        or lower:find("tasksupervisor", 1, true) ~= nil
+        or lower:find("task_supervisor", 1, true) ~= nil
         or lower:find("bootloader", 1, true) ~= nil then
         return true
     end
@@ -10748,18 +10750,32 @@ buildTopologyGraph = function(force)
                 local isExec = (loop.isExecutor ~= false)
                 local origin = isExec and "EXECUTOR" or "GAME"
                 local rawCaller = tostring(loop.caller or loop.name or "UnknownLoop")
-                local cleanName = rawCaller:match("[^/\\]+$") or rawCaller
+                local scriptPath = rawCaller:match("^([^:]+)") or rawCaller
+                local cleanName = scriptPath:match("[^/\\]+$") or scriptPath
                 cleanName = cleanName:gsub("^string \"", ""):gsub("\"%]$", ""):gsub("^[@%[]", "")
 
-                local compKey = origin .. "::" .. rawCaller
-                local comp = getOrCreateComponent(compKey, cleanName, rawCaller, origin, isExec and "getgenv() [Level 8]" or "getrenv() [Level 2]")
+                local compKey = origin .. "::" .. scriptPath
+                local comp = getOrCreateComponent(compKey, cleanName, scriptPath, origin, isExec and "getgenv() [Level 8]" or "getrenv() [Level 2]")
+
+                local lineNum = loop.line or tonumber(rawCaller:match(":(%d+)$")) or 0
+                local fnName = nil
+                pcall(function() fnName = debug.info(thread, 1, "n") end)
+                if not fnName or fnName == "" then
+                    pcall(function() fnName = debug.info(thread, 2, "n") end)
+                end
+                if not fnName or fnName == "" then
+                    if loop.name and loop.name ~= rawCaller and not loop.name:find(":") then
+                        fnName = loop.name
+                    end
+                end
 
                 local loopData = {
                     id = loop.id or tostring(thread),
                     thread = thread,
                     name = loop.name or cleanName,
+                    fnName = fnName,
                     caller = loop.caller or rawCaller,
-                    line = loop.line or 0,
+                    line = lineNum,
                     priority = loop.priority or 50,
                     targetHz = loop.targetHz,
                     paused = loop.paused or false,
@@ -10785,19 +10801,20 @@ buildTopologyGraph = function(force)
     end
 
     -- 2. Scan Scheduler Tasks
-    if eventStates then
-        for evName, evState in pairs(eventStates) do
+    if Events then
+        for evName, evState in pairs(Events) do
             if evState and evState.tasks then
                 for taskId, taskObj in pairs(evState.tasks) do
                     if taskObj and taskObj.connected then
                         local src = tostring(taskObj.caller or taskObj.source or taskObj.name or "Task")
-                        local cleanName = src:match("[^/\\]+$") or src
+                        local scriptPath = src:match("^([^:]+)") or src
+                        local cleanName = scriptPath:match("[^/\\]+$") or scriptPath
                         cleanName = cleanName:gsub("^string \"", ""):gsub("\"%]$", ""):gsub("^[@%[]", "")
 
                         local isExec = not (taskObj.isGameConnection)
                         local origin = isExec and "EXECUTOR" or "GAME"
-                        local compKey = origin .. "::" .. src
-                        local comp = getOrCreateComponent(compKey, cleanName, src, origin, isExec and "Omni VirtualScheduler" or "Game Ingested")
+                        local compKey = origin .. "::" .. scriptPath
+                        local comp = getOrCreateComponent(compKey, cleanName, scriptPath, origin, isExec and "Omni VirtualScheduler" or "Game Ingested")
 
                         local connData = {
                             id = taskObj.id or taskId,
@@ -10864,10 +10881,11 @@ buildTopologyGraph = function(force)
                             if not isInternal then
                                 local isExec = (sFullName:lower():find(".lua", 1, true) ~= nil or sFullName:lower():find(".txt", 1, true) ~= nil or sFullName:lower():find("autoexec", 1, true) ~= nil or tostring(src):lower():find("autoexec", 1, true) ~= nil)
                                 local origin = isExec and "EXECUTOR" or (sInst and "GAME" or "GAME")
-                                local cleanName = sInst and sInst.Name or (tostring(src):match("[^/\\]+$") or tostring(src))
+                                local scriptPath = sInst and sInst:GetFullName() or (tostring(src):match("^([^:]+)") or tostring(src))
+                                local cleanName = sInst and sInst.Name or (scriptPath:match("[^/\\]+$") or scriptPath)
                                 cleanName = cleanName:gsub("^string \"", ""):gsub("\"%]$", ""):gsub("^[@%[]", "")
 
-                                local compKey = origin .. "::" .. (sInst and sInst:GetFullName() or tostring(src))
+                                local compKey = origin .. "::" .. scriptPath
                                 local comp = getOrCreateComponent(compKey, cleanName, sFullName, origin, sInst and ("LocalScript: " .. sInst.ClassName) or (isExec and "Executor Environment" or "Game Environment"), sInst)
 
                                 local connObj = {
@@ -10947,7 +10965,7 @@ buildTopologyGraph = function(force)
     return graph
 end
 
-local function renderTopologyComponentCard(comp, idx)
+local function renderTopologyComponentCard(comp, idx, force)
     local isExpanded = (topologyExpandedCards[comp.id] == true)
     local card = cachedTopologyCards[comp.id]
 
@@ -11233,317 +11251,382 @@ local function renderTopologyComponentCard(comp, idx)
     if body then
         body.Visible = isExpanded
         if isExpanded then
-            for _, ch in ipairs(body:GetChildren()) do
-                if ch:IsA("Frame") or ch:IsA("TextLabel") then ch:Destroy() end
-            end
+            local loopIds = {}
+            for _, l in ipairs(comp.loops) do table.insert(loopIds, tostring(l.id)) end
+            local structureSig = string.format("L:%s|C:%d|B:%d", table.concat(loopIds, ","), #comp.connections, #comp.bridges)
+            local needsRebuild = (force == true) or (body:GetAttribute("PopulatedSig") ~= structureSig)
 
-            local function createSectionTitle(text, icon, color)
-                local lbl = Instance.new("TextLabel")
-                lbl.Size = UDim2.new(1, 0, 0, 18)
-                lbl.BackgroundTransparency = 1
-                lbl.Font = Enum.Font.GothamBold
-                lbl.TextSize = 10
-                lbl.TextColor3 = color or Color3.fromRGB(140, 165, 195)
-                lbl.TextXAlignment = Enum.TextXAlignment.Left
-                lbl.Text = (icon and (icon .. " ") or "") .. text
-                lbl.Parent = body
-                return lbl
-            end
+            if needsRebuild then
+                for _, ch in ipairs(body:GetChildren()) do
+                    if ch:IsA("Frame") or ch:IsA("TextLabel") then ch:Destroy() end
+                end
 
-            -- 1. Loops Section
-            if #comp.loops > 0 then
-                createSectionTitle(string.format("ACTIVE LOOPS (%d)", #comp.loops), "🔄", Color3.fromRGB(200, 160, 255))
+                local function createSectionTitle(text, icon, color)
+                    local lbl = Instance.new("TextLabel")
+                    lbl.Size = UDim2.new(1, 0, 0, 18)
+                    lbl.BackgroundTransparency = 1
+                    lbl.Font = Enum.Font.GothamBold
+                    lbl.TextSize = 10
+                    lbl.TextColor3 = color or Color3.fromRGB(140, 165, 195)
+                    lbl.TextXAlignment = Enum.TextXAlignment.Left
+                    lbl.Text = (icon and (icon .. " ") or "") .. text
+                    lbl.Parent = body
+                    return lbl
+                end
+
+                -- 1. Loops Section
+                if #comp.loops > 0 then
+                    createSectionTitle(string.format("ACTIVE LOOPS (%d)", #comp.loops), "🔄", Color3.fromRGB(200, 160, 255))
+                    for _, loopObj in ipairs(comp.loops) do
+                        local lRow = Instance.new("Frame")
+                        lRow.Name = "Loop_" .. tostring(loopObj.id)
+                        lRow.Size = UDim2.new(1, 0, 0, 24)
+                        lRow.BackgroundColor3 = Color3.fromRGB(16, 20, 29)
+                        lRow.BorderSizePixel = 0
+                        lRow.Parent = body
+                        local lrc = Instance.new("UICorner")
+                        lrc.CornerRadius = UDim.new(0, 4)
+                        lrc.Parent = lRow
+
+                        local lInfo = Instance.new("TextLabel")
+                        lInfo.Name = "LInfo"
+                        lInfo.Size = UDim2.new(0.40, 0, 1, 0)
+                        lInfo.Position = UDim2.new(0, 8, 0, 0)
+                        lInfo.BackgroundTransparency = 1
+                        lInfo.Font = Enum.Font.GothamMedium
+                        lInfo.TextSize = 10
+                        lInfo.TextColor3 = Color3.fromRGB(215, 225, 240)
+                        lInfo.TextXAlignment = Enum.TextXAlignment.Left
+                        lInfo.TextTruncate = Enum.TextTruncate.AtEnd
+                        local loopLabel = loopObj.fnName and (loopObj.fnName .. "() loop") or "while / repeat loop"
+                        lInfo.Text = string.format("%s  [line %d]", loopLabel, loopObj.line or 0)
+                        lInfo.Parent = lRow
+
+                        local hzPill = Instance.new("TextLabel")
+                        hzPill.Name = "HzPill"
+                        hzPill.Size = UDim2.new(0, 60, 0, 16)
+                        hzPill.Position = UDim2.new(0.42, 0, 0.5, -8)
+                        hzPill.BackgroundColor3 = Color3.fromRGB(25, 38, 55)
+                        hzPill.Font = Enum.Font.Gotham
+                        hzPill.TextSize = 9
+                        hzPill.TextColor3 = Color3.fromRGB(100, 180, 255)
+                        hzPill.Text = loopObj.targetHz and (tostring(loopObj.targetHz) .. "Hz") or "Uncapped"
+                        hzPill.Parent = lRow
+                        local hzc = Instance.new("UICorner")
+                        hzc.CornerRadius = UDim.new(0, 3)
+                        hzc.Parent = hzPill
+
+                        local cpuPill = Instance.new("TextLabel")
+                        cpuPill.Name = "CpuPill"
+                        cpuPill.Size = UDim2.new(0, 65, 0, 16)
+                        cpuPill.Position = UDim2.new(0.53, 0, 0.5, -8)
+                        cpuPill.BackgroundColor3 = Color3.fromRGB(25, 35, 30)
+                        cpuPill.Font = Enum.Font.Code
+                        cpuPill.TextSize = 9
+                        cpuPill.TextColor3 = Color3.fromRGB(100, 220, 140)
+                        cpuPill.Text = string.format("%.2fms", loopObj.cpuTime or 0)
+                        cpuPill.Parent = lRow
+                        local cpuc = Instance.new("UICorner")
+                        cpuc.CornerRadius = UDim.new(0, 3)
+                        cpuc.Parent = cpuPill
+
+                        local stPill = Instance.new("TextLabel")
+                        stPill.Name = "StPill"
+                        stPill.Size = UDim2.new(0, 65, 0, 16)
+                        stPill.Position = UDim2.new(0.65, 0, 0.5, -8)
+                        stPill.BackgroundColor3 = loopObj.paused and Color3.fromRGB(45, 35, 18) or Color3.fromRGB(18, 38, 28)
+                        stPill.Font = Enum.Font.GothamBold
+                        stPill.TextSize = 8
+                        stPill.TextColor3 = loopObj.paused and Color3.fromRGB(255, 180, 50) or Color3.fromRGB(80, 240, 140)
+                        stPill.Text = loopObj.paused and "PAUSED" or "ACTIVE"
+                        stPill.Parent = lRow
+                        local stc = Instance.new("UICorner")
+                        stc.CornerRadius = UDim.new(0, 3)
+                        stc.Parent = stPill
+
+                        local pauseBtn = Instance.new("TextButton")
+                        pauseBtn.Name = "PauseBtn"
+                        pauseBtn.Size = UDim2.new(0, 55, 0, 18)
+                        pauseBtn.Position = UDim2.new(1, -125, 0.5, -9)
+                        pauseBtn.BackgroundColor3 = loopObj.paused and Color3.fromRGB(25, 55, 35) or Color3.fromRGB(28, 45, 70)
+                        pauseBtn.BorderSizePixel = 0
+                        pauseBtn.Font = Enum.Font.GothamBold
+                        pauseBtn.TextSize = 9
+                        pauseBtn.TextColor3 = loopObj.paused and Color3.fromRGB(100, 240, 140) or Color3.fromRGB(120, 180, 255)
+                        pauseBtn.Text = loopObj.paused and "Resume" or "Pause"
+                        pauseBtn.Parent = lRow
+                        local pbc = Instance.new("UICorner")
+                        pbc.CornerRadius = UDim.new(0, 3)
+                        pbc.Parent = pauseBtn
+                        pauseBtn.MouseButton1Click:Connect(function()
+                            if getgenv().SetLoopPaused then
+                                getgenv().SetLoopPaused(loopObj.id, not loopObj.paused)
+                            end
+                            if refreshTopologyTab then refreshTopologyTab(true) end
+                        end)
+
+                        local killBtn = Instance.new("TextButton")
+                        killBtn.Name = "KillBtn"
+                        killBtn.Size = UDim2.new(0, 55, 0, 18)
+                        killBtn.Position = UDim2.new(1, -65, 0.5, -9)
+                        killBtn.BackgroundColor3 = Color3.fromRGB(55, 25, 30)
+                        killBtn.BorderSizePixel = 0
+                        killBtn.Font = Enum.Font.GothamBold
+                        killBtn.TextSize = 9
+                        killBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
+                        killBtn.Text = "Kill"
+                        killBtn.Parent = lRow
+                        local kbc = Instance.new("UICorner")
+                        kbc.CornerRadius = UDim.new(0, 3)
+                        kbc.Parent = killBtn
+                        killBtn.MouseButton1Click:Connect(function()
+                            if getgenv().KillLoop then
+                                getgenv().KillLoop(loopObj.id)
+                            end
+                            if refreshTopologyTab then refreshTopologyTab(true) end
+                        end)
+                    end
+                end
+
+                -- 2. Signal Connections Section
+                if #comp.connections > 0 then
+                    createSectionTitle(string.format("SIGNAL CONNECTIONS (%d)", #comp.connections), "⚡", Color3.fromRGB(100, 190, 255))
+                    for _, connObj in ipairs(comp.connections) do
+                        local cRow = Instance.new("Frame")
+                        cRow.Name = "Conn_" .. tostring(connObj.id)
+                        cRow.Size = UDim2.new(1, 0, 0, 24)
+                        cRow.BackgroundColor3 = Color3.fromRGB(16, 20, 29)
+                        cRow.BorderSizePixel = 0
+                        cRow.Parent = body
+                        local crc = Instance.new("UICorner")
+                        crc.CornerRadius = UDim.new(0, 4)
+                        crc.Parent = cRow
+
+                        local evBadge = Instance.new("TextLabel")
+                        evBadge.Name = "EvBadge"
+                        evBadge.Size = UDim2.new(0.24, 0, 0, 16)
+                        evBadge.Position = UDim2.new(0, 8, 0.5, -8)
+                        evBadge.BackgroundColor3 = Color3.fromRGB(24, 38, 55)
+                        evBadge.Font = Enum.Font.GothamBold
+                        evBadge.TextSize = 9
+                        evBadge.TextColor3 = Color3.fromRGB(80, 200, 255)
+                        evBadge.TextTruncate = Enum.TextTruncate.AtEnd
+                        evBadge.Text = connObj.event or "Signal"
+                        evBadge.Parent = cRow
+                        local ebc = Instance.new("UICorner")
+                        ebc.CornerRadius = UDim.new(0, 3)
+                        ebc.Parent = evBadge
+
+                        local fnInfo = Instance.new("TextLabel")
+                        fnInfo.Name = "FnInfo"
+                        fnInfo.Size = UDim2.new(0.40, 0, 1, 0)
+                        fnInfo.Position = UDim2.new(0.26, 8, 0, 0)
+                        fnInfo.BackgroundTransparency = 1
+                        fnInfo.Font = Enum.Font.GothamMedium
+                        fnInfo.TextSize = 9
+                        fnInfo.TextColor3 = Color3.fromRGB(200, 215, 235)
+                        fnInfo.TextXAlignment = Enum.TextXAlignment.Left
+                        fnInfo.TextTruncate = Enum.TextTruncate.AtEnd
+                        fnInfo.Text = string.format("%s  [line %d]", connObj.name or "fn", connObj.line or 0)
+                        fnInfo.Parent = cRow
+
+                        local stBadge = Instance.new("TextLabel")
+                        stBadge.Name = "StBadge"
+                        stBadge.Size = UDim2.new(0, 80, 0, 16)
+                        stBadge.Position = UDim2.new(0.70, 0, 0.5, -8)
+                        stBadge.BackgroundColor3 = connObj.isIngested and Color3.fromRGB(22, 45, 65) or Color3.fromRGB(18, 38, 28)
+                        stBadge.Font = Enum.Font.GothamBold
+                        stBadge.TextSize = 8
+                        stBadge.TextColor3 = connObj.isIngested and Color3.fromRGB(80, 200, 255) or Color3.fromRGB(80, 240, 140)
+                        stBadge.Text = connObj.isIngested and "INGESTED" or "CONNECTED"
+                        stBadge.Parent = cRow
+                        local sbc = Instance.new("UICorner")
+                        sbc.CornerRadius = UDim.new(0, 3)
+                        sbc.Parent = stBadge
+
+                        local discBtn = Instance.new("TextButton")
+                        discBtn.Name = "DiscBtn"
+                        discBtn.Size = UDim2.new(0, 75, 0, 18)
+                        discBtn.Position = UDim2.new(1, -85, 0.5, -9)
+                        discBtn.BackgroundColor3 = Color3.fromRGB(50, 25, 30)
+                        discBtn.BorderSizePixel = 0
+                        discBtn.Font = Enum.Font.GothamBold
+                        discBtn.TextSize = 9
+                        discBtn.TextColor3 = Color3.fromRGB(255, 130, 130)
+                        discBtn.Text = "Disconnect"
+                        discBtn.Parent = cRow
+                        local dbc = Instance.new("UICorner")
+                        dbc.CornerRadius = UDim.new(0, 3)
+                        dbc.Parent = discBtn
+                        discBtn.MouseButton1Click:Connect(function()
+                            if connObj.connection and connObj.connection.Disconnect then
+                                pcall(function() connObj.connection:Disconnect() end)
+                            end
+                            if refreshTopologyTab then refreshTopologyTab(true) end
+                        end)
+                    end
+                end
+
+                -- 3. Memory & State Bridges Section
+                if #comp.bridges > 0 then
+                    createSectionTitle(string.format("SHARED STATE & MEMORY BRIDGES (%d)", #comp.bridges), "🔗", Color3.fromRGB(255, 210, 80))
+                    for _, bridgeObj in ipairs(comp.bridges) do
+                        local bBox = Instance.new("Frame")
+                        bBox.Name = "Bridge_" .. tostring(bridgeObj.id)
+                        bBox.Size = UDim2.new(1, 0, 0, 0)
+                        bBox.AutomaticSize = Enum.AutomaticSize.Y
+                        bBox.BackgroundColor3 = Color3.fromRGB(22, 26, 36)
+                        bBox.BorderSizePixel = 0
+                        bBox.Parent = body
+                        local bbc = Instance.new("UICorner")
+                        bbc.CornerRadius = UDim.new(0, 4)
+                        bbc.Parent = bBox
+
+                        local bbPad = Instance.new("UIPadding")
+                        bbPad.PaddingTop = UDim.new(0, 6)
+                        bbPad.PaddingBottom = UDim.new(0, 6)
+                        bbPad.PaddingLeft = UDim.new(0, 8)
+                        bbPad.PaddingRight = UDim.new(0, 8)
+                        bbPad.Parent = bBox
+
+                        local bbLayout = Instance.new("UIListLayout")
+                        bbLayout.SortOrder = Enum.SortOrder.LayoutOrder
+                        bbLayout.Padding = UDim.new(0, 4)
+                        bbLayout.Parent = bBox
+
+                        local r1 = Instance.new("Frame")
+                        r1.Name = "R1"
+                        r1.Size = UDim2.new(1, 0, 0, 20)
+                        r1.BackgroundTransparency = 1
+                        r1.LayoutOrder = 1
+                        r1.Parent = bBox
+
+                        local bTitle = Instance.new("TextLabel")
+                        bTitle.Name = "BTitle"
+                        bTitle.Size = UDim2.new(0.70, 0, 1, 0)
+                        bTitle.BackgroundTransparency = 1
+                        bTitle.Font = Enum.Font.GothamBold
+                        bTitle.TextSize = 10
+                        bTitle.TextColor3 = Color3.fromRGB(255, 215, 100)
+                        bTitle.TextXAlignment = Enum.TextXAlignment.Left
+                        bTitle.TextTruncate = Enum.TextTruncate.AtEnd
+                        bTitle.Text = string.format("Shared Table [0x%s]  •  %d live fields", tostring(bridgeObj.address):sub(-8), bridgeObj.keyCount or 0)
+                        bTitle.Parent = r1
+
+                        local inspectBtn = Instance.new("TextButton")
+                        inspectBtn.Name = "InspectBtn"
+                        inspectBtn.Size = UDim2.new(0, 95, 0, 18)
+                        inspectBtn.Position = UDim2.new(1, -95, 0, 1)
+                        inspectBtn.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
+                        inspectBtn.BorderSizePixel = 0
+                        inspectBtn.Font = Enum.Font.GothamBold
+                        inspectBtn.TextSize = 9
+                        inspectBtn.TextColor3 = Color3.fromRGB(120, 190, 255)
+                        inspectBtn.Text = "🔍 Inspect Table"
+                        inspectBtn.Parent = r1
+                        local ibc = Instance.new("UICorner")
+                        ibc.CornerRadius = UDim.new(0, 3)
+                        ibc.Parent = inspectBtn
+                        inspectBtn.MouseButton1Click:Connect(function()
+                            if openTopologyUpvalueModal then
+                                openTopologyUpvalueModal(bridgeObj, comp)
+                            end
+                        end)
+
+                        if bridgeObj.sampleKeys and #bridgeObj.sampleKeys > 0 then
+                            local r2 = Instance.new("TextLabel")
+                            r2.Name = "R2"
+                            r2.Size = UDim2.new(1, 0, 0, 14)
+                            r2.BackgroundTransparency = 1
+                            r2.Font = Enum.Font.Code
+                            r2.TextSize = 9
+                            r2.TextColor3 = Color3.fromRGB(130, 150, 180)
+                            r2.TextXAlignment = Enum.TextXAlignment.Left
+                            r2.TextTruncate = Enum.TextTruncate.AtEnd
+                            r2.Text = "Fields: " .. table.concat(bridgeObj.sampleKeys, ", ") .. ((bridgeObj.keyCount > #bridgeObj.sampleKeys) and (" ... (+" .. tostring(bridgeObj.keyCount - #bridgeObj.sampleKeys) .. " more)") or "")
+                            r2.LayoutOrder = 2
+                            r2.Parent = bBox
+                        end
+
+                        local entityDescList = {}
+                        for _, ent in ipairs(bridgeObj.entities) do
+                            local entName = ent.type == "loop" and ("Loop (line " .. tostring(ent.entity.line or 0) .. ")")
+                                or (ent.type == "connection" and (tostring(ent.entity.event) .. " listener"))
+                                or ("Task (" .. tostring(ent.entity.name or "task") .. ")")
+                            if ent.compName ~= comp.name then
+                                entName = entName .. " [" .. ent.compName .. "]"
+                            end
+                            table.insert(entityDescList, entName)
+                        end
+
+                        local r3 = Instance.new("TextLabel")
+                        r3.Name = "R3"
+                        r3.Size = UDim2.new(1, 0, 0, 14)
+                        r3.BackgroundTransparency = 1
+                        r3.Font = Enum.Font.Gotham
+                        r3.TextSize = 9
+                        r3.TextColor3 = Color3.fromRGB(170, 195, 230)
+                        r3.TextXAlignment = Enum.TextXAlignment.Left
+                        r3.TextTruncate = Enum.TextTruncate.AtEnd
+                        r3.Text = "Linked: " .. table.concat(entityDescList, "  <───shared───>  ")
+                        r3.LayoutOrder = 3
+                        r3.Parent = bBox
+
+                        if bridgeObj.crossComponent then
+                            local r4 = Instance.new("TextLabel")
+                            r4.Name = "R4"
+                            r4.Size = UDim2.new(1, 0, 0, 14)
+                            r4.BackgroundTransparency = 1
+                            r4.Font = Enum.Font.GothamBold
+                            r4.TextSize = 9
+                            r4.TextColor3 = Color3.fromRGB(255, 170, 60)
+                            r4.TextXAlignment = Enum.TextXAlignment.Left
+                            r4.TextTruncate = Enum.TextTruncate.AtEnd
+                            r4.Text = "⚠️ Cross-Script Bridge shared with: " .. table.concat(bridgeObj.partnerComponents, ", ")
+                            r4.LayoutOrder = 4
+                            r4.Parent = bBox
+                        end
+                    end
+                end
+
+                body:SetAttribute("PopulatedSig", structureSig)
+            else
+                -- In-place update of dynamic values on existing rows (zero allocations / zero GUI destruction)
                 for _, loopObj in ipairs(comp.loops) do
-                    local lRow = Instance.new("Frame")
-                    lRow.Name = "Loop_" .. tostring(loopObj.id)
-                    lRow.Size = UDim2.new(1, 0, 0, 24)
-                    lRow.BackgroundColor3 = Color3.fromRGB(16, 20, 29)
-                    lRow.BorderSizePixel = 0
-                    lRow.Parent = body
-                    local lrc = Instance.new("UICorner")
-                    lrc.CornerRadius = UDim.new(0, 4)
-                    lrc.Parent = lRow
-
-                    local lInfo = Instance.new("TextLabel")
-                    lInfo.Size = UDim2.new(0.40, 0, 1, 0)
-                    lInfo.Position = UDim2.new(0, 8, 0, 0)
-                    lInfo.BackgroundTransparency = 1
-                    lInfo.Font = Enum.Font.GothamMedium
-                    lInfo.TextSize = 10
-                    lInfo.TextColor3 = Color3.fromRGB(215, 225, 240)
-                    lInfo.TextXAlignment = Enum.TextXAlignment.Left
-                    lInfo.TextTruncate = Enum.TextTruncate.AtEnd
-                    lInfo.Text = string.format("while / repeat loop  [line %d]", loopObj.line or 0)
-                    lInfo.Parent = lRow
-
-                    local hzPill = Instance.new("TextLabel")
-                    hzPill.Size = UDim2.new(0, 60, 0, 16)
-                    hzPill.Position = UDim2.new(0.42, 0, 0.5, -8)
-                    hzPill.BackgroundColor3 = Color3.fromRGB(25, 38, 55)
-                    hzPill.Font = Enum.Font.Gotham
-                    hzPill.TextSize = 9
-                    hzPill.TextColor3 = Color3.fromRGB(100, 180, 255)
-                    hzPill.Text = loopObj.targetHz and (tostring(loopObj.targetHz) .. "Hz") or "Uncapped"
-                    hzPill.Parent = lRow
-                    local hzc = Instance.new("UICorner")
-                    hzc.CornerRadius = UDim.new(0, 3)
-                    hzc.Parent = hzPill
-
-                    local cpuPill = Instance.new("TextLabel")
-                    cpuPill.Size = UDim2.new(0, 65, 0, 16)
-                    cpuPill.Position = UDim2.new(0.53, 0, 0.5, -8)
-                    cpuPill.BackgroundColor3 = Color3.fromRGB(25, 35, 30)
-                    cpuPill.Font = Enum.Font.Code
-                    cpuPill.TextSize = 9
-                    cpuPill.TextColor3 = Color3.fromRGB(100, 220, 140)
-                    cpuPill.Text = string.format("%.2fms", loopObj.cpuTime or 0)
-                    cpuPill.Parent = lRow
-                    local cpuc = Instance.new("UICorner")
-                    cpuc.CornerRadius = UDim.new(0, 3)
-                    cpuc.Parent = cpuPill
-
-                    local stPill = Instance.new("TextLabel")
-                    stPill.Size = UDim2.new(0, 65, 0, 16)
-                    stPill.Position = UDim2.new(0.65, 0, 0.5, -8)
-                    stPill.BackgroundColor3 = loopObj.paused and Color3.fromRGB(45, 35, 18) or Color3.fromRGB(18, 38, 28)
-                    stPill.Font = Enum.Font.GothamBold
-                    stPill.TextSize = 8
-                    stPill.TextColor3 = loopObj.paused and Color3.fromRGB(255, 180, 50) or Color3.fromRGB(80, 240, 140)
-                    stPill.Text = loopObj.paused and "PAUSED" or "ACTIVE"
-                    stPill.Parent = lRow
-                    local stc = Instance.new("UICorner")
-                    stc.CornerRadius = UDim.new(0, 3)
-                    stc.Parent = stPill
-
-                    local pauseBtn = Instance.new("TextButton")
-                    pauseBtn.Size = UDim2.new(0, 55, 0, 18)
-                    pauseBtn.Position = UDim2.new(1, -125, 0.5, -9)
-                    pauseBtn.BackgroundColor3 = loopObj.paused and Color3.fromRGB(25, 55, 35) or Color3.fromRGB(28, 45, 70)
-                    pauseBtn.BorderSizePixel = 0
-                    pauseBtn.Font = Enum.Font.GothamBold
-                    pauseBtn.TextSize = 9
-                    pauseBtn.TextColor3 = loopObj.paused and Color3.fromRGB(100, 240, 140) or Color3.fromRGB(120, 180, 255)
-                    pauseBtn.Text = loopObj.paused and "Resume" or "Pause"
-                    pauseBtn.Parent = lRow
-                    local pbc = Instance.new("UICorner")
-                    pbc.CornerRadius = UDim.new(0, 3)
-                    pbc.Parent = pauseBtn
-                    pauseBtn.MouseButton1Click:Connect(function()
-                        if getgenv().SetLoopPaused then
-                            getgenv().SetLoopPaused(loopObj.id, not loopObj.paused)
+                    local lRow = body:FindFirstChild("Loop_" .. tostring(loopObj.id))
+                    if lRow then
+                        local hzPill = lRow:FindFirstChild("HzPill")
+                        if hzPill then
+                            hzPill.Text = loopObj.targetHz and (tostring(loopObj.targetHz) .. "Hz") or "Uncapped"
                         end
-                        if refreshTopologyTab then refreshTopologyTab(true) end
-                    end)
-
-                    local killBtn = Instance.new("TextButton")
-                    killBtn.Size = UDim2.new(0, 55, 0, 18)
-                    killBtn.Position = UDim2.new(1, -65, 0.5, -9)
-                    killBtn.BackgroundColor3 = Color3.fromRGB(55, 25, 30)
-                    killBtn.BorderSizePixel = 0
-                    killBtn.Font = Enum.Font.GothamBold
-                    killBtn.TextSize = 9
-                    killBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
-                    killBtn.Text = "Kill"
-                    killBtn.Parent = lRow
-                    local kbc = Instance.new("UICorner")
-                    kbc.CornerRadius = UDim.new(0, 3)
-                    kbc.Parent = killBtn
-                    killBtn.MouseButton1Click:Connect(function()
-                        if getgenv().KillLoop then
-                            getgenv().KillLoop(loopObj.id)
+                        local cpuPill = lRow:FindFirstChild("CpuPill")
+                        if cpuPill then
+                            cpuPill.Text = string.format("%.2fms", loopObj.cpuTime or 0)
                         end
-                        if refreshTopologyTab then refreshTopologyTab(true) end
-                    end)
+                        local stPill = lRow:FindFirstChild("StPill")
+                        if stPill then
+                            stPill.Text = loopObj.paused and "PAUSED" or "ACTIVE"
+                            stPill.BackgroundColor3 = loopObj.paused and Color3.fromRGB(45, 35, 18) or Color3.fromRGB(18, 38, 28)
+                            stPill.TextColor3 = loopObj.paused and Color3.fromRGB(255, 180, 50) or Color3.fromRGB(80, 240, 140)
+                        end
+                        local pauseBtn = lRow:FindFirstChild("PauseBtn")
+                        if pauseBtn then
+                            pauseBtn.Text = loopObj.paused and "Resume" or "Pause"
+                            pauseBtn.BackgroundColor3 = loopObj.paused and Color3.fromRGB(25, 55, 35) or Color3.fromRGB(28, 45, 70)
+                            pauseBtn.TextColor3 = loopObj.paused and Color3.fromRGB(100, 240, 140) or Color3.fromRGB(120, 180, 255)
+                        end
+                    end
                 end
-            end
 
-            -- 2. Signal Connections Section
-            if #comp.connections > 0 then
-                createSectionTitle(string.format("SIGNAL CONNECTIONS (%d)", #comp.connections), "⚡", Color3.fromRGB(100, 190, 255))
                 for _, connObj in ipairs(comp.connections) do
-                    local cRow = Instance.new("Frame")
-                    cRow.Name = "Conn_" .. tostring(connObj.id)
-                    cRow.Size = UDim2.new(1, 0, 0, 24)
-                    cRow.BackgroundColor3 = Color3.fromRGB(16, 20, 29)
-                    cRow.BorderSizePixel = 0
-                    cRow.Parent = body
-                    local crc = Instance.new("UICorner")
-                    crc.CornerRadius = UDim.new(0, 4)
-                    crc.Parent = cRow
-
-                    local evBadge = Instance.new("TextLabel")
-                    evBadge.Size = UDim2.new(0.24, 0, 0, 16)
-                    evBadge.Position = UDim2.new(0, 8, 0.5, -8)
-                    evBadge.BackgroundColor3 = Color3.fromRGB(24, 38, 55)
-                    evBadge.Font = Enum.Font.GothamBold
-                    evBadge.TextSize = 9
-                    evBadge.TextColor3 = Color3.fromRGB(80, 200, 255)
-                    evBadge.TextTruncate = Enum.TextTruncate.AtEnd
-                    evBadge.Text = connObj.event or "Signal"
-                    evBadge.Parent = cRow
-                    local ebc = Instance.new("UICorner")
-                    ebc.CornerRadius = UDim.new(0, 3)
-                    ebc.Parent = evBadge
-
-                    local fnInfo = Instance.new("TextLabel")
-                    fnInfo.Size = UDim2.new(0.40, 0, 1, 0)
-                    fnInfo.Position = UDim2.new(0.26, 8, 0, 0)
-                    fnInfo.BackgroundTransparency = 1
-                    fnInfo.Font = Enum.Font.GothamMedium
-                    fnInfo.TextSize = 9
-                    fnInfo.TextColor3 = Color3.fromRGB(200, 215, 235)
-                    fnInfo.TextXAlignment = Enum.TextXAlignment.Left
-                    fnInfo.TextTruncate = Enum.TextTruncate.AtEnd
-                    fnInfo.Text = string.format("%s  [line %d]", connObj.name or "fn", connObj.line or 0)
-                    fnInfo.Parent = cRow
-
-                    local stBadge = Instance.new("TextLabel")
-                    stBadge.Size = UDim2.new(0, 80, 0, 16)
-                    stBadge.Position = UDim2.new(0.70, 0, 0.5, -8)
-                    stBadge.BackgroundColor3 = connObj.isIngested and Color3.fromRGB(22, 45, 65) or Color3.fromRGB(18, 38, 28)
-                    stBadge.Font = Enum.Font.GothamBold
-                    stBadge.TextSize = 8
-                    stBadge.TextColor3 = connObj.isIngested and Color3.fromRGB(80, 200, 255) or Color3.fromRGB(80, 240, 140)
-                    stBadge.Text = connObj.isIngested and "INGESTED" or "CONNECTED"
-                    stBadge.Parent = cRow
-                    local sbc = Instance.new("UICorner")
-                    sbc.CornerRadius = UDim.new(0, 3)
-                    sbc.Parent = stBadge
-
-                    local discBtn = Instance.new("TextButton")
-                    discBtn.Size = UDim2.new(0, 75, 0, 18)
-                    discBtn.Position = UDim2.new(1, -85, 0.5, -9)
-                    discBtn.BackgroundColor3 = Color3.fromRGB(50, 25, 30)
-                    discBtn.BorderSizePixel = 0
-                    discBtn.Font = Enum.Font.GothamBold
-                    discBtn.TextSize = 9
-                    discBtn.TextColor3 = Color3.fromRGB(255, 130, 130)
-                    discBtn.Text = "Disconnect"
-                    discBtn.Parent = cRow
-                    local dbc = Instance.new("UICorner")
-                    dbc.CornerRadius = UDim.new(0, 3)
-                    dbc.Parent = discBtn
-                    discBtn.MouseButton1Click:Connect(function()
-                        if connObj.connection and connObj.connection.Disconnect then
-                            pcall(function() connObj.connection:Disconnect() end)
+                    local cRow = body:FindFirstChild("Conn_" .. tostring(connObj.id))
+                    if cRow then
+                        local stBadge = cRow:FindFirstChild("StBadge")
+                        if stBadge then
+                            stBadge.Text = connObj.isIngested and "INGESTED" or "CONNECTED"
+                            stBadge.BackgroundColor3 = connObj.isIngested and Color3.fromRGB(22, 45, 65) or Color3.fromRGB(18, 38, 28)
+                            stBadge.TextColor3 = connObj.isIngested and Color3.fromRGB(80, 200, 255) or Color3.fromRGB(80, 240, 140)
                         end
-                        if refreshTopologyTab then refreshTopologyTab(true) end
-                    end)
-                end
-            end
-
-            -- 3. Memory & State Bridges Section
-            if #comp.bridges > 0 then
-                createSectionTitle(string.format("SHARED STATE & MEMORY BRIDGES (%d)", #comp.bridges), "🔗", Color3.fromRGB(255, 210, 80))
-                for _, bridgeObj in ipairs(comp.bridges) do
-                    local bBox = Instance.new("Frame")
-                    bBox.Name = "Bridge_" .. tostring(bridgeObj.id)
-                    bBox.Size = UDim2.new(1, 0, 0, 0)
-                    bBox.AutomaticSize = Enum.AutomaticSize.Y
-                    bBox.BackgroundColor3 = Color3.fromRGB(22, 26, 36)
-                    bBox.BorderSizePixel = 0
-                    bBox.Parent = body
-                    local bbc = Instance.new("UICorner")
-                    bbc.CornerRadius = UDim.new(0, 4)
-                    bbc.Parent = bBox
-
-                    local bbPad = Instance.new("UIPadding")
-                    bbPad.PaddingTop = UDim.new(0, 6)
-                    bbPad.PaddingBottom = UDim.new(0, 6)
-                    bbPad.PaddingLeft = UDim.new(0, 8)
-                    bbPad.PaddingRight = UDim.new(0, 8)
-                    bbPad.Parent = bBox
-
-                    local bbLayout = Instance.new("UIListLayout")
-                    bbLayout.SortOrder = Enum.SortOrder.LayoutOrder
-                    bbLayout.Padding = UDim.new(0, 4)
-                    bbLayout.Parent = bBox
-
-                    local r1 = Instance.new("Frame")
-                    r1.Size = UDim2.new(1, 0, 0, 20)
-                    r1.BackgroundTransparency = 1
-                    r1.LayoutOrder = 1
-                    r1.Parent = bBox
-
-                    local bTitle = Instance.new("TextLabel")
-                    bTitle.Size = UDim2.new(0.70, 0, 1, 0)
-                    bTitle.BackgroundTransparency = 1
-                    bTitle.Font = Enum.Font.GothamBold
-                    bTitle.TextSize = 10
-                    bTitle.TextColor3 = Color3.fromRGB(255, 215, 100)
-                    bTitle.TextXAlignment = Enum.TextXAlignment.Left
-                    bTitle.TextTruncate = Enum.TextTruncate.AtEnd
-                    bTitle.Text = string.format("Shared Table [0x%s]  •  %d live fields", tostring(bridgeObj.address):sub(-8), bridgeObj.keyCount or 0)
-                    bTitle.Parent = r1
-
-                    local inspectBtn = Instance.new("TextButton")
-                    inspectBtn.Size = UDim2.new(0, 95, 0, 18)
-                    inspectBtn.Position = UDim2.new(1, -95, 0, 1)
-                    inspectBtn.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
-                    inspectBtn.BorderSizePixel = 0
-                    inspectBtn.Font = Enum.Font.GothamBold
-                    inspectBtn.TextSize = 9
-                    inspectBtn.TextColor3 = Color3.fromRGB(120, 190, 255)
-                    inspectBtn.Text = "🔍 Inspect Table"
-                    inspectBtn.Parent = r1
-                    local ibc = Instance.new("UICorner")
-                    ibc.CornerRadius = UDim.new(0, 3)
-                    ibc.Parent = inspectBtn
-                    inspectBtn.MouseButton1Click:Connect(function()
-                        if openTopologyUpvalueModal then
-                            openTopologyUpvalueModal(bridgeObj, comp)
-                        end
-                    end)
-
-                    if bridgeObj.sampleKeys and #bridgeObj.sampleKeys > 0 then
-                        local r2 = Instance.new("TextLabel")
-                        r2.Size = UDim2.new(1, 0, 0, 14)
-                        r2.BackgroundTransparency = 1
-                        r2.Font = Enum.Font.Code
-                        r2.TextSize = 9
-                        r2.TextColor3 = Color3.fromRGB(130, 150, 180)
-                        r2.TextXAlignment = Enum.TextXAlignment.Left
-                        r2.TextTruncate = Enum.TextTruncate.AtEnd
-                        r2.Text = "Fields: " .. table.concat(bridgeObj.sampleKeys, ", ") .. ((bridgeObj.keyCount > #bridgeObj.sampleKeys) and (" ... (+" .. tostring(bridgeObj.keyCount - #bridgeObj.sampleKeys) .. " more)") or "")
-                        r2.LayoutOrder = 2
-                        r2.Parent = bBox
-                    end
-
-                    local entityDescList = {}
-                    for _, ent in ipairs(bridgeObj.entities) do
-                        local entName = ent.type == "loop" and ("Loop (line " .. tostring(ent.entity.line or 0) .. ")")
-                            or (ent.type == "connection" and (tostring(ent.entity.event) .. " listener"))
-                            or ("Task (" .. tostring(ent.entity.name or "task") .. ")")
-                        if ent.compName ~= comp.name then
-                            entName = entName .. " [" .. ent.compName .. "]"
-                        end
-                        table.insert(entityDescList, entName)
-                    end
-
-                    local r3 = Instance.new("TextLabel")
-                    r3.Size = UDim2.new(1, 0, 0, 14)
-                    r3.BackgroundTransparency = 1
-                    r3.Font = Enum.Font.Gotham
-                    r3.TextSize = 9
-                    r3.TextColor3 = Color3.fromRGB(170, 195, 230)
-                    r3.TextXAlignment = Enum.TextXAlignment.Left
-                    r3.TextTruncate = Enum.TextTruncate.AtEnd
-                    r3.Text = "Linked: " .. table.concat(entityDescList, "  <───shared───>  ")
-                    r3.LayoutOrder = 3
-                    r3.Parent = bBox
-
-                    if bridgeObj.crossComponent then
-                        local r4 = Instance.new("TextLabel")
-                        r4.Size = UDim2.new(1, 0, 0, 14)
-                        r4.BackgroundTransparency = 1
-                        r4.Font = Enum.Font.GothamBold
-                        r4.TextSize = 9
-                        r4.TextColor3 = Color3.fromRGB(255, 170, 60)
-                        r4.TextXAlignment = Enum.TextXAlignment.Left
-                        r4.TextTruncate = Enum.TextTruncate.AtEnd
-                        r4.Text = "⚠️ Cross-Script Bridge shared with: " .. table.concat(bridgeObj.partnerComponents, ", ")
-                        r4.LayoutOrder = 4
-                        r4.Parent = bBox
                     end
                 end
             end
@@ -11595,7 +11678,7 @@ refreshTopologyTab = function(force)
         if matchesText and matchesFilter then
             visibleCount = visibleCount + 1
             seenIds[comp.id] = true
-            renderTopologyComponentCard(comp, visibleCount)
+            renderTopologyComponentCard(comp, visibleCount, force)
         else
             local card = cachedTopologyCards[comp.id]
             if card then card.Visible = false end
