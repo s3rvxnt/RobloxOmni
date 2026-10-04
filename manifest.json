@@ -5,7 +5,6 @@
   "changelog": [
     "Adaptive 6.0ms frame-budgeted bootloader with automated crash recovery and Safe Mode",
     "Kernel Task Manager HUD and adaptive loop governor with per-task CPU telemetry (Shift + F8)",
-    "Runtime Concurrency Diagnostics & Task Lineage Subsystem (Omni.TaskSupervisor / TaskDAG)",
     "Zero-trust update transparency gate with line-by-line diff inspection and security scanner (Shift + F7)",
     "Real-time game connection ingestion, priority bands, and instant hot-reloading",
     "Omni Enhancement Suite: Streamer mode, Personal Space Bubble, Player ESP, Anti-AFK, and native ESC settings"
@@ -17,13 +16,6 @@
       "stage": "Kernel",
       "name": "KernelTaskManager",
       "desc": "Kernel Task Manager & Runtime Micro-Kernel (Shift + F8)"
-    },
-    {
-      "repoPath": "kernel/TaskSupervisor.lua",
-      "localPath": "autoexec/kernel/TaskSupervisor.lua",
-      "stage": "Kernel",
-      "name": "TaskSupervisor",
-      "desc": "Runtime Concurrency Diagnostics & Task Lineage Subsystem (Omni.TaskSupervisor / TaskDAG)"
     },
     {
       "repoPath": "gameloaded/OmniEnhancementSuite.lua",

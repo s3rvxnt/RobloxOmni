@@ -106,8 +106,6 @@ local function isSelfOrKernel(name)
     if lower:find("kerneltaskmanager", 1, true) ~= nil
         or lower:find("virtualscheduler", 1, true) ~= nil
         or lower:find("taskmanagerhud", 1, true) ~= nil
-        or lower:find("tasksupervisor", 1, true) ~= nil
-        or lower:find("taskdag", 1, true) ~= nil
         or lower:find("utilities", 1, true) ~= nil
         or lower:find("utils", 1, true) ~= nil
         or lower:find("remoteexecute", 1, true) ~= nil
@@ -10183,7 +10181,7 @@ task.spawn(function()
     while running do
         task.wait(0.1)
 
-        if ScreenGui and ScreenGui.Enabled then
+        if ScreenGui.Enabled then
             pcall(function()
                 local profile
                 if getgenv().GetSchedulerProfile then
