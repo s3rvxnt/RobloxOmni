@@ -3799,6 +3799,203 @@ getgenv()._VirtualSchedulerLoaded = true
 -- ==============================================================================
 -- ==============================================================================
 
+-- ==============================================================================
+-- SHARED TASK MANAGER HUD STATE & CACHES (File Scope)
+-- ==============================================================================
+local cachedTaskRows = {}
+local cachedStartupRows = {}
+local cachedLoopRows = {}
+local cachedGameRows = {}
+local collapsedSections = {}
+local cachedSectionHeaders = {}
+local activeExpandedLoopKey = nil
+local activeExpandedTaskKey = nil
+local activeExpandedRowKey = nil
+
+local MIN_WIDTH = 640
+local MIN_HEIGHT = 380
+local MAX_WIDTH = 1600
+local MAX_HEIGHT = 1000
+
+-- ==============================================================================
+-- LUAU SYNTAX HIGHLIGHTER LEXER ENGINE (File Scope)
+-- ==============================================================================
+local HL_KEYWORDS = {
+    ["local"] = true, ["function"] = true, ["end"] = true, ["if"] = true,
+    ["then"] = true, ["else"] = true, ["elseif"] = true, ["for"] = true,
+    ["in"] = true, ["do"] = true, ["while"] = true, ["repeat"] = true,
+    ["until"] = true, ["return"] = true, ["break"] = true, ["continue"] = true,
+    ["not"] = true, ["and"] = true, ["or"] = true, ["type"] = true, ["export"] = true,
+}
+
+local HL_VALUES = {
+    ["true"] = true, ["false"] = true, ["nil"] = true,
+}
+
+local HL_BUILTINS = {
+    ["game"] = true, ["workspace"] = true, ["script"] = true, ["math"] = true,
+    ["table"] = true, ["string"] = true, ["task"] = true, ["os"] = true,
+    ["coroutine"] = true, ["debug"] = true, ["utf8"] = true, ["Instance"] = true,
+    ["Vector2"] = true, ["Vector3"] = true, ["CFrame"] = true, ["Color3"] = true,
+    ["UDim2"] = true, ["UDim"] = true, ["BrickColor"] = true, ["Ray"] = true,
+    ["TweenInfo"] = true, ["Enum"] = true, ["pcall"] = true, ["xpcall"] = true,
+    ["select"] = true, ["typeof"] = true, ["pairs"] = true, ["ipairs"] = true,
+    ["next"] = true, ["print"] = true, ["warn"] = true, ["error"] = true,
+    ["tick"] = true, ["time"] = true, ["wait"] = true, ["spawn"] = true,
+    ["delay"] = true, ["loadstring"] = true, ["setfenv"] = true, ["getfenv"] = true,
+    ["rawget"] = true, ["rawset"] = true, ["rawequal"] = true, ["setmetatable"] = true,
+    ["getmetatable"] = true, ["getgenv"] = true, ["getrenv"] = true, ["readfile"] = true,
+    ["writefile"] = true, ["appendfile"] = true, ["isfile"] = true, ["isfolder"] = true,
+    ["listfiles"] = true, ["delfile"] = true, ["makefolder"] = true, ["delfolder"] = true,
+    ["identifyexecutor"] = true, ["hookfunction"] = true, ["hookmetamethod"] = true,
+    ["getconnections"] = true, ["firesignal"] = true,
+}
+
+local HL_C_KEYWORD  = "#c678dd" -- Purple
+local HL_C_VALUE    = "#d19a66" -- Warm Orange
+local HL_C_BUILTIN  = "#61afef" -- Sky Blue
+local HL_C_STRING   = "#98c379" -- Mint Green
+local HL_C_NUMBER   = "#e5c07b" -- Amber / Gold
+local HL_C_COMMENT  = "#676e95" -- Slate Gray
+local HL_C_OPERATOR = "#56b6c2" -- Cyan
+local HL_C_DEFAULT  = "#abb2bf" -- Soft Light Gray
+
+local function escapeXml(str)
+    local s = str:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;"):gsub("'", "&apos;")
+    return s
+end
+
+local function scanQuotedString(source, pos, quoteChar)
+    local len = string.len(source)
+    local p = pos + 1
+    while p <= len do
+        local c = source:sub(p, p)
+        if c == "\\" then
+            p = p + 2
+        elseif c == quoteChar then
+            return pos, p
+        elseif c == "\n" or c == "\r" then
+            return pos, p - 1
+        else
+            p = p + 1
+        end
+    end
+    return pos, len
+end
+
+local function highlightLuau(source)
+    local len = string.len(source)
+    if len == 0 then return "" end
+    if len > 65000 then
+        return escapeXml(source)
+    end
+
+    local out = {}
+    local pos = 1
+
+    while pos <= len do
+        local wsStart, wsEnd = source:find("^[ \t\r\n]+", pos)
+        if wsStart then
+            table.insert(out, source:sub(wsStart, wsEnd))
+            pos = wsEnd + 1
+        else
+            if source:sub(pos, pos + 1) == "--" then
+                local eq = source:sub(pos + 2):match("^%[(=*)%[")
+                if eq then
+                    local closeDelim = "]" .. eq .. "]"
+                    local _, cEnd = source:find(closeDelim, pos + 4 + #eq, true)
+                    if cEnd then
+                        table.insert(out, '<font color="' .. HL_C_COMMENT .. '">' .. escapeXml(source:sub(pos, cEnd)) .. '</font>')
+                        pos = cEnd + 1
+                    else
+                        table.insert(out, '<font color="' .. HL_C_COMMENT .. '">' .. escapeXml(source:sub(pos)) .. '</font>')
+                        pos = len + 1
+                    end
+                else
+                    local nl = source:find("[\r\n]", pos + 2)
+                    local cEnd = nl and (nl - 1) or len
+                    table.insert(out, '<font color="' .. HL_C_COMMENT .. '">' .. escapeXml(source:sub(pos, cEnd)) .. '</font>')
+                    pos = cEnd + 1
+                end
+            else
+                local c = source:sub(pos, pos)
+                local eq = (c == "[") and source:sub(pos):match("^%[(=*)%[")
+                if eq then
+                    local closeDelim = "]" .. eq .. "]"
+                    local _, sEnd = source:find(closeDelim, pos + 2 + #eq, true)
+                    if sEnd then
+                        table.insert(out, '<font color="' .. HL_C_STRING .. '">' .. escapeXml(source:sub(pos, sEnd)) .. '</font>')
+                        pos = sEnd + 1
+                    else
+                        table.insert(out, '<font color="' .. HL_C_STRING .. '">' .. escapeXml(source:sub(pos)) .. '</font>')
+                        pos = len + 1
+                    end
+                elseif c == '"' or c == "'" then
+                    local sStart, sEnd = scanQuotedString(source, pos, c)
+                    table.insert(out, '<font color="' .. HL_C_STRING .. '">' .. escapeXml(source:sub(sStart, sEnd)) .. '</font>')
+                    pos = sEnd + 1
+                else
+                    local nStart, nEnd
+                    if source:find("^%d+%.%.", pos) then
+                        nStart, nEnd = source:find("^%d+", pos)
+                    else
+                        nStart, nEnd = source:find("^0[xX][0-9a-fA-F]+", pos)
+                        if not nStart then nStart, nEnd = source:find("^0[bB][01]+", pos) end
+                        if not nStart then nStart, nEnd = source:find("^%d+%.%d+[eE][%+%-]?%d+", pos) end
+                        if not nStart then nStart, nEnd = source:find("^%d+[eE][%+%-]?%d+", pos) end
+                        if not nStart then nStart, nEnd = source:find("^%d+%.%d+", pos) end
+                        if not nStart then nStart, nEnd = source:find("^%d+", pos) end
+                        if not nStart then nStart, nEnd = source:find("^%.%d+[eE][%+%-]?%d+", pos) end
+                        if not nStart then nStart, nEnd = source:find("^%.%d+", pos) end
+                    end
+
+                    if nStart then
+                        table.insert(out, '<font color="' .. HL_C_NUMBER .. '">' .. source:sub(nStart, nEnd) .. '</font>')
+                        pos = nEnd + 1
+                    else
+                        local idStart, idEnd = source:find("^[a-zA-Z_][a-zA-Z0-9_]*", pos)
+                        if idStart then
+                            local word = source:sub(idStart, idEnd)
+                            if HL_KEYWORDS[word] then
+                                table.insert(out, '<font color="' .. HL_C_KEYWORD .. '">' .. word .. '</font>')
+                            elseif HL_VALUES[word] then
+                                table.insert(out, '<font color="' .. HL_C_VALUE .. '">' .. word .. '</font>')
+                            elseif HL_BUILTINS[word] then
+                                table.insert(out, '<font color="' .. HL_C_BUILTIN .. '">' .. word .. '</font>')
+                            else
+                                table.insert(out, '<font color="' .. HL_C_DEFAULT .. '">' .. escapeXml(word) .. '</font>')
+                            end
+                            pos = idEnd + 1
+                        else
+                            local three = source:sub(pos, pos + 2)
+                            if three == "..." then
+                                table.insert(out, '<font color="' .. HL_C_OPERATOR .. '">...</font>')
+                                pos = pos + 3
+                            else
+                                local two = source:sub(pos, pos + 1)
+                                if two == "==" or two == "~=" or two == "<=" or two == ">=" or two == ".." or two == "::" or two == "+=" or two == "-=" or two == "*=" or two == "/=" then
+                                    table.insert(out, '<font color="' .. HL_C_OPERATOR .. '">' .. escapeXml(two) .. '</font>')
+                                    pos = pos + 2
+                                else
+                                    local ch = source:sub(pos, pos)
+                                    if ch:find("[%+%-%*%/%%%^%#%=%<%>%:%.%,%;%(%)%{%}%[%]]") then
+                                        table.insert(out, '<font color="' .. HL_C_OPERATOR .. '">' .. escapeXml(ch) .. '</font>')
+                                    else
+                                        table.insert(out, escapeXml(ch))
+                                    end
+                                    pos = pos + 1
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return table.concat(out)
+end
+
 local function initHUD()
 local function getGuiParent()
     if type(gethui) == "function" then
@@ -4026,10 +4223,6 @@ ResizeGrip.Text = "◢"
 ResizeGrip.ZIndex = 100
 ResizeGrip.Parent = MainFrame
 
-local MIN_WIDTH = 640
-local MIN_HEIGHT = 380
-local MAX_WIDTH = 1600
-local MAX_HEIGHT = 1000
 
 local resizing = false
 local resizeStart = Vector3.new()
@@ -4991,12 +5184,186 @@ TabStartupBtn.MouseButton1Click:Connect(function() setTab("Startup") end)
 setTab("Tasks")
 
 -- ==============================================================================
--- ROW RENDERING ENGINES
+-- ROW RENDERING ENGINES & WINDOWS TASK MANAGER COLLAPSIBLE SECTIONS
 -- ==============================================================================
 
-local cachedTaskRows = {}
-local cachedStartupRows = {}
-local cachedLoopRows = {}
+
+local function getOrCreateSectionHeader(parentList, sectionKey, title, baseLayoutOrder, accentColor, onToggleCallback)
+    local header = cachedSectionHeaders[sectionKey]
+    if not header then
+        header = Instance.new("TextButton")
+        header.Name = "SectionHeader_" .. sectionKey
+        header.Size = UDim2.new(1, 0, 0, 24)
+        header.BackgroundColor3 = Color3.fromRGB(22, 26, 36)
+        header.BorderSizePixel = 0
+        header.AutoButtonColor = false
+        header.LayoutOrder = baseLayoutOrder
+        header.Active = true
+        header.Parent = parentList
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 4)
+        corner.Parent = header
+
+        local border = Instance.new("UIStroke")
+        border.Color = Color3.fromRGB(36, 44, 60)
+        border.Thickness = 1
+        border.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        border.Parent = header
+
+        local chevron = Instance.new("TextLabel")
+        chevron.Name = "Chevron"
+        chevron.Size = UDim2.new(0, 18, 1, 0)
+        chevron.Position = UDim2.new(0, 4, 0, 0)
+        chevron.BackgroundTransparency = 1
+        chevron.Font = Enum.Font.GothamBold
+        chevron.TextSize = 10
+        chevron.TextColor3 = Color3.fromRGB(120, 140, 175)
+        chevron.Text = "▼"
+        chevron.Parent = header
+
+        local titleLbl = Instance.new("TextLabel")
+        titleLbl.Name = "TitleLbl"
+        titleLbl.Size = UDim2.new(0.65, 0, 1, 0)
+        titleLbl.Position = UDim2.new(0, 22, 0, 0)
+        titleLbl.BackgroundTransparency = 1
+        titleLbl.Font = Enum.Font.GothamBold
+        titleLbl.TextSize = 11
+        titleLbl.TextColor3 = Color3.fromRGB(215, 228, 248)
+        titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+        titleLbl.Text = title
+        titleLbl.Parent = header
+
+        local statsLbl = Instance.new("TextLabel")
+        statsLbl.Name = "StatsLbl"
+        statsLbl.Size = UDim2.new(0.32, -8, 1, 0)
+        statsLbl.Position = UDim2.new(0.68, 0, 0, 0)
+        statsLbl.BackgroundTransparency = 1
+        statsLbl.Font = Enum.Font.GothamMedium
+        statsLbl.TextSize = 10
+        statsLbl.TextColor3 = accentColor or Color3.fromRGB(80, 200, 255)
+        statsLbl.TextXAlignment = Enum.TextXAlignment.Right
+        statsLbl.Text = ""
+        statsLbl.Parent = header
+
+        header.MouseEnter:Connect(function()
+            header.BackgroundColor3 = Color3.fromRGB(28, 34, 48)
+        end)
+        header.MouseLeave:Connect(function()
+            header.BackgroundColor3 = Color3.fromRGB(22, 26, 36)
+        end)
+
+        header.MouseButton1Click:Connect(function()
+            collapsedSections[sectionKey] = not collapsedSections[sectionKey]
+            local isColl = (collapsedSections[sectionKey] == true)
+            chevron.Text = isColl and "▶" or "▼"
+            chevron.TextColor3 = isColl and Color3.fromRGB(90, 110, 140) or Color3.fromRGB(80, 200, 255)
+
+            if onToggleCallback then
+                onToggleCallback(isColl)
+            elseif currentTab == "Startup" and refreshStartupTab then
+                refreshStartupTab()
+            end
+        end)
+
+        cachedSectionHeaders[sectionKey] = header
+    end
+
+    local isCollapsed = (collapsedSections[sectionKey] == true)
+    local chevron = header:FindFirstChild("Chevron")
+    if chevron then
+        chevron.Text = isCollapsed and "▶" or "▼"
+        chevron.TextColor3 = isCollapsed and Color3.fromRGB(90, 110, 140) or Color3.fromRGB(80, 200, 255)
+    end
+
+    return header, isCollapsed
+end
+
+local function toggleLoopAccordion(targetRow, loopId, forceState)
+    if not targetRow or not targetRow.Parent then return end
+    local panel = targetRow:FindFirstChild("AccordionPanel")
+    if not panel then return end
+
+    local isCurrentlyOpen = (targetRow.Size.Y.Offset > 32)
+    local shouldOpen = if forceState ~= nil then forceState else not isCurrentlyOpen
+
+    if shouldOpen and activeExpandedLoopKey and activeExpandedLoopKey ~= loopId then
+        local prevRow = cachedLoopRows[activeExpandedLoopKey]
+        if prevRow and prevRow.Parent then
+            toggleLoopAccordion(prevRow, activeExpandedLoopKey, false)
+        end
+    end
+
+    local chevron = targetRow:FindFirstChild("ExpandChevron", true)
+    if shouldOpen then
+        activeExpandedLoopKey = loopId
+        panel.Visible = true
+        if chevron then
+            chevron.Text = "▼"
+            chevron.TextColor3 = Color3.fromRGB(80, 200, 255)
+        end
+        local t = TweenService:Create(targetRow, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, 68) })
+        t:Play()
+    else
+        if activeExpandedLoopKey == loopId then
+            activeExpandedLoopKey = nil
+        end
+        if chevron then
+            chevron.Text = "▶"
+            chevron.TextColor3 = Color3.fromRGB(120, 140, 175)
+        end
+        local t = TweenService:Create(targetRow, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, 32) })
+        t:Play()
+        t.Completed:Connect(function()
+            if targetRow and targetRow.Parent and targetRow.Size.Y.Offset <= 32 then
+                panel.Visible = false
+            end
+        end)
+    end
+end
+
+local function toggleTaskAccordion(targetRow, taskId, forceState)
+    if not targetRow or not targetRow.Parent then return end
+    local panel = targetRow:FindFirstChild("AccordionPanel")
+    if not panel then return end
+
+    local isCurrentlyOpen = (targetRow.Size.Y.Offset > 32)
+    local shouldOpen = if forceState ~= nil then forceState else not isCurrentlyOpen
+
+    if shouldOpen and activeExpandedTaskKey and activeExpandedTaskKey ~= taskId then
+        local prevRow = cachedTaskRows[activeExpandedTaskKey]
+        if prevRow and prevRow.Parent then
+            toggleTaskAccordion(prevRow, activeExpandedTaskKey, false)
+        end
+    end
+
+    local chevron = targetRow:FindFirstChild("ExpandChevron", true)
+    if shouldOpen then
+        activeExpandedTaskKey = taskId
+        panel.Visible = true
+        if chevron then
+            chevron.Text = "▼"
+            chevron.TextColor3 = Color3.fromRGB(80, 200, 255)
+        end
+        local t = TweenService:Create(targetRow, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, 68) })
+        t:Play()
+    else
+        if activeExpandedTaskKey == taskId then
+            activeExpandedTaskKey = nil
+        end
+        if chevron then
+            chevron.Text = "▶"
+            chevron.TextColor3 = Color3.fromRGB(120, 140, 175)
+        end
+        local t = TweenService:Create(targetRow, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, 32) })
+        t:Play()
+        t.Completed:Connect(function()
+            if targetRow and targetRow.Parent and targetRow.Size.Y.Offset <= 32 then
+                panel.Visible = false
+            end
+        end)
+    end
+end
 
 local TaskDrag = {
     pending = nil,
@@ -5055,26 +5422,42 @@ local function getHzColor(hz, maxHz)
 end
 
 -- Row 1: Task Row
-local function renderTaskRow(taskObj, idx)
+local function renderTaskRow(taskObj, idx, customLayoutOrder, isVisible)
     local row = cachedTaskRows[taskObj.id]
     if not row then
         row = Instance.new("Frame")
         row.Name = taskObj.id
-        row.Size = UDim2.new(1, 0, 0, 32)
+        row.Size = (activeExpandedTaskKey == taskObj.id) and UDim2.new(1, 0, 0, 68) or UDim2.new(1, 0, 0, 32)
         row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
         row.BorderSizePixel = 0
-        row.LayoutOrder = idx * 10
+        row.LayoutOrder = customLayoutOrder or (idx * 10)
         row.Active = true
+        row.ClipsDescendants = true
         row.Parent = ScrollListTasks
 
         local rCorner = Instance.new("UICorner")
         rCorner.CornerRadius = UDim.new(0, 4)
         rCorner.Parent = row
 
+        local expandBtn = Instance.new("TextButton")
+        expandBtn.Name = "ExpandChevron"
+        expandBtn.Size = UDim2.new(0, 14, 0, 20)
+        expandBtn.Position = UDim2.new(0, 4, 0.5, -10)
+        expandBtn.BackgroundTransparency = 1
+        expandBtn.Font = Enum.Font.GothamBold
+        expandBtn.TextSize = 10
+        expandBtn.TextColor3 = Color3.fromRGB(120, 140, 175)
+        expandBtn.Text = (activeExpandedTaskKey == taskObj.id) and "▼" or "▶"
+        expandBtn.Parent = row
+
+        expandBtn.MouseButton1Click:Connect(function()
+            toggleTaskAccordion(row, taskObj.id)
+        end)
+
         local gripLbl = Instance.new("TextLabel")
         gripLbl.Name = "GripLbl"
         gripLbl.Size = UDim2.new(0, 14, 1, 0)
-        gripLbl.Position = UDim2.new(0, 4, 0, 0)
+        gripLbl.Position = UDim2.new(0, 18, 0, 0)
         gripLbl.BackgroundTransparency = 1
         gripLbl.Font = Enum.Font.GothamBold
         gripLbl.TextSize = 12
@@ -5085,7 +5468,7 @@ local function renderTaskRow(taskObj, idx)
         local dot = Instance.new("Frame")
         dot.Name = "Dot"
         dot.Size = UDim2.new(0, 8, 0, 8)
-        dot.Position = UDim2.new(0, 20, 0.5, -4)
+        dot.Position = UDim2.new(0, 34, 0.5, -4)
         dot.BackgroundColor3 = Color3.fromRGB(50, 220, 120)
         dot.BorderSizePixel = 0
         dot.Parent = row
@@ -5095,8 +5478,8 @@ local function renderTaskRow(taskObj, idx)
 
         local nameLbl = Instance.new("TextLabel")
         nameLbl.Name = "NameLbl"
-        nameLbl.Size = UDim2.new(0.32, 0, 1, 0)
-        nameLbl.Position = UDim2.new(0, 34, 0, 0)
+        nameLbl.Size = UDim2.new(0.30, 0, 1, 0)
+        nameLbl.Position = UDim2.new(0, 48, 0, 0)
         nameLbl.BackgroundTransparency = 1
         nameLbl.Font = Enum.Font.GothamMedium
         nameLbl.TextSize = 11
@@ -5317,11 +5700,60 @@ local function renderTaskRow(taskObj, idx)
             end
         end)
 
+        local accordion = Instance.new("Frame")
+        accordion.Name = "AccordionPanel"
+        accordion.Size = UDim2.new(1, -16, 0, 32)
+        accordion.Position = UDim2.new(0, 8, 0, 32)
+        accordion.BackgroundColor3 = Color3.fromRGB(14, 17, 24)
+        accordion.BackgroundTransparency = 0.35
+        accordion.BorderSizePixel = 0
+        accordion.ClipsDescendants = true
+        accordion.Visible = (activeExpandedTaskKey == taskObj.id)
+        accordion.Parent = row
+
+        local accCorner = Instance.new("UICorner")
+        accCorner.CornerRadius = UDim.new(0, 4)
+        accCorner.Parent = accordion
+
+        local div = Instance.new("Frame")
+        div.Name = "Divider"
+        div.Size = UDim2.new(1, 0, 0, 1)
+        div.Position = UDim2.new(0, 0, 0, 0)
+        div.BackgroundColor3 = Color3.fromRGB(208, 217, 251)
+        div.BackgroundTransparency = 0.88
+        div.BorderSizePixel = 0
+        div.Parent = accordion
+
+        local subInfo1 = Instance.new("TextLabel")
+        subInfo1.Name = "SubInfo1"
+        subInfo1.Size = UDim2.new(0.58, 0, 1, -4)
+        subInfo1.Position = UDim2.new(0, 8, 0, 2)
+        subInfo1.BackgroundTransparency = 1
+        subInfo1.Font = Enum.Font.Gotham
+        subInfo1.TextSize = 9
+        subInfo1.TextColor3 = Color3.fromRGB(150, 170, 200)
+        subInfo1.TextXAlignment = Enum.TextXAlignment.Left
+        subInfo1.TextTruncate = Enum.TextTruncate.AtEnd
+        subInfo1.Parent = accordion
+
+        local subInfo2 = Instance.new("TextLabel")
+        subInfo2.Name = "SubInfo2"
+        subInfo2.Size = UDim2.new(0.40, -8, 1, -4)
+        subInfo2.Position = UDim2.new(0.60, 0, 0, 2)
+        subInfo2.BackgroundTransparency = 1
+        subInfo2.Font = Enum.Font.GothamMedium
+        subInfo2.TextSize = 9
+        subInfo2.TextColor3 = Color3.fromRGB(80, 200, 255)
+        subInfo2.TextXAlignment = Enum.TextXAlignment.Right
+        subInfo2.TextTruncate = Enum.TextTruncate.AtEnd
+        subInfo2.Parent = accordion
+
         cachedTaskRows[taskObj.id] = row
     end
 
-    row.LayoutOrder = idx * 10
+    row.LayoutOrder = customLayoutOrder or (idx * 10)
     row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
+    row:SetAttribute("IsScheduler", (taskObj.isExecutor ~= false))
 
     -- Update row content
     local dot = row:FindFirstChild("Dot")
@@ -5422,7 +5854,24 @@ local function renderTaskRow(taskObj, idx)
         else cpuLbl.TextColor3 = Color3.fromRGB(100, 220, 140) end
     end
 
-    row.Visible = true
+    local expandBtn = row:FindFirstChild("ExpandChevron")
+    if expandBtn then
+        expandBtn.Text = (activeExpandedTaskKey == taskObj.id) and "▼" or "▶"
+        expandBtn.TextColor3 = (activeExpandedTaskKey == taskObj.id) and Color3.fromRGB(80, 200, 255) or Color3.fromRGB(120, 140, 175)
+    end
+    local accordion = row:FindFirstChild("AccordionPanel")
+    if accordion then
+        local subInfo1 = accordion:FindFirstChild("SubInfo1")
+        local subInfo2 = accordion:FindFirstChild("SubInfo2")
+        if subInfo1 then
+            subInfo1.Text = string.format("📁 Stage: %s | 🎯 Priority: %s | ⚡ Event: %s", tostring(taskObj.stage or "Universal"), tostring(taskObj.priority or "Normal"), tostring(taskObj.event or "Heartbeat"))
+        end
+        if subInfo2 then
+            subInfo2.Text = string.format("🛡️ Status: Virtual Scheduler Managed | ⏱️ Last: %.2fms", taskObj.lastTimeMs or 0)
+        end
+    end
+
+    row.Visible = if isVisible ~= nil then isVisible else true
     return row
 end
 
@@ -5600,195 +6049,9 @@ local targetDropStage = nil
 -- STARTUP ACCORDION CONTEXT MENU & IN-GAME CODE EDITOR
 -- ==============================================================================
 
-local activeExpandedRowKey = nil
 local openCodeEditor = nil
 local TextService = game:GetService("TextService")
 
--- ==============================================================================
--- LUAU SYNTAX HIGHLIGHTER LEXER ENGINE
--- ==============================================================================
-
-local HL_KEYWORDS = {
-    ["local"] = true, ["function"] = true, ["end"] = true, ["if"] = true,
-    ["then"] = true, ["else"] = true, ["elseif"] = true, ["for"] = true,
-    ["in"] = true, ["do"] = true, ["while"] = true, ["repeat"] = true,
-    ["until"] = true, ["return"] = true, ["break"] = true, ["continue"] = true,
-    ["not"] = true, ["and"] = true, ["or"] = true, ["type"] = true, ["export"] = true,
-}
-
-local HL_VALUES = {
-    ["true"] = true, ["false"] = true, ["nil"] = true,
-}
-
-local HL_BUILTINS = {
-    ["game"] = true, ["workspace"] = true, ["script"] = true, ["math"] = true,
-    ["table"] = true, ["string"] = true, ["task"] = true, ["os"] = true,
-    ["coroutine"] = true, ["debug"] = true, ["utf8"] = true, ["Instance"] = true,
-    ["Vector2"] = true, ["Vector3"] = true, ["CFrame"] = true, ["Color3"] = true,
-    ["UDim2"] = true, ["UDim"] = true, ["BrickColor"] = true, ["Ray"] = true,
-    ["TweenInfo"] = true, ["Enum"] = true, ["pcall"] = true, ["xpcall"] = true,
-    ["select"] = true, ["typeof"] = true, ["pairs"] = true, ["ipairs"] = true,
-    ["next"] = true, ["print"] = true, ["warn"] = true, ["error"] = true,
-    ["tick"] = true, ["time"] = true, ["wait"] = true, ["spawn"] = true,
-    ["delay"] = true, ["loadstring"] = true, ["setfenv"] = true, ["getfenv"] = true,
-    ["rawget"] = true, ["rawset"] = true, ["rawequal"] = true, ["setmetatable"] = true,
-    ["getmetatable"] = true, ["getgenv"] = true, ["getrenv"] = true, ["readfile"] = true,
-    ["writefile"] = true, ["appendfile"] = true, ["isfile"] = true, ["isfolder"] = true,
-    ["listfiles"] = true, ["delfile"] = true, ["makefolder"] = true, ["delfolder"] = true,
-    ["identifyexecutor"] = true, ["hookfunction"] = true, ["hookmetamethod"] = true,
-    ["getconnections"] = true, ["firesignal"] = true,
-}
-
-local HL_C_KEYWORD  = "#c678dd" -- Purple
-local HL_C_VALUE    = "#d19a66" -- Warm Orange
-local HL_C_BUILTIN  = "#61afef" -- Sky Blue
-local HL_C_STRING   = "#98c379" -- Mint Green
-local HL_C_NUMBER   = "#e5c07b" -- Amber / Gold
-local HL_C_COMMENT  = "#676e95" -- Slate Gray
-local HL_C_OPERATOR = "#56b6c2" -- Cyan
-local HL_C_DEFAULT  = "#abb2bf" -- Soft Light Gray
-
-local function escapeXml(str)
-    local s = str:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;"):gsub("'", "&apos;")
-    return s
-end
-
-local function scanQuotedString(source, pos, quoteChar)
-    local len = string.len(source)
-    local p = pos + 1
-    while p <= len do
-        local c = source:sub(p, p)
-        if c == "\\" then
-            p = p + 2
-        elseif c == quoteChar then
-            return pos, p
-        elseif c == "\n" or c == "\r" then
-            return pos, p - 1
-        else
-            p = p + 1
-        end
-    end
-    return pos, len
-end
-
-local function highlightLuau(source)
-    local len = string.len(source)
-    if len == 0 then return "" end
-    if len > 65000 then
-        return escapeXml(source)
-    end
-
-    local out = {}
-    local pos = 1
-
-    while pos <= len do
-        -- 1. Whitespace (spaces, tabs, newlines preserved verbatim)
-        local wsStart, wsEnd = source:find("^[ \t\r\n]+", pos)
-        if wsStart then
-            table.insert(out, source:sub(wsStart, wsEnd))
-            pos = wsEnd + 1
-        else
-            -- 2. Comments (--[[...]] and --...)
-            if source:sub(pos, pos + 1) == "--" then
-                local eq = source:sub(pos + 2):match("^%[(=*)%[")
-                if eq then
-                    local closeDelim = "]" .. eq .. "]"
-                    local _, cEnd = source:find(closeDelim, pos + 4 + #eq, true)
-                    if cEnd then
-                        table.insert(out, '<font color="' .. HL_C_COMMENT .. '">' .. escapeXml(source:sub(pos, cEnd)) .. '</font>')
-                        pos = cEnd + 1
-                    else
-                        table.insert(out, '<font color="' .. HL_C_COMMENT .. '">' .. escapeXml(source:sub(pos)) .. '</font>')
-                        pos = len + 1
-                    end
-                else
-                    local nl = source:find("[\r\n]", pos + 2)
-                    local cEnd = nl and (nl - 1) or len
-                    table.insert(out, '<font color="' .. HL_C_COMMENT .. '">' .. escapeXml(source:sub(pos, cEnd)) .. '</font>')
-                    pos = cEnd + 1
-                end
-            else
-                -- 3. Strings ([[...]], "...", '...')
-                local c = source:sub(pos, pos)
-                local eq = (c == "[") and source:sub(pos):match("^%[(=*)%[")
-                if eq then
-                    local closeDelim = "]" .. eq .. "]"
-                    local _, sEnd = source:find(closeDelim, pos + 2 + #eq, true)
-                    if sEnd then
-                        table.insert(out, '<font color="' .. HL_C_STRING .. '">' .. escapeXml(source:sub(pos, sEnd)) .. '</font>')
-                        pos = sEnd + 1
-                    else
-                        table.insert(out, '<font color="' .. HL_C_STRING .. '">' .. escapeXml(source:sub(pos)) .. '</font>')
-                        pos = len + 1
-                    end
-                elseif c == '"' or c == "'" then
-                    local sStart, sEnd = scanQuotedString(source, pos, c)
-                    table.insert(out, '<font color="' .. HL_C_STRING .. '">' .. escapeXml(source:sub(sStart, sEnd)) .. '</font>')
-                    pos = sEnd + 1
-                else
-                    -- 4. Numbers (hex 0x..., binary 0b..., floats, ints, scientific)
-                    local nStart, nEnd
-                    if source:find("^%d+%.%.", pos) then
-                        nStart, nEnd = source:find("^%d+", pos)
-                    else
-                        nStart, nEnd = source:find("^0[xX][0-9a-fA-F]+", pos)
-                        if not nStart then nStart, nEnd = source:find("^0[bB][01]+", pos) end
-                        if not nStart then nStart, nEnd = source:find("^%d+%.%d+[eE][%+%-]?%d+", pos) end
-                        if not nStart then nStart, nEnd = source:find("^%d+[eE][%+%-]?%d+", pos) end
-                        if not nStart then nStart, nEnd = source:find("^%d+%.%d+", pos) end
-                        if not nStart then nStart, nEnd = source:find("^%d+", pos) end
-                        if not nStart then nStart, nEnd = source:find("^%.%d+[eE][%+%-]?%d+", pos) end
-                        if not nStart then nStart, nEnd = source:find("^%.%d+", pos) end
-                    end
-
-                    if nStart then
-                        table.insert(out, '<font color="' .. HL_C_NUMBER .. '">' .. source:sub(nStart, nEnd) .. '</font>')
-                        pos = nEnd + 1
-                    else
-                        -- 5. Identifiers / Keywords / Builtins
-                        local idStart, idEnd = source:find("^[a-zA-Z_][a-zA-Z0-9_]*", pos)
-                        if idStart then
-                            local word = source:sub(idStart, idEnd)
-                            if HL_KEYWORDS[word] then
-                                table.insert(out, '<font color="' .. HL_C_KEYWORD .. '">' .. word .. '</font>')
-                            elseif HL_VALUES[word] then
-                                table.insert(out, '<font color="' .. HL_C_VALUE .. '">' .. word .. '</font>')
-                            elseif HL_BUILTINS[word] then
-                                table.insert(out, '<font color="' .. HL_C_BUILTIN .. '">' .. word .. '</font>')
-                            else
-                                table.insert(out, '<font color="' .. HL_C_DEFAULT .. '">' .. escapeXml(word) .. '</font>')
-                            end
-                            pos = idEnd + 1
-                        else
-                            -- 6. Operators & Punctuation
-                            local three = source:sub(pos, pos + 2)
-                            if three == "..." then
-                                table.insert(out, '<font color="' .. HL_C_OPERATOR .. '">...</font>')
-                                pos = pos + 3
-                            else
-                                local two = source:sub(pos, pos + 1)
-                                if two == "==" or two == "~=" or two == "<=" or two == ">=" or two == ".." or two == "::" or two == "+=" or two == "-=" or two == "*=" or two == "/=" then
-                                    table.insert(out, '<font color="' .. HL_C_OPERATOR .. '">' .. escapeXml(two) .. '</font>')
-                                    pos = pos + 2
-                                else
-                                    local ch = source:sub(pos, pos)
-                                    if ch:find("[%+%-%*%/%%%^%#%=%<%>%:%.%,%;%(%)%{%}%[%]]") then
-                                        table.insert(out, '<font color="' .. HL_C_OPERATOR .. '">' .. escapeXml(ch) .. '</font>')
-                                    else
-                                        table.insert(out, escapeXml(ch))
-                                    end
-                                    pos = pos + 1
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    return table.concat(out)
-end
 
 do
 -- In-Game Code Editor Modal
@@ -7347,7 +7610,7 @@ table.insert(hudWindowConnections, UserInputService.InputEnded:Connect(function(
     end
 end))
 
-local function renderStartupRow(scriptObj, idx)
+local function renderStartupRow(scriptObj, idx, customLayoutOrder, isVisible)
     local key = scriptObj.file
     local row = cachedStartupRows[key]
     if not row then
@@ -7356,7 +7619,7 @@ local function renderStartupRow(scriptObj, idx)
         row.Size = (activeExpandedRowKey == key) and UDim2.new(1, 0, 0, 68) or UDim2.new(1, 0, 0, 32)
         row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
         row.BorderSizePixel = 0
-        row.LayoutOrder = idx * 10
+        row.LayoutOrder = customLayoutOrder or (idx * 10)
         row.Active = true
         row.ClipsDescendants = true
         row.Parent = ScrollListStartup
@@ -7365,10 +7628,25 @@ local function renderStartupRow(scriptObj, idx)
         rCorner.CornerRadius = UDim.new(0, 4)
         rCorner.Parent = row
 
+        local expandBtn = Instance.new("TextButton")
+        expandBtn.Name = "ExpandChevron"
+        expandBtn.Size = UDim2.new(0, 14, 0, 20)
+        expandBtn.Position = UDim2.new(0, 4, 0, 6)
+        expandBtn.BackgroundTransparency = 1
+        expandBtn.Font = Enum.Font.GothamBold
+        expandBtn.TextSize = 10
+        expandBtn.TextColor3 = Color3.fromRGB(120, 140, 175)
+        expandBtn.Text = (activeExpandedRowKey == key) and "▼" or "▶"
+        expandBtn.Parent = row
+
+        expandBtn.MouseButton1Click:Connect(function()
+            toggleRowAccordion(row, key)
+        end)
+
         local dot = Instance.new("Frame")
         dot.Name = "Dot"
         dot.Size = UDim2.new(0, 8, 0, 8)
-        dot.Position = UDim2.new(0.02, 10, 0, 12)
+        dot.Position = UDim2.new(0, 20, 0, 12)
         dot.BackgroundColor3 = Color3.fromRGB(50, 220, 120)
         dot.BorderSizePixel = 0
         dot.Parent = row
@@ -7379,7 +7657,7 @@ local function renderStartupRow(scriptObj, idx)
         local nameLbl = Instance.new("TextLabel")
         nameLbl.Name = "NameLbl"
         nameLbl.Size = UDim2.new(0.44, 0, 0, 15)
-        nameLbl.Position = UDim2.new(0.08, 0, 0, 2)
+        nameLbl.Position = UDim2.new(0, 34, 0, 2)
         nameLbl.BackgroundTransparency = 1
         nameLbl.Font = Enum.Font.GothamMedium
         nameLbl.TextSize = 11
@@ -7392,7 +7670,7 @@ local function renderStartupRow(scriptObj, idx)
         local pathLbl = Instance.new("TextLabel")
         pathLbl.Name = "PathLbl"
         pathLbl.Size = UDim2.new(0.44, 0, 0, 12)
-        pathLbl.Position = UDim2.new(0.08, 0, 0, 17)
+        pathLbl.Position = UDim2.new(0, 34, 0, 17)
         pathLbl.BackgroundTransparency = 1
         pathLbl.Font = Enum.Font.Gotham
         pathLbl.TextSize = 9
@@ -7966,7 +8244,18 @@ local function renderStartupRow(scriptObj, idx)
         end
     end
 
-    row.Visible = true
+    if customLayoutOrder then
+        row.LayoutOrder = customLayoutOrder
+    else
+        row.LayoutOrder = idx * 10
+    end
+
+    local expandChevron = row:FindFirstChild("ExpandChevron")
+    if expandChevron then
+        expandChevron.Text = (activeExpandedRowKey == key) and "▼" or "▶"
+    end
+
+    row.Visible = if isVisible ~= nil then isVisible else true
     return row
 end
 
@@ -7977,8 +8266,24 @@ refreshStartupTab = function(force)
     local visibleCount = 0
     local startupScripts = scanStartupScripts(force)
     currentStartupBoundaries = getStageBoundaryInfo(startupScripts)
-    for idx, scriptObj in ipairs(startupScripts) do
-        seenKeys[scriptObj.file] = true
+
+    local stageGroups = {
+        Kernel = {},
+        PreInit = {},
+        GameLoaded = {},
+        CharacterReady = {},
+        Deferred = {},
+    }
+
+    local STAGES_CONFIG = {
+        { id = "Kernel", title = "Kernel Runtime", baseOrder = 1000, color = STAGE_COLORS.Kernel or Color3.fromRGB(160, 70, 220) },
+        { id = "PreInit", title = "PreInit Stage", baseOrder = 2000, color = STAGE_COLORS.PreInit or Color3.fromRGB(240, 100, 60) },
+        { id = "GameLoaded", title = "GameLoaded Stage", baseOrder = 3000, color = STAGE_COLORS.GameLoaded or Color3.fromRGB(50, 130, 240) },
+        { id = "CharacterReady", title = "CharacterReady Stage", baseOrder = 4000, color = STAGE_COLORS.CharacterReady or Color3.fromRGB(40, 190, 210) },
+        { id = "Deferred", title = "Deferred Stage", baseOrder = 5000, color = STAGE_COLORS.Deferred or Color3.fromRGB(230, 160, 40) },
+    }
+
+    for _, scriptObj in ipairs(startupScripts) do
         local matches = (filterText == "")
             or (scriptObj.name and scriptObj.name:lower():find(filterText, 1, true))
             or (scriptObj.file and scriptObj.file:lower():find(filterText, 1, true))
@@ -7992,13 +8297,95 @@ refreshStartupTab = function(force)
         end
 
         if matches then
-            visibleCount = visibleCount + 1
-            renderStartupRow(scriptObj, visibleCount)
+            local st = scriptObj.stage or "GameLoaded"
+            if not stageGroups[st] then
+                stageGroups[st] = {}
+            end
+            table.insert(stageGroups[st], scriptObj)
         else
             local r = cachedStartupRows[scriptObj.file]
             if r then r.Visible = false end
         end
     end
+
+    for _, stageCfg in ipairs(STAGES_CONFIG) do
+        local stId = stageCfg.id
+        local scriptsInStage = stageGroups[stId] or {}
+        local sectionKey = "Startup_" .. stId
+
+        if #scriptsInStage > 0 then
+            local totalMs = 0
+            for _, s in ipairs(scriptsInStage) do
+                totalMs = totalMs + (s.compileMs or 0) + (s.execMs or 0)
+            end
+
+            local sectionTitle = string.format("%s (%d)", stageCfg.title, #scriptsInStage)
+            local header, isCollapsed = getOrCreateSectionHeader(
+                ScrollListStartup,
+                sectionKey,
+                sectionTitle,
+                stageCfg.baseOrder,
+                stageCfg.color,
+                function(collapsed)
+                    refreshStartupTab()
+                end
+            )
+            header.Visible = true
+            header.LayoutOrder = stageCfg.baseOrder
+
+            local statsLbl = header:FindFirstChild("StatsLbl")
+            if statsLbl then
+                statsLbl.Text = (totalMs > 0) and string.format("%.1f ms", totalMs) or ""
+            end
+            local titleLbl = header:FindFirstChild("TitleLbl")
+            if titleLbl then
+                titleLbl.Text = sectionTitle
+            end
+
+            for sIdx, scriptObj in ipairs(scriptsInStage) do
+                seenKeys[scriptObj.file] = true
+                visibleCount = visibleCount + 1
+                local rowOrder = stageCfg.baseOrder + sIdx
+                renderStartupRow(scriptObj, visibleCount, rowOrder, not isCollapsed)
+            end
+        else
+            local h = cachedSectionHeaders[sectionKey]
+            if h then h.Visible = false end
+        end
+    end
+
+    -- Handle any custom stages not in STAGES_CONFIG
+    local customBaseOrder = 6000
+    for stId, scriptsInStage in pairs(stageGroups) do
+        local isKnown = false
+        for _, sc in ipairs(STAGES_CONFIG) do
+            if sc.id == stId then isKnown = true; break end
+        end
+        if not isKnown and #scriptsInStage > 0 then
+            local sectionKey = "Startup_" .. stId
+            local sectionTitle = string.format("%s Stage (%d)", stId, #scriptsInStage)
+            local header, isCollapsed = getOrCreateSectionHeader(
+                ScrollListStartup,
+                sectionKey,
+                sectionTitle,
+                customBaseOrder,
+                Color3.fromRGB(180, 190, 210),
+                function(collapsed)
+                    refreshStartupTab()
+                end
+            )
+            header.Visible = true
+            header.LayoutOrder = customBaseOrder
+            for sIdx, scriptObj in ipairs(scriptsInStage) do
+                seenKeys[scriptObj.file] = true
+                visibleCount = visibleCount + 1
+                local rowOrder = customBaseOrder + sIdx
+                renderStartupRow(scriptObj, visibleCount, rowOrder, not isCollapsed)
+            end
+            customBaseOrder = customBaseOrder + 100
+        end
+    end
+
     for key, r in pairs(cachedStartupRows) do
         if not seenKeys[key] then
             r:Destroy()
@@ -8023,26 +8410,42 @@ local LOOP_HZ_CYCLE = {
     [1] = 0,
 }
 
-local function renderLoopRow(loopObj, idx)
+local function renderLoopRow(loopObj, idx, customLayoutOrder, isVisible)
     local row = cachedLoopRows[loopObj.id]
     if not row then
         row = Instance.new("Frame")
         row.Name = loopObj.id
-        row.Size = UDim2.new(1, 0, 0, 32)
+        row.Size = (activeExpandedLoopKey == loopObj.id) and UDim2.new(1, 0, 0, 68) or UDim2.new(1, 0, 0, 32)
         row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
         row.BorderSizePixel = 0
-        row.LayoutOrder = idx * 10
+        row.LayoutOrder = customLayoutOrder or (idx * 10)
         row.Active = true
+        row.ClipsDescendants = true
         row.Parent = ScrollListLoops
 
         local rCorner = Instance.new("UICorner")
         rCorner.CornerRadius = UDim.new(0, 4)
         rCorner.Parent = row
 
+        local expandBtn = Instance.new("TextButton")
+        expandBtn.Name = "ExpandChevron"
+        expandBtn.Size = UDim2.new(0, 16, 0, 18)
+        expandBtn.Position = UDim2.new(0, 2, 0, 7)
+        expandBtn.BackgroundTransparency = 1
+        expandBtn.Font = Enum.Font.GothamBold
+        expandBtn.TextSize = 10
+        expandBtn.TextColor3 = (activeExpandedLoopKey == loopObj.id) and Color3.fromRGB(80, 200, 255) or Color3.fromRGB(120, 140, 175)
+        expandBtn.Text = (activeExpandedLoopKey == loopObj.id) and "▼" or "▶"
+        expandBtn.Parent = row
+
+        expandBtn.MouseButton1Click:Connect(function()
+            toggleLoopAccordion(row, loopObj.id)
+        end)
+
         local gripLbl = Instance.new("TextLabel")
         gripLbl.Name = "GripLbl"
         gripLbl.Size = UDim2.new(0, 14, 1, 0)
-        gripLbl.Position = UDim2.new(0, 4, 0, 0)
+        gripLbl.Position = UDim2.new(0, 18, 0, 0)
         gripLbl.BackgroundTransparency = 1
         gripLbl.Font = Enum.Font.GothamBold
         gripLbl.TextSize = 12
@@ -8053,7 +8456,7 @@ local function renderLoopRow(loopObj, idx)
         local dot = Instance.new("Frame")
         dot.Name = "Dot"
         dot.Size = UDim2.new(0, 8, 0, 8)
-        dot.Position = UDim2.new(0, 20, 0.5, -4)
+        dot.Position = UDim2.new(0, 34, 0.5, -4)
         dot.BackgroundColor3 = Color3.fromRGB(50, 220, 120)
         dot.BorderSizePixel = 0
         dot.Parent = row
@@ -8063,8 +8466,8 @@ local function renderLoopRow(loopObj, idx)
 
         local nameLbl = Instance.new("TextLabel")
         nameLbl.Name = "NameLbl"
-        nameLbl.Size = UDim2.new(0.33, 0, 1, 0)
-        nameLbl.Position = UDim2.new(0, 34, 0, 0)
+        nameLbl.Size = UDim2.new(0.30, 0, 1, 0)
+        nameLbl.Position = UDim2.new(0, 48, 0, 0)
         nameLbl.BackgroundTransparency = 1
         nameLbl.Font = Enum.Font.GothamMedium
         nameLbl.TextSize = 11
@@ -8270,7 +8673,7 @@ local function renderLoopRow(loopObj, idx)
 
         row.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                if isInsideGui(hzBtn, input.Position) or isInsideGui(lockBtn, input.Position) or isInsideGui(actions, input.Position) then
+                if isInsideGui(hzBtn, input.Position) or isInsideGui(lockBtn, input.Position) or isInsideGui(actions, input.Position) or isInsideGui(expandBtn, input.Position) then
                     return
                 end
                 LoopDrag.pending = {
@@ -8282,11 +8685,53 @@ local function renderLoopRow(loopObj, idx)
             end
         end)
 
+        -- Collapsible Accordion Panel
+        local accordion = Instance.new("Frame")
+        accordion.Name = "AccordionPanel"
+        accordion.Size = UDim2.new(1, -20, 0, 32)
+        accordion.Position = UDim2.new(0, 10, 0, 34)
+        accordion.BackgroundTransparency = 1
+        accordion.Visible = (activeExpandedLoopKey == loopObj.id)
+        accordion.Parent = row
+
+        local divider = Instance.new("Frame")
+        divider.Name = "Divider"
+        divider.Size = UDim2.new(1, 0, 0, 1)
+        divider.Position = UDim2.new(0, 0, 0, 0)
+        divider.BackgroundColor3 = Color3.fromRGB(36, 44, 60)
+        divider.BorderSizePixel = 0
+        divider.Parent = accordion
+
+        local subInfo1 = Instance.new("TextLabel")
+        subInfo1.Name = "SubInfo1"
+        subInfo1.Size = UDim2.new(0.58, 0, 1, -4)
+        subInfo1.Position = UDim2.new(0, 4, 0, 2)
+        subInfo1.BackgroundTransparency = 1
+        subInfo1.Font = Enum.Font.Gotham
+        subInfo1.TextSize = 9
+        subInfo1.TextColor3 = Color3.fromRGB(140, 160, 190)
+        subInfo1.TextXAlignment = Enum.TextXAlignment.Left
+        subInfo1.TextTruncate = Enum.TextTruncate.AtEnd
+        subInfo1.Parent = accordion
+
+        local subInfo2 = Instance.new("TextLabel")
+        subInfo2.Name = "SubInfo2"
+        subInfo2.Size = UDim2.new(0.40, -8, 1, -4)
+        subInfo2.Position = UDim2.new(0.60, 0, 0, 2)
+        subInfo2.BackgroundTransparency = 1
+        subInfo2.Font = Enum.Font.GothamMedium
+        subInfo2.TextSize = 9
+        subInfo2.TextColor3 = Color3.fromRGB(80, 200, 255)
+        subInfo2.TextXAlignment = Enum.TextXAlignment.Right
+        subInfo2.TextTruncate = Enum.TextTruncate.AtEnd
+        subInfo2.Parent = accordion
+
         cachedLoopRows[loopObj.id] = row
     end
 
-    row.LayoutOrder = idx * 10
+    row.LayoutOrder = customLayoutOrder or (idx * 10)
     row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
+    row:SetAttribute("IsExecutor", (loopObj.isExecutor ~= false))
 
     -- Update row state
     local dot = row:FindFirstChild("Dot")
@@ -8368,14 +8813,30 @@ local function renderLoopRow(loopObj, idx)
         end
     end
 
-    row.Visible = true
+    local expandBtn = row:FindFirstChild("ExpandChevron")
+    if expandBtn then
+        expandBtn.Text = (activeExpandedLoopKey == loopObj.id) and "▼" or "▶"
+        expandBtn.TextColor3 = (activeExpandedLoopKey == loopObj.id) and Color3.fromRGB(80, 200, 255) or Color3.fromRGB(120, 140, 175)
+    end
+
+    local accordion = row:FindFirstChild("AccordionPanel")
+    if accordion then
+        local subInfo1 = accordion:FindFirstChild("SubInfo1")
+        local subInfo2 = accordion:FindFirstChild("SubInfo2")
+        if subInfo1 then
+            subInfo1.Text = string.format("📁 Origin: %s | ⚡ Signal: %s | 🛡️ Protected: xpcall", tostring(loopObj.caller or loopObj.name or "Anonymous"), tostring(loopObj.signal or "Heartbeat"))
+        end
+        if subInfo2 then
+            subInfo2.Text = string.format("📊 Iters: %d | ⏱️ Avg: %.2fms", loopObj.iterations or 0, loopObj.avgTimeMs or 0)
+        end
+    end
+
+    row.Visible = if isVisible ~= nil then isVisible else true
     return row
 end
 
 -- Row 5: Game Task Row
-local cachedGameRows = {}
-
-local function renderGameTaskRow(entry, idx)
+local function renderGameTaskRow(entry, idx, customLayoutOrder, isVisible)
     local row = cachedGameRows[entry.id]
     if not row then
         row = Instance.new("Frame")
@@ -8383,7 +8844,7 @@ local function renderGameTaskRow(entry, idx)
         row.Size = UDim2.new(1, 0, 0, 32)
         row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
         row.BorderSizePixel = 0
-        row.LayoutOrder = idx
+        row.LayoutOrder = customLayoutOrder or idx
         row.Parent = ScrollListGame
 
         local rCorner = Instance.new("UICorner")
@@ -8477,8 +8938,9 @@ local function renderGameTaskRow(entry, idx)
         cachedGameRows[entry.id] = row
     end
 
-    row.LayoutOrder = idx
+    row.LayoutOrder = customLayoutOrder or idx
     row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
+    row:SetAttribute("IsIngested", entry.isIngested == true)
 
     local dot = row:FindFirstChild("Dot")
     local nameLbl = row:FindFirstChild("NameLbl")
@@ -8524,7 +8986,7 @@ local function renderGameTaskRow(entry, idx)
         end
     end
 
-    row.Visible = true
+    row.Visible = if isVisible ~= nil then isVisible else true
     return row
 end
 
@@ -8613,21 +9075,97 @@ task.spawn(function()
                         local seenIds = {}
                         local visibleCount = 0
                         local gameTasks = DiscoveredGameTaskOrder or {}
+                        local ingestedTasks = {}
+                        local nativeTasks = {}
+
                         for idx, entry in ipairs(gameTasks) do
-                            seenIds[entry.id] = true
                             local textMatches = (filterText == "")
                                 or (entry.name and entry.name:lower():find(filterText, 1, true))
                                 or (entry.id and entry.id:lower():find(filterText, 1, true))
                                 or (entry.event and entry.event:lower():find(filterText, 1, true))
 
                             if textMatches then
-                                visibleCount = visibleCount + 1
-                                renderGameTaskRow(entry, visibleCount)
+                                if entry.isIngested then
+                                    table.insert(ingestedTasks, entry)
+                                else
+                                    table.insert(nativeTasks, entry)
+                                end
                             else
                                 local r = cachedGameRows[entry.id]
                                 if r then r.Visible = false end
                             end
                         end
+
+                        -- Section 1: Ingested & Throttled Tasks
+                        local ingSecKey = "GameTasks_Ingested"
+                        if #ingestedTasks > 0 then
+                            local ingTitle = string.format("Ingested Tasks (%d)", #ingestedTasks)
+                            local header, isCollapsed = getOrCreateSectionHeader(
+                                ScrollListGame,
+                                ingSecKey,
+                                ingTitle,
+                                1000,
+                                Color3.fromRGB(80, 200, 255),
+                                function(collapsed)
+                                    for _, r in pairs(cachedGameRows) do
+                                        if r:GetAttribute("IsIngested") == true then
+                                            r.Visible = not collapsed
+                                        end
+                                    end
+                                end
+                            )
+                            header.Visible = true
+                            header.LayoutOrder = 1000
+                            local titleLbl = header:FindFirstChild("TitleLbl")
+                            if titleLbl then titleLbl.Text = ingTitle end
+                            local statsLbl = header:FindFirstChild("StatsLbl")
+                            if statsLbl then statsLbl.Text = "Throttled" end
+
+                            for idx, entry in ipairs(ingestedTasks) do
+                                seenIds[entry.id] = true
+                                visibleCount = visibleCount + 1
+                                renderGameTaskRow(entry, visibleCount, 1000 + idx, not isCollapsed)
+                            end
+                        else
+                            local h = cachedSectionHeaders[ingSecKey]
+                            if h then h.Visible = false end
+                        end
+
+                        -- Section 2: Raw Native Engine Tasks
+                        local natSecKey = "GameTasks_Native"
+                        if #nativeTasks > 0 then
+                            local natTitle = string.format("Native Engine Tasks (%d)", #nativeTasks)
+                            local header, isCollapsed = getOrCreateSectionHeader(
+                                ScrollListGame,
+                                natSecKey,
+                                natTitle,
+                                2000,
+                                Color3.fromRGB(100, 230, 160),
+                                function(collapsed)
+                                    for _, r in pairs(cachedGameRows) do
+                                        if r:GetAttribute("IsIngested") ~= true then
+                                            r.Visible = not collapsed
+                                        end
+                                    end
+                                end
+                            )
+                            header.Visible = true
+                            header.LayoutOrder = 2000
+                            local titleLbl = header:FindFirstChild("TitleLbl")
+                            if titleLbl then titleLbl.Text = natTitle end
+                            local statsLbl = header:FindFirstChild("StatsLbl")
+                            if statsLbl then statsLbl.Text = "Direct RunService" end
+
+                            for idx, entry in ipairs(nativeTasks) do
+                                seenIds[entry.id] = true
+                                visibleCount = visibleCount + 1
+                                renderGameTaskRow(entry, visibleCount, 2000 + idx, not isCollapsed)
+                            end
+                        else
+                            local h = cachedSectionHeaders[natSecKey]
+                            if h then h.Visible = false end
+                        end
+
                         for id, r in pairs(cachedGameRows) do
                             if not seenIds[id] then
                                 r:Destroy()
@@ -8647,8 +9185,10 @@ task.spawn(function()
                             local seenIds = {}
                             local visibleCount = 0
                             local tasks = profile.tasks or {}
+                            local execTasks = {}
+                            local gameTasks = {}
+
                             for idx, taskObj in ipairs(tasks) do
-                                seenIds[taskObj.id] = true
                                 local textMatches = (filterText == "")
                                     or (taskObj.name and taskObj.name:lower():find(filterText, 1, true))
                                     or (taskObj.id and taskObj.id:lower():find(filterText, 1, true))
@@ -8660,13 +9200,95 @@ task.spawn(function()
                                     or (currentSourceFilter == "game" and not isExec)
 
                                 if textMatches and sourceMatches then
-                                    visibleCount = visibleCount + 1
-                                    renderTaskRow(taskObj, visibleCount)
+                                    if isExec then
+                                        table.insert(execTasks, taskObj)
+                                    else
+                                        table.insert(gameTasks, taskObj)
+                                    end
                                 else
                                     local r = cachedTaskRows[taskObj.id]
                                     if r then r.Visible = false end
                                 end
                             end
+
+                            -- Section 1: Apps & Scheduler Tasks
+                            local execSecKey = "Tasks_Executor"
+                            if #execTasks > 0 then
+                                local execCpu = 0
+                                for _, t in ipairs(execTasks) do
+                                    execCpu = execCpu + (t.lastTimeMs or 0)
+                                end
+                                local execTitle = string.format("Apps & Scheduler Tasks (%d)", #execTasks)
+                                local header, isCollapsed = getOrCreateSectionHeader(
+                                    ScrollListTasks,
+                                    execSecKey,
+                                    execTitle,
+                                    1000,
+                                    Color3.fromRGB(80, 200, 255),
+                                    function(collapsed)
+                                        for _, r in pairs(cachedTaskRows) do
+                                            if r:GetAttribute("IsScheduler") == true then
+                                                r.Visible = not collapsed
+                                            end
+                                        end
+                                    end
+                                )
+                                header.Visible = true
+                                header.LayoutOrder = 1000
+                                local titleLbl = header:FindFirstChild("TitleLbl")
+                                if titleLbl then titleLbl.Text = execTitle end
+                                local statsLbl = header:FindFirstChild("StatsLbl")
+                                if statsLbl then statsLbl.Text = string.format("%.2f ms", execCpu) end
+
+                                for tIdx, taskObj in ipairs(execTasks) do
+                                    seenIds[taskObj.id] = true
+                                    visibleCount = visibleCount + 1
+                                    renderTaskRow(taskObj, visibleCount, 1000 + tIdx, not isCollapsed)
+                                end
+                            else
+                                local h = cachedSectionHeaders[execSecKey]
+                                if h then h.Visible = false end
+                            end
+
+                            -- Section 2: Background & Game Tasks
+                            local gameSecKey = "Tasks_Game"
+                            if #gameTasks > 0 then
+                                local gameCpu = 0
+                                for _, t in ipairs(gameTasks) do
+                                    gameCpu = gameCpu + (t.lastTimeMs or 0)
+                                end
+                                local gameTitle = string.format("Background & Game Tasks (%d)", #gameTasks)
+                                local header, isCollapsed = getOrCreateSectionHeader(
+                                    ScrollListTasks,
+                                    gameSecKey,
+                                    gameTitle,
+                                    2000,
+                                    Color3.fromRGB(160, 120, 240),
+                                    function(collapsed)
+                                        for _, r in pairs(cachedTaskRows) do
+                                            if r:GetAttribute("IsScheduler") ~= true then
+                                                r.Visible = not collapsed
+                                            end
+                                        end
+                                    end
+                                )
+                                header.Visible = true
+                                header.LayoutOrder = 2000
+                                local titleLbl = header:FindFirstChild("TitleLbl")
+                                if titleLbl then titleLbl.Text = gameTitle end
+                                local statsLbl = header:FindFirstChild("StatsLbl")
+                                if statsLbl then statsLbl.Text = string.format("%.2f ms", gameCpu) end
+
+                                for tIdx, taskObj in ipairs(gameTasks) do
+                                    seenIds[taskObj.id] = true
+                                    visibleCount = visibleCount + 1
+                                    renderTaskRow(taskObj, visibleCount, 2000 + tIdx, not isCollapsed)
+                                end
+                            else
+                                local h = cachedSectionHeaders[gameSecKey]
+                                if h then h.Visible = false end
+                            end
+
                             for id, r in pairs(cachedTaskRows) do
                                 if not seenIds[id] then
                                     r:Destroy()
@@ -8698,8 +9320,10 @@ task.spawn(function()
                         local seenIds = {}
                         local visibleCount = 0
                         local loops = (profile.loops) or (getgenv().GetLoopProfile and getgenv().GetLoopProfile().loops) or {}
+                        local execLoops = {}
+                        local gameLoops = {}
+
                         for idx, loopObj in ipairs(loops) do
-                            seenIds[loopObj.id] = true
                             local textMatches = (filterText == "")
                                 or (loopObj.name and loopObj.name:lower():find(filterText, 1, true))
                                 or (loopObj.id and loopObj.id:lower():find(filterText, 1, true))
@@ -8711,13 +9335,95 @@ task.spawn(function()
                                 or (currentSourceFilter == "game" and not isExec)
 
                             if textMatches and sourceMatches then
-                                visibleCount = visibleCount + 1
-                                renderLoopRow(loopObj, visibleCount)
+                                if isExec then
+                                    table.insert(execLoops, loopObj)
+                                else
+                                    table.insert(gameLoops, loopObj)
+                                end
                             else
                                 local r = cachedLoopRows[loopObj.id]
                                 if r then r.Visible = false end
                             end
                         end
+
+                        -- Section 1: Apps & Executor Loops
+                        local execSecKey = "Loops_Executor"
+                        if #execLoops > 0 then
+                            local execCpu = 0
+                            for _, l in ipairs(execLoops) do
+                                execCpu = execCpu + (l.avgTimeMs or 0)
+                            end
+                            local execTitle = string.format("Apps & Executor Loops (%d)", #execLoops)
+                            local header, isCollapsed = getOrCreateSectionHeader(
+                                ScrollListLoops,
+                                execSecKey,
+                                execTitle,
+                                1000,
+                                Color3.fromRGB(80, 200, 255),
+                                function(collapsed)
+                                    for _, r in pairs(cachedLoopRows) do
+                                        if r:GetAttribute("IsExecutor") == true then
+                                            r.Visible = not collapsed
+                                        end
+                                    end
+                                end
+                            )
+                            header.Visible = true
+                            header.LayoutOrder = 1000
+                            local titleLbl = header:FindFirstChild("TitleLbl")
+                            if titleLbl then titleLbl.Text = execTitle end
+                            local statsLbl = header:FindFirstChild("StatsLbl")
+                            if statsLbl then statsLbl.Text = string.format("%.2f ms", execCpu) end
+
+                            for lIdx, loopObj in ipairs(execLoops) do
+                                seenIds[loopObj.id] = true
+                                visibleCount = visibleCount + 1
+                                renderLoopRow(loopObj, visibleCount, 1000 + lIdx, not isCollapsed)
+                            end
+                        else
+                            local h = cachedSectionHeaders[execSecKey]
+                            if h then h.Visible = false end
+                        end
+
+                        -- Section 2: Background & Game Loops
+                        local gameSecKey = "Loops_Game"
+                        if #gameLoops > 0 then
+                            local gameCpu = 0
+                            for _, l in ipairs(gameLoops) do
+                                gameCpu = gameCpu + (l.avgTimeMs or 0)
+                            end
+                            local gameTitle = string.format("Background & Game Loops (%d)", #gameLoops)
+                            local header, isCollapsed = getOrCreateSectionHeader(
+                                ScrollListLoops,
+                                gameSecKey,
+                                gameTitle,
+                                2000,
+                                Color3.fromRGB(160, 120, 240),
+                                function(collapsed)
+                                    for _, r in pairs(cachedLoopRows) do
+                                        if r:GetAttribute("IsExecutor") ~= true then
+                                            r.Visible = not collapsed
+                                        end
+                                    end
+                                end
+                            )
+                            header.Visible = true
+                            header.LayoutOrder = 2000
+                            local titleLbl = header:FindFirstChild("TitleLbl")
+                            if titleLbl then titleLbl.Text = gameTitle end
+                            local statsLbl = header:FindFirstChild("StatsLbl")
+                            if statsLbl then statsLbl.Text = string.format("%.2f ms", gameCpu) end
+
+                            for lIdx, loopObj in ipairs(gameLoops) do
+                                seenIds[loopObj.id] = true
+                                visibleCount = visibleCount + 1
+                                renderLoopRow(loopObj, visibleCount, 2000 + lIdx, not isCollapsed)
+                            end
+                        else
+                            local h = cachedSectionHeaders[gameSecKey]
+                            if h then h.Visible = false end
+                        end
+
                         for id, r in pairs(cachedLoopRows) do
                             if not seenIds[id] then
                                 r:Destroy()
@@ -8936,6 +9642,8 @@ cleanUpHUD = function()
     cachedLoopRows = {}
     for _, r in pairs(cachedStartupRows) do pcall(function() r:Destroy() end) end
     cachedStartupRows = {}
+    for _, h in pairs(cachedSectionHeaders) do pcall(function() h:Destroy() end) end
+    cachedSectionHeaders = {}
     if ScreenGui then
         ScreenGui:Destroy()
     end
