@@ -3833,7 +3833,7 @@ local ColumnConfig = {
             { id = "Name",     name = "SCRIPT IDENTIFIER & RELATIVE PATH", align = Enum.TextXAlignment.Center, width = 0.45, minWidth = 0.22, maxWidth = 0.70, defaultWidth = 0.45 },
             { id = "Stage",    name = "BOOT STAGE",                        align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.11, maxWidth = 0.28, defaultWidth = 0.17 },
             { id = "Time",     name = "EXEC TIME",                         align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.085, maxWidth = 0.22, defaultWidth = 0.13 },
-            { id = "Toggle",   name = "STATE / TOGGLE",                    align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.11, maxWidth = 0.28, defaultWidth = 0.17 },
+            { id = "Toggle",   name = "STATE / TOGGLE",                    align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.12, maxWidth = 0.28, defaultWidth = 0.17 },
         }
     },
     Game = {
@@ -4293,7 +4293,7 @@ applyRowColumnLayout = function(row, tabKey)
         end
         local stageBadge = row:FindFirstChild("StageBadge")
         if stageBadge then
-            stageBadge.Position = UDim2.new(pStage + wStage / 2 - 40, 0, 0, 7)
+            stageBadge.Position = UDim2.new(pStage + wStage / 2, -40, 0, 7)
             stageBadge.Size = UDim2.new(0, 80, 0, 18)
         end
         local timeLbl = row:FindFirstChild("TimeLbl")
@@ -4304,6 +4304,7 @@ applyRowColumnLayout = function(row, tabKey)
         end
         local toggleBtn = row:FindFirstChild("ToggleBtn")
         if toggleBtn then
+            toggleBtn.Size = UDim2.new(0, 64, 0, 20)
             toggleBtn.Position = UDim2.new(pToggle + wToggle / 2, -36, 0, 6)
         end
 
@@ -5790,7 +5791,7 @@ local BtnResetGraphs = createFooterBtn("BtnResetGraphs", "🔄 Reset History", -
 -- Startup Footer Controls
 local openNewScriptModal = nil
 local showDisabled = false
-local BtnRescanStartup = createFooterBtn("BtnRescanStartup", "🔄 Rescan Autoexec", -155, 150, Color3.fromRGB(28, 45, 70), Color3.fromRGB(100, 180, 255))
+local BtnRescanStartup = createFooterBtn("BtnRescanStartup", "🔄 Rescan Autoexec", -160, 150, Color3.fromRGB(28, 45, 70), Color3.fromRGB(100, 180, 255))
 
 local BtnShowDisabled = Instance.new("TextButton")
 BtnShowDisabled.Name = "BtnShowDisabled"
@@ -6562,6 +6563,14 @@ local STAGE_COLORS = {
     GameLoaded = Color3.fromRGB(50, 130, 240),
     CharacterReady = Color3.fromRGB(40, 190, 210),
     Deferred = Color3.fromRGB(230, 160, 40),
+
+    kernel = Color3.fromRGB(160, 70, 220),
+    preinit = Color3.fromRGB(240, 100, 60),
+    nodelay = Color3.fromRGB(240, 100, 60),
+    gameloaded = Color3.fromRGB(50, 130, 240),
+    characterready = Color3.fromRGB(40, 190, 210),
+    characterloaded = Color3.fromRGB(40, 190, 210),
+    deferred = Color3.fromRGB(230, 160, 40),
 }
 
 local startupBadgeHovered = {}
@@ -8965,7 +8974,7 @@ local function renderStartupRow(scriptObj, idx)
 
         local stageBadge = Instance.new("TextButton")
         stageBadge.Name = "StageBadge"
-        stageBadge.Size = UDim2.new(0.14, 0, 0, 18)
+        stageBadge.Size = UDim2.new(0, 80, 0, 18)
         stageBadge.Position = UDim2.new(0.53, 0, 0, 7)
         stageBadge.BackgroundColor3 = Color3.fromRGB(25, 35, 55)
         stageBadge.BorderSizePixel = 0
@@ -9107,7 +9116,7 @@ local function renderStartupRow(scriptObj, idx)
 
         local toggleBtn = Instance.new("TextButton")
         toggleBtn.Name = "ToggleBtn"
-        toggleBtn.Size = UDim2.new(0.12, 0, 0, 20)
+        toggleBtn.Size = UDim2.new(0, 64, 0, 20)
         toggleBtn.Position = UDim2.new(0.86, 0, 0, 6)
         toggleBtn.BackgroundColor3 = Color3.fromRGB(25, 50, 35)
         toggleBtn.BorderSizePixel = 0
