@@ -36,6 +36,27 @@ if type(isfolder) ~= "function" or type(listfiles) ~= "function" then
     return
 end
 
+-- Safe loadstring shim: handles Instance arguments (e.g. TopbarPlus / legacy tools) gracefully
+if not getgenv()._KernelLoadstringShimInstalled then
+    local origLoadstring = getgenv().loadstring or loadstring
+    if type(origLoadstring) == "function" then
+        getgenv().loadstring = function(src, chunkname)
+            if typeof(src) == "Instance" then
+                if src:IsA("LuaSourceContainer") then
+                    local ok, code = pcall(function() return (decompile and decompile(src)) or src.Source end)
+                    if ok and type(code) == "string" and code ~= "" then
+                        return origLoadstring(code, chunkname or ("@" .. src:GetFullName()))
+                    end
+                end
+                -- Gracefully return a safe no-op callable so callers like TopbarPlus don't throw runtime errors
+                return function() end
+            end
+            return origLoadstring(src, chunkname)
+        end
+        getgenv()._KernelLoadstringShimInstalled = true
+    end
+end
+
 -- String Prefix Helper
 local function startsWith(str, prefix)
     if not str or not prefix then return false end
@@ -2384,27 +2405,30 @@ task.spawn(function()
     print(string.format("[Bootloader]: Boot completed in %.1fms | Discovered: %d | Executed: %d | Success: %d | Errors: %d",
         totalBootMs, Telemetry.discovered, Telemetry.executed, Telemetry.success, Telemetry.errors))
 
-    -- Keep Omni alive across teleports if not installed in autoexec
-    local queueOnTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or queueonteleport or (fluxus and fluxus.queue_on_teleport)
-    if type(queueOnTeleport) == "function" then
-        pcall(function()
-            queueOnTeleport([[
-                task.spawn(function()
-                    local waited = 0
-                    while waited < 5.0 and not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning do
-                        task.wait(0.2)
-                        waited = waited + 0.2
-                    end
-                    if not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning then
-                        local hasLocal = (type(isfile) == "function") and (isfile("autoexec/Bootloader.lua") or isfile("workspace/autoexec/Bootloader.lua") or isfile("autoexec/CustomAutoExec.lua") or isfile("Omni_Installed.marker"))
-                        if not hasLocal then
-                            pcall(function()
-                                loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/Bootloader.lua"))()
-                            end)
+    -- Keep Omni alive across teleports only if not already installed in autoexec
+    local hasLocal = (type(isfile) == "function") and (isfile("autoexec/Bootloader.lua") or isfile("workspace/autoexec/Bootloader.lua") or isfile("autoexec/CustomAutoExec.lua") or isfile("Omni_Installed.marker"))
+    if not hasLocal then
+        local queueOnTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or queueonteleport or (fluxus and fluxus.queue_on_teleport)
+        if type(queueOnTeleport) == "function" then
+            pcall(function()
+                queueOnTeleport([[
+                    task.spawn(function()
+                        local waited = 0
+                        while waited < 5.0 and not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning do
+                            task.wait(0.2)
+                            waited = waited + 0.2
                         end
-                    end
-                end)
-            ]])
-        end)
+                        if not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning then
+                            local isLocal = (type(isfile) == "function") and (isfile("autoexec/Bootloader.lua") or isfile("workspace/autoexec/Bootloader.lua") or isfile("autoexec/CustomAutoExec.lua") or isfile("Omni_Installed.marker"))
+                            if not isLocal then
+                                pcall(function()
+                                    loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/Bootloader.lua"))()
+                                end)
+                            end
+                        end
+                    end)
+                ]])
+            end)
+        end
     end
 end)

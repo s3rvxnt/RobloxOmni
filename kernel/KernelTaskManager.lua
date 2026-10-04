@@ -3209,6 +3209,10 @@ local emitProfileScheduled = false
 local cachedProfile = nil
 
 emitProfile = function(force)
+    if profilingActive == false then
+        emitProfileScheduled = false
+        return cachedProfile or (buildProfile and buildProfile())
+    end
     local now = os.clock()
     if force or (now - lastProfileEmitTime >= 0.5) then
         lastProfileEmitTime = now
@@ -3223,12 +3227,12 @@ emitProfile = function(force)
     elseif not emitProfileScheduled then
         emitProfileScheduled = true
         task.delay(0.5, function()
-            if emitProfileScheduled then
+            if emitProfileScheduled and profilingActive ~= false then
                 emitProfile(true)
             end
         end)
     end
-    return cachedProfile or buildProfile()
+    return cachedProfile or (buildProfile and buildProfile())
 end
 
 SchedulerPersistence.save = function(immediate)
@@ -3319,7 +3323,7 @@ SchedulerPersistence.save = function(immediate)
 end
 
 -- Unload all tasks across all events (Panic switch / clean teardown)
-local function UnloadAllTasks()
+local function UnloadAllTasks(isTeardown)
     local unloadedCount = 0
     local unloadedNames = {}
 
@@ -3352,28 +3356,33 @@ local function UnloadAllTasks()
     boundRenderSteps = {}
 
     if ingestedConnections then
-        for c, entry in pairs(ingestedConnections) do
-            pcall(function()
-                if c.Connected ~= false then
-                    if c.Enable then
-                        c:Enable()
-                    elseif c.Enabled ~= nil then
-                        c.Enabled = true
+        -- During game teardown, do NOT re-enable engine connections as the DataModel is dying
+        if not isTeardown then
+            for c, entry in pairs(ingestedConnections) do
+                pcall(function()
+                    if c.Connected ~= false then
+                        if c.Enable then
+                            c:Enable()
+                        elseif c.Enabled ~= nil then
+                            c.Enabled = true
+                        end
                     end
+                end)
+                if entry and type(entry) == "table" then
+                    entry.isIngested = false
+                    entry.taskId = nil
+                    entry.schedulerConn = nil
                 end
-            end)
-            if entry and type(entry) == "table" then
-                entry.isIngested = false
-                entry.taskId = nil
-                entry.schedulerConn = nil
             end
         end
         getgenv()._VirtualSchedulerIngestedConnections = setmetatable({}, { __mode = "k" })
         ingestedConnections = getgenv()._VirtualSchedulerIngestedConnections
     end
 
-    print(string.format("[VirtualScheduler]: Unloaded %d active tasks.", unloadedCount))
-    emitProfile()
+    if not isTeardown then
+        print(string.format("[VirtualScheduler]: Unloaded %d active tasks.", unloadedCount))
+        emitProfile()
+    end
 
     return {
         success = true,
@@ -3606,37 +3615,24 @@ local function GetGlobalPriorityOverride()
     return "Off"
 end
 
--- Teleport and shutdown teardown hooks (asynchronous, non-blocking)
-local function setupAutoTeardown()
-    pcall(function()
-        if game.BindToClose then
-            game:BindToClose(function()
-                UnloadAllTasks()
-            end)
-        elseif game.Close then
-            local conn = game.Close:Connect(function()
-                UnloadAllTasks()
-            end)
-            table.insert(teardownConnections, conn)
-        end
-    end)
-end
-setupAutoTeardown()
-
 -- Background 2-second profiling loop
 local profilingActive = true
 task.spawn(function()
     while profilingActive do
         task.wait(2.0)
-        pcall(ScanGameTasks)
-        pcall(emitProfile)
+        if profilingActive then
+            pcall(ScanGameTasks)
+            pcall(emitProfile)
+        end
     end
 end)
 
--- Clean up hook for reload idempotence
-local function cleanUpScheduler()
+-- Clean up hook for reload idempotence and teardown
+local function cleanUpScheduler(isTeardown)
     profilingActive = false
-    UnloadAllTasks()
+    emitProfileScheduled = false
+
+    UnloadAllTasks(isTeardown)
     for _, eventState in pairs(Events) do
         if eventState.connection then
             pcall(function() eventState.connection:Disconnect() end)
@@ -3647,6 +3643,26 @@ local function cleanUpScheduler()
         pcall(function() conn:Disconnect() end)
     end
     teardownConnections = {}
+
+    -- Release discovered game tasks to prevent memory retention across DataModels
+    DiscoveredGameTaskGroups = {}
+    DiscoveredGameTaskOrder = {}
+
+    -- Disarm all registered loops and clear thread registry
+    for thread, loop in pairs(loopRegistry) do
+        loop.alive = false
+        loop.paused = false
+    end
+    loopRegistry = setmetatable({}, { __mode = "k" })
+    loopOrder = {}
+    ignoredThreads = setmetatable({}, { __mode = "k" })
+
+    -- Clear ingested connection table and global pointer
+    if ingestedConnections then
+        getgenv()._VirtualSchedulerIngestedConnections = setmetatable({}, { __mode = "k" })
+        ingestedConnections = getgenv()._VirtualSchedulerIngestedConnections
+    end
+    getgenv()._VirtualSchedulerPersistedIngestedKeys = nil
 
     -- Restore original metamethods if they were hooked
     if hookmetamethod and getgenv()._VirtualSchedulerOrigIndex then
@@ -3698,6 +3714,13 @@ local function cleanUpScheduler()
         getgenv()._KernelOrigWait = nil
     end
     getgenv()._VirtualSchedulerHooksActive = false
+
+    -- Clear global environment proxies pointing to this DataModel
+    if getgenv().RunService == ProxiedRunService then
+        getgenv().RunService = rawRunService
+    end
+    getgenv()._VirtualSchedulerCleanUp = nil
+    getgenv()._VirtualSchedulerLoaded = nil
 end
 
 -- Export proxied RunService to getgenv() for direct executor script access
@@ -10604,7 +10627,7 @@ ScreenGui.Parent = guiParent
 cleanUpHUD = function()
     running = false
     if keybindConnection then
-        keybindConnection:Disconnect()
+        pcall(function() keybindConnection:Disconnect() end)
         keybindConnection = nil
     end
     for _, conn in ipairs(hudWindowConnections) do
@@ -10622,14 +10645,17 @@ cleanUpHUD = function()
     TableHeaders = {}
     activeDividerDrag = nil
     if ScreenGui then
-        ScreenGui:Destroy()
+        pcall(function() ScreenGui:Destroy() end)
+        ScreenGui = nil
     end
--- Update Gate lifecycle managed by Bootloader
+    -- Clear HUD exports & global state
     getgenv()._KernelTaskManagerGui = nil
     getgenv()._KernelTaskManagerCleanUp = nil
     getgenv().ToggleTaskManagerHUD = nil
     getgenv()._OmniTaskManager_HandleDividerDrag = nil
     getgenv()._OmniTaskManager_AutoFitColumn = nil
+    getgenv()._OmniTaskManager_SortTable = nil
+    getgenv()._OmniTaskManager_GetSortState = nil
 end
 
 getgenv()._KernelTaskManagerGui = ScreenGui
@@ -10640,12 +10666,12 @@ initHUD()
 -- UNIFIED EXPORTS & TEARDOWN
 -- ==============================================================================
 
-local function unifiedCleanUp()
+local function unifiedCleanUp(isTeardown)
     if type(cleanUpHUD) == "function" then
         pcall(cleanUpHUD)
     end
     if type(cleanUpScheduler) == "function" then
-        pcall(cleanUpScheduler)
+        pcall(cleanUpScheduler, isTeardown)
     end
     getgenv()._KernelTaskManagerUnifiedCleanUp = nil
     getgenv()._KernelTaskManagerCleanUp = nil
@@ -10656,7 +10682,44 @@ local function unifiedCleanUp()
     getgenv()._VirtualSchedulerLoaded = nil
     getgenv()._OmniTaskManager_HandleDividerDrag = nil
     getgenv()._OmniTaskManager_AutoFitColumn = nil
+    getgenv()._OmniTaskManager_SortTable = nil
+    getgenv()._OmniTaskManager_GetSortState = nil
 end
+
+-- Non-blocking Client Teardown & Teleport Watchers (Zero-Yield, Zero-Deadlock)
+local function setupAutoTeardown()
+    pcall(function()
+        if game.Close then
+            local conn = game.Close:Connect(function()
+                unifiedCleanUp(true)
+            end)
+            table.insert(teardownConnections, conn)
+        end
+    end)
+
+    local function hookTeleport()
+        local lp = Players.LocalPlayer
+        if lp and lp.OnTeleport then
+            local conn = lp.OnTeleport:Connect(function(state)
+                if state == Enum.TeleportState.Started or state == Enum.TeleportState.InProgress then
+                    unifiedCleanUp(true)
+                end
+            end)
+            table.insert(teardownConnections, conn)
+        elseif not lp then
+            local conn
+            conn = Players:GetPropertyChangedSignal("LocalPlayer"):Connect(function()
+                if Players.LocalPlayer then
+                    conn:Disconnect()
+                    hookTeleport()
+                end
+            end)
+            table.insert(teardownConnections, conn)
+        end
+    end
+    pcall(hookTeleport)
+end
+setupAutoTeardown()
 
 getgenv()._KernelTaskManagerCleanUp = cleanUpHUD
 getgenv()._VirtualSchedulerCleanUp = cleanUpScheduler
