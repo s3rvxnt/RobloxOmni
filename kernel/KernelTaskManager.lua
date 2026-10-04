@@ -3898,8 +3898,10 @@ end
 local STARTUP_STAGE_RANKS = {
     ["kernel"] = 1,
     ["preinit"] = 2,
+    ["nodelay"] = 2,
     ["gameloaded"] = 3,
     ["characterready"] = 4,
+    ["characterloaded"] = 4,
     ["deferred"] = 5,
 }
 
@@ -4016,6 +4018,11 @@ end
 local function sortStartupList(scripts, colId, ascending)
     table.sort(scripts, function(a, b)
         if colId == "Priority" then
+            local sA = STARTUP_STAGE_RANKS[tostring(a.stage or ""):lower()] or 10
+            local sB = STARTUP_STAGE_RANKS[tostring(b.stage or ""):lower()] or 10
+            if sA ~= sB then
+                if ascending then return sA > sB else return sA < sB end
+            end
             local priA = tonumber(a.priority) or 0
             local priB = tonumber(b.priority) or 0
             if priA ~= priB then
@@ -8716,8 +8723,8 @@ table.insert(hudWindowConnections, UserInputService.InputEnded:Connect(function(
             table.insert(otherList, draggedScript)
         end
 
-        -- Recalculate descending priorities for PreInit
-        local basePre = math.max(80, #preinitList * 10)
+        -- Recalculate descending priorities for PreInit (200-300 range)
+        local basePre = math.max(250, 200 + #preinitList * 10)
         for i, s in ipairs(preinitList) do
             local assignedPri = basePre - (i - 1) * 10
             s.priority = assignedPri
@@ -8725,8 +8732,8 @@ table.insert(hudWindowConnections, UserInputService.InputEnded:Connect(function(
             updateScriptPragmas(s.file, "PreInit", assignedPri)
         end
 
-        -- Recalculate descending priorities for GameLoaded
-        local baseGame = math.max(10, #gameloadedList * 10)
+        -- Recalculate descending priorities for GameLoaded (10-150 range)
+        local baseGame = math.max(100, #gameloadedList * 10)
         for i, s in ipairs(gameloadedList) do
             local assignedPri = baseGame - (i - 1) * 10
             s.priority = assignedPri
@@ -9074,8 +9081,8 @@ local function renderStartupRow(scriptObj, idx)
                 end
             end
 
-            -- Recalculate descending priorities for PreInit
-            local basePre = math.max(80, #preinitList * 10)
+            -- Recalculate descending priorities for PreInit (200-300 range)
+            local basePre = math.max(250, 200 + #preinitList * 10)
             for i, s in ipairs(preinitList) do
                 local assignedPri = basePre - (i - 1) * 10
                 s.priority = assignedPri
@@ -9083,8 +9090,8 @@ local function renderStartupRow(scriptObj, idx)
                 updateScriptPragmas(s.file, "PreInit", assignedPri)
             end
 
-            -- Recalculate descending priorities for GameLoaded
-            local baseGame = math.max(10, #gameloadedList * 10)
+            -- Recalculate descending priorities for GameLoaded (10-150 range)
+            local baseGame = math.max(100, #gameloadedList * 10)
             for i, s in ipairs(gameloadedList) do
                 local assignedPri = baseGame - (i - 1) * 10
                 s.priority = assignedPri
