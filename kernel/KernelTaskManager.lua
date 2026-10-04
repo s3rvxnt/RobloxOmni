@@ -3901,6 +3901,8 @@ local updateTableColumnLayout
 local applyRowColumnLayout
 local handleDividerDrag
 local autoFitColumn
+local showTableNotice
+local openPriorityEditModal
 
 -- ==============================================================================
 -- INTERACTIVE COLUMN SORTING ENGINE & STATE
@@ -4170,6 +4172,30 @@ local function toggleTableSort(tabKey, colId)
 
     updateHeaderSortIndicators(tabKey)
 
+    local isPriSort = (state.colId == "Priority")
+    if tabKey == "Tasks" then
+        for _, r in pairs(cachedTaskRows) do
+            local grip = r:FindFirstChild("GripLbl")
+            if grip then
+                grip.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
+            end
+        end
+    elseif tabKey == "Loops" then
+        for _, r in pairs(cachedLoopRows) do
+            local grip = r:FindFirstChild("GripLbl")
+            if grip then
+                grip.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
+            end
+        end
+    elseif tabKey == "Startup" then
+        for _, r in pairs(cachedStartupRows) do
+            local grip = r:FindFirstChild("GripLbl")
+            if grip then
+                grip.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
+            end
+        end
+    end
+
     if tabKey == "Startup" and refreshStartupTab then
         refreshStartupTab(true)
     end
@@ -4272,15 +4298,23 @@ applyRowColumnLayout = function(row, tabKey)
         local pTime, wTime = positions[4], widths[4]
         local pToggle, wToggle = positions[5], widths[5]
 
+        local isPriSort = TableSortState.Startup and TableSortState.Startup.colId == "Priority"
+        local gripLbl = row:FindFirstChild("GripLbl")
+        if gripLbl then
+            gripLbl.Position = UDim2.new(pPri + wPri / 2, -26, 0.5, -8)
+            gripLbl.Size = UDim2.new(0, 12, 0, 16)
+            gripLbl.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
+        end
         local dot = row:FindFirstChild("Dot")
         if dot then
-            dot.Position = UDim2.new(pPri + wPri / 2, -18, 0.5, -4)
+            dot.Position = UDim2.new(pPri + wPri / 2, -10, 0.5, -4)
+            dot.Size = UDim2.new(0, 8, 0, 8)
         end
         local priLbl = row:FindFirstChild("PriLbl")
         if priLbl then
-            priLbl.Position = UDim2.new(pPri + wPri / 2, -4, 0, 0)
-            priLbl.Size = UDim2.new(0, 32, 1, 0)
-            priLbl.TextXAlignment = Enum.TextXAlignment.Left
+            priLbl.Position = UDim2.new(pPri + wPri / 2, 2, 0.5, -9)
+            priLbl.Size = UDim2.new(0, 32, 0, 18)
+            priLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
         local nameLbl = row:FindFirstChild("NameLbl")
         if nameLbl then
@@ -4317,10 +4351,12 @@ applyRowColumnLayout = function(row, tabKey)
         local pCpu, wCpu = positions[6], widths[6]
         local pAct, wAct = positions[7], widths[7]
 
+        local isPriSort = TableSortState.Tasks and TableSortState.Tasks.colId == "Priority"
         local gripLbl = row:FindFirstChild("GripLbl")
         if gripLbl then
             gripLbl.Position = UDim2.new(pPri + wPri / 2, -26, 0.5, -8)
             gripLbl.Size = UDim2.new(0, 12, 0, 16)
+            gripLbl.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
         end
         local dot = row:FindFirstChild("Dot")
         if dot then
@@ -4329,9 +4365,9 @@ applyRowColumnLayout = function(row, tabKey)
         end
         local priLbl = row:FindFirstChild("PriLbl")
         if priLbl then
-            priLbl.Position = UDim2.new(pPri + wPri / 2, 3, 0, 0)
-            priLbl.Size = UDim2.new(0, 26, 1, 0)
-            priLbl.TextXAlignment = Enum.TextXAlignment.Left
+            priLbl.Position = UDim2.new(pPri + wPri / 2, 2, 0.5, -9)
+            priLbl.Size = UDim2.new(0, 28, 0, 18)
+            priLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
         local nameLbl = row:FindFirstChild("NameLbl")
         if nameLbl then
@@ -4373,10 +4409,12 @@ applyRowColumnLayout = function(row, tabKey)
         local pCpu, wCpu = positions[6], widths[6]
         local pAct, wAct = positions[7], widths[7]
 
+        local isPriSort = TableSortState.Loops and TableSortState.Loops.colId == "Priority"
         local gripLbl = row:FindFirstChild("GripLbl")
         if gripLbl then
             gripLbl.Position = UDim2.new(pPri + wPri / 2, -26, 0.5, -8)
             gripLbl.Size = UDim2.new(0, 12, 0, 16)
+            gripLbl.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
         end
         local dot = row:FindFirstChild("Dot")
         if dot then
@@ -4385,9 +4423,9 @@ applyRowColumnLayout = function(row, tabKey)
         end
         local priLbl = row:FindFirstChild("PriLbl")
         if priLbl then
-            priLbl.Position = UDim2.new(pPri + wPri / 2, 3, 0, 0)
-            priLbl.Size = UDim2.new(0, 26, 1, 0)
-            priLbl.TextXAlignment = Enum.TextXAlignment.Left
+            priLbl.Position = UDim2.new(pPri + wPri / 2, 2, 0.5, -9)
+            priLbl.Size = UDim2.new(0, 28, 0, 18)
+            priLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
         local nameLbl = row:FindFirstChild("NameLbl")
         if nameLbl then
@@ -6150,14 +6188,15 @@ local function renderTaskRow(taskObj, idx)
         rCorner.CornerRadius = UDim.new(0, 4)
         rCorner.Parent = row
 
+        local isPriSort = TableSortState.Tasks and TableSortState.Tasks.colId == "Priority"
         local gripLbl = Instance.new("TextLabel")
         gripLbl.Name = "GripLbl"
-        gripLbl.Size = UDim2.new(0, 14, 1, 0)
-        gripLbl.Position = UDim2.new(0, 4, 0, 0)
+        gripLbl.Size = UDim2.new(0, 12, 0, 16)
+        gripLbl.Position = UDim2.new(0, 4, 0.5, -8)
         gripLbl.BackgroundTransparency = 1
         gripLbl.Font = Enum.Font.GothamBold
         gripLbl.TextSize = 12
-        gripLbl.TextColor3 = Color3.fromRGB(90, 115, 145)
+        gripLbl.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
         gripLbl.Text = ICONS.GRIP
         gripLbl.Parent = row
 
@@ -6172,17 +6211,40 @@ local function renderTaskRow(taskObj, idx)
         dotCorner.CornerRadius = UDim.new(1, 0)
         dotCorner.Parent = dot
 
-        local priLbl = Instance.new("TextLabel")
+        local priLbl = Instance.new("TextButton")
         priLbl.Name = "PriLbl"
-        priLbl.Size = UDim2.new(0, 26, 1, 0)
-        priLbl.Position = UDim2.new(0, 32, 0, 0)
-        priLbl.BackgroundTransparency = 1
+        priLbl.Size = UDim2.new(0, 28, 0, 18)
+        priLbl.Position = UDim2.new(0, 32, 0.5, -9)
+        priLbl.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
+        priLbl.BorderSizePixel = 0
+        priLbl.AutoButtonColor = false
         priLbl.Font = Enum.Font.GothamBold
-        priLbl.TextSize = 11
-        priLbl.TextColor3 = Color3.fromRGB(200, 220, 245)
-        priLbl.TextXAlignment = Enum.TextXAlignment.Left
-        priLbl.Text = "50"
+        priLbl.TextSize = 10
+        priLbl.TextColor3 = Color3.fromRGB(210, 230, 255)
+        priLbl.TextXAlignment = Enum.TextXAlignment.Center
+        priLbl.Text = tostring(taskObj.priority or taskObj.basePriority or 50)
         priLbl.Parent = row
+        local priCorner = Instance.new("UICorner")
+        priCorner.CornerRadius = UDim.new(0, 3)
+        priCorner.Parent = priLbl
+        local priStroke = Instance.new("UIStroke")
+        priStroke.Thickness = 1
+        priStroke.Color = Color3.fromRGB(45, 60, 85)
+        priStroke.Parent = priLbl
+
+        priLbl.MouseEnter:Connect(function()
+            priLbl.BackgroundColor3 = Color3.fromRGB(38, 52, 75)
+            priStroke.Color = Color3.fromRGB(80, 130, 200)
+        end)
+        priLbl.MouseLeave:Connect(function()
+            priLbl.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
+            priStroke.Color = Color3.fromRGB(45, 60, 85)
+        end)
+        priLbl.MouseButton1Click:Connect(function()
+            if openPriorityEditModal then
+                openPriorityEditModal("Task", taskObj, taskObj.priority or taskObj.basePriority or 50)
+            end
+        end)
 
         local nameLbl = Instance.new("TextLabel")
         nameLbl.Name = "NameLbl"
@@ -6396,7 +6458,7 @@ local function renderTaskRow(taskObj, idx)
 
         row.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                if isInsideGui(priBtn, input.Position) or isInsideGui(lockBtn, input.Position) or isInsideGui(actions, input.Position) then
+                if isInsideGui(priBtn, input.Position) or isInsideGui(lockBtn, input.Position) or isInsideGui(actions, input.Position) or isInsideGui(priLbl, input.Position) then
                     return
                 end
                 TaskDrag.pending = {
@@ -6417,21 +6479,16 @@ local function renderTaskRow(taskObj, idx)
 
     -- Update row content
     local dot = row:FindFirstChild("Dot")
-    local priLbl = row:FindFirstChild("PriLbl")
-    if not priLbl then
-        priLbl = Instance.new("TextLabel")
-        priLbl.Name = "PriLbl"
-        priLbl.Size = UDim2.new(0, 26, 1, 0)
-        priLbl.Position = UDim2.new(0, 32, 0, 0)
-        priLbl.BackgroundTransparency = 1
-        priLbl.Font = Enum.Font.GothamBold
-        priLbl.TextSize = 11
-        priLbl.TextColor3 = Color3.fromRGB(200, 220, 245)
-        priLbl.TextXAlignment = Enum.TextXAlignment.Left
-        priLbl.Parent = row
+    local gripLbl = row:FindFirstChild("GripLbl")
+    if gripLbl then
+        local isPriSort = TableSortState.Tasks and TableSortState.Tasks.colId == "Priority"
+        gripLbl.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
     end
+    local priLbl = row:FindFirstChild("PriLbl")
     local priVal = taskObj.priority or taskObj.basePriority or 50
-    priLbl.Text = tostring(priVal)
+    if priLbl then
+        priLbl.Text = tostring(priVal)
+    end
     local nameLbl = row:FindFirstChild("NameLbl")
     local eventLbl = row:FindFirstChild("EventLbl")
     local priBtn = row:FindFirstChild("PriBtn")
@@ -7704,6 +7761,547 @@ print("[%s]: Initialized successfully.")
 end
 end
 
+do
+    -- ==============================================================================
+    -- TABLE NOTICE BANNER (Option 2: Non-intrusive floating toast with quick-switch)
+    -- ==============================================================================
+    local NoticeBanner = Instance.new("Frame")
+    NoticeBanner.Name = "TableNoticeBanner"
+    NoticeBanner.Size = UDim2.new(0, 480, 0, 36)
+    NoticeBanner.Position = UDim2.new(0.5, -240, 1, -80)
+    NoticeBanner.BackgroundColor3 = Color3.fromRGB(22, 28, 40)
+    NoticeBanner.BorderSizePixel = 0
+    NoticeBanner.ZIndex = 500
+    NoticeBanner.Visible = false
+    NoticeBanner.Parent = MainFrame
+
+    local nbCorner = Instance.new("UICorner")
+    nbCorner.CornerRadius = UDim.new(0, 6)
+    nbCorner.Parent = NoticeBanner
+
+    local nbStroke = Instance.new("UIStroke")
+    nbStroke.Color = Color3.fromRGB(60, 90, 140)
+    nbStroke.Thickness = 1.5
+    nbStroke.Parent = NoticeBanner
+
+    local nbIcon = Instance.new("TextLabel")
+    nbIcon.Name = "Icon"
+    nbIcon.Size = UDim2.new(0, 24, 1, 0)
+    nbIcon.Position = UDim2.new(0, 8, 0, 0)
+    nbIcon.BackgroundTransparency = 1
+    nbIcon.Font = Enum.Font.GothamBold
+    nbIcon.TextSize = 13
+    nbIcon.TextColor3 = Color3.fromRGB(240, 180, 50)
+    nbIcon.Text = ICONS.LOCK_CLOSED
+    nbIcon.Parent = NoticeBanner
+
+    local nbMsg = Instance.new("TextLabel")
+    nbMsg.Name = "Message"
+    nbMsg.Size = UDim2.new(1, -190, 1, 0)
+    nbMsg.Position = UDim2.new(0, 32, 0, 0)
+    nbMsg.BackgroundTransparency = 1
+    nbMsg.Font = Enum.Font.GothamMedium
+    nbMsg.TextSize = 10
+    nbMsg.TextColor3 = Color3.fromRGB(215, 230, 250)
+    nbMsg.TextXAlignment = Enum.TextXAlignment.Left
+    nbMsg.TextTruncate = Enum.TextTruncate.AtEnd
+    nbMsg.Text = "Manual reordering is locked."
+    nbMsg.Parent = NoticeBanner
+
+    local nbSwitchBtn = Instance.new("TextButton")
+    nbSwitchBtn.Name = "SwitchBtn"
+    nbSwitchBtn.Size = UDim2.new(0, 120, 0, 24)
+    nbSwitchBtn.Position = UDim2.new(1, -150, 0.5, -12)
+    nbSwitchBtn.BackgroundColor3 = Color3.fromRGB(35, 75, 130)
+    nbSwitchBtn.BorderSizePixel = 0
+    nbSwitchBtn.AutoButtonColor = false
+    nbSwitchBtn.Font = Enum.Font.GothamBold
+    nbSwitchBtn.TextSize = 10
+    nbSwitchBtn.TextColor3 = Color3.fromRGB(150, 215, 255)
+    nbSwitchBtn.Text = "Switch to Priority"
+    nbSwitchBtn.Parent = NoticeBanner
+    local sbCorner = Instance.new("UICorner")
+    sbCorner.CornerRadius = UDim.new(0, 4)
+    sbCorner.Parent = nbSwitchBtn
+
+    nbSwitchBtn.MouseEnter:Connect(function()
+        nbSwitchBtn.BackgroundColor3 = Color3.fromRGB(48, 95, 160)
+    end)
+    nbSwitchBtn.MouseLeave:Connect(function()
+        nbSwitchBtn.BackgroundColor3 = Color3.fromRGB(35, 75, 130)
+    end)
+
+    local nbCloseBtn = Instance.new("TextButton")
+    nbCloseBtn.Name = "CloseBtn"
+    nbCloseBtn.Size = UDim2.new(0, 20, 0, 20)
+    nbCloseBtn.Position = UDim2.new(1, -24, 0.5, -10)
+    nbCloseBtn.BackgroundTransparency = 1
+    nbCloseBtn.Font = Enum.Font.GothamBold
+    nbCloseBtn.TextSize = 12
+    nbCloseBtn.TextColor3 = Color3.fromRGB(150, 165, 185)
+    nbCloseBtn.Text = "✕"
+    nbCloseBtn.Parent = NoticeBanner
+
+    nbCloseBtn.MouseButton1Click:Connect(function()
+        NoticeBanner.Visible = false
+    end)
+
+    local noticeTimerToken = 0
+    local noticeTargetTab = "Tasks"
+
+    nbSwitchBtn.MouseButton1Click:Connect(function()
+        NoticeBanner.Visible = false
+        local tabKey = noticeTargetTab or currentTab or "Tasks"
+        local state = TableSortState[tabKey]
+        if state then
+            state.colId = "Priority"
+            state.ascending = false
+            updateHeaderSortIndicators(tabKey)
+            local isPriSort = true
+            if tabKey == "Tasks" then
+                for _, r in pairs(cachedTaskRows) do
+                    local grip = r:FindFirstChild("GripLbl")
+                    if grip then grip.TextColor3 = Color3.fromRGB(120, 160, 215) end
+                end
+            elseif tabKey == "Loops" then
+                for _, r in pairs(cachedLoopRows) do
+                    local grip = r:FindFirstChild("GripLbl")
+                    if grip then grip.TextColor3 = Color3.fromRGB(120, 160, 215) end
+                end
+            elseif tabKey == "Startup" then
+                for _, r in pairs(cachedStartupRows) do
+                    local grip = r:FindFirstChild("GripLbl")
+                    if grip then grip.TextColor3 = Color3.fromRGB(120, 160, 215) end
+                end
+            end
+            if tabKey == "Startup" and refreshStartupTab then
+                refreshStartupTab(true)
+            end
+        end
+    end)
+
+    showTableNotice = function(message, showSwitch, targetTab)
+        noticeTargetTab = targetTab or currentTab or "Tasks"
+        nbMsg.Text = message or "Manual reordering is locked."
+        nbSwitchBtn.Visible = (showSwitch ~= false)
+        if nbSwitchBtn.Visible then
+            nbMsg.Size = UDim2.new(1, -190, 1, 0)
+        else
+            nbMsg.Size = UDim2.new(1, -60, 1, 0)
+        end
+        NoticeBanner.Visible = true
+        noticeTimerToken = noticeTimerToken + 1
+        local myToken = noticeTimerToken
+        task.delay(4, function()
+            if noticeTimerToken == myToken and NoticeBanner.Visible then
+                NoticeBanner.Visible = false
+            end
+        end)
+    end
+
+    -- ==============================================================================
+    -- PRIORITY EDIT MODAL (Option 3: Stepper, Direct Number Input, Presets)
+    -- ==============================================================================
+    local PM = {}
+    PM.Modal = Instance.new("Frame")
+    PM.Modal.Name = "PriorityEditModal"
+    PM.Modal.Size = UDim2.new(0, 360, 0, 220)
+    PM.Modal.Position = UDim2.new(0.5, -180, 0.5, -110)
+    PM.Modal.BackgroundColor3 = Color3.fromRGB(16, 20, 28)
+    PM.Modal.BorderSizePixel = 0
+    PM.Modal.ZIndex = 520
+    PM.Modal.Visible = false
+    PM.Modal.Parent = MainFrame
+
+    local pmCorner = Instance.new("UICorner")
+    pmCorner.CornerRadius = UDim.new(0, 8)
+    pmCorner.Parent = PM.Modal
+
+    local pmStroke = Instance.new("UIStroke")
+    pmStroke.Color = Color3.fromRGB(50, 68, 98)
+    pmStroke.Thickness = 1.5
+    pmStroke.Parent = PM.Modal
+
+    -- Header
+    PM.Header = Instance.new("Frame")
+    PM.Header.Name = "Header"
+    PM.Header.Size = UDim2.new(1, 0, 0, 36)
+    PM.Header.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
+    PM.Header.BorderSizePixel = 0
+    PM.Header.ZIndex = 521
+    PM.Header.Parent = PM.Modal
+    local pmhCorner = Instance.new("UICorner")
+    pmhCorner.CornerRadius = UDim.new(0, 8)
+    pmhCorner.Parent = PM.Header
+
+    PM.Title = Instance.new("TextLabel")
+    PM.Title.Name = "Title"
+    PM.Title.Size = UDim2.new(1, -50, 1, 0)
+    PM.Title.Position = UDim2.new(0, 14, 0, 0)
+    PM.Title.BackgroundTransparency = 1
+    PM.Title.Font = Enum.Font.GothamBold
+    PM.Title.TextSize = 11
+    PM.Title.TextColor3 = Color3.fromRGB(240, 245, 255)
+    PM.Title.Text = "🎯 Adjust Execution Priority"
+    PM.Title.TextXAlignment = Enum.TextXAlignment.Left
+    PM.Title.ZIndex = 522
+    PM.Title.Parent = PM.Header
+
+    PM.CloseBtn = Instance.new("TextButton")
+    PM.CloseBtn.Name = "CloseBtn"
+    PM.CloseBtn.Size = UDim2.new(0, 24, 0, 24)
+    PM.CloseBtn.Position = UDim2.new(1, -30, 0, 6)
+    PM.CloseBtn.BackgroundColor3 = Color3.fromRGB(30, 36, 48)
+    PM.CloseBtn.BorderSizePixel = 0
+    PM.CloseBtn.Font = Enum.Font.GothamBold
+    PM.CloseBtn.TextSize = 12
+    PM.CloseBtn.TextColor3 = Color3.fromRGB(180, 195, 220)
+    PM.CloseBtn.Text = "✕"
+    PM.CloseBtn.ZIndex = 522
+    PM.CloseBtn.Parent = PM.Header
+    local pmcCorner = Instance.new("UICorner")
+    pmcCorner.CornerRadius = UDim.new(0, 4)
+    pmcCorner.Parent = PM.CloseBtn
+
+    PM.CloseBtn.MouseButton1Click:Connect(function()
+        PM.Modal.Visible = false
+    end)
+
+    -- Target Info Row
+    PM.TargetBadge = Instance.new("TextLabel")
+    PM.TargetBadge.Name = "TargetBadge"
+    PM.TargetBadge.Size = UDim2.new(0, 70, 0, 20)
+    PM.TargetBadge.Position = UDim2.new(0, 16, 0, 46)
+    PM.TargetBadge.BackgroundColor3 = Color3.fromRGB(25, 45, 75)
+    PM.TargetBadge.BorderSizePixel = 0
+    PM.TargetBadge.Font = Enum.Font.GothamBold
+    PM.TargetBadge.TextSize = 9
+    PM.TargetBadge.TextColor3 = Color3.fromRGB(100, 190, 255)
+    PM.TargetBadge.Text = "TASK"
+    PM.TargetBadge.ZIndex = 522
+    PM.TargetBadge.Parent = PM.Modal
+    local tbCorner = Instance.new("UICorner")
+    tbCorner.CornerRadius = UDim.new(0, 4)
+    tbCorner.Parent = PM.TargetBadge
+
+    PM.TargetName = Instance.new("TextLabel")
+    PM.TargetName.Name = "TargetName"
+    PM.TargetName.Size = UDim2.new(1, -110, 0, 20)
+    PM.TargetName.Position = UDim2.new(0, 92, 0, 46)
+    PM.TargetName.BackgroundTransparency = 1
+    PM.TargetName.Font = Enum.Font.GothamMedium
+    PM.TargetName.TextSize = 11
+    PM.TargetName.TextColor3 = Color3.fromRGB(225, 235, 250)
+    PM.TargetName.TextXAlignment = Enum.TextXAlignment.Left
+    PM.TargetName.TextTruncate = Enum.TextTruncate.AtEnd
+    PM.TargetName.Text = "Task Name"
+    PM.TargetName.ZIndex = 522
+    PM.TargetName.Parent = PM.Modal
+
+    -- Stepper Row Container
+    PM.StepperContainer = Instance.new("Frame")
+    PM.StepperContainer.Name = "StepperContainer"
+    PM.StepperContainer.Size = UDim2.new(1, -32, 0, 36)
+    PM.StepperContainer.Position = UDim2.new(0, 16, 0, 76)
+    PM.StepperContainer.BackgroundTransparency = 1
+    PM.StepperContainer.ZIndex = 522
+    PM.StepperContainer.Parent = PM.Modal
+
+    local function createStepBtn(name, text, posX, sizeX)
+        local btn = Instance.new("TextButton")
+        btn.Name = name
+        btn.Size = UDim2.new(0, sizeX, 1, 0)
+        btn.Position = posX
+        btn.BackgroundColor3 = Color3.fromRGB(25, 32, 45)
+        btn.BorderSizePixel = 0
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 11
+        btn.TextColor3 = Color3.fromRGB(180, 205, 235)
+        btn.Text = text
+        btn.ZIndex = 523
+        btn.Parent = PM.StepperContainer
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(0, 4)
+        c.Parent = btn
+        local s = Instance.new("UIStroke")
+        s.Thickness = 1
+        s.Color = Color3.fromRGB(45, 60, 85)
+        s.Parent = btn
+        btn.MouseEnter:Connect(function()
+            btn.BackgroundColor3 = Color3.fromRGB(35, 48, 70)
+            s.Color = Color3.fromRGB(80, 130, 200)
+        end)
+        btn.MouseLeave:Connect(function()
+            btn.BackgroundColor3 = Color3.fromRGB(25, 32, 45)
+            s.Color = Color3.fromRGB(45, 60, 85)
+        end)
+        return btn
+    end
+
+    PM.BtnMinus10 = createStepBtn("Minus10", "-10", UDim2.new(0, 0, 0, 0), 44)
+    PM.BtnMinus1 = createStepBtn("Minus1", "-1", UDim2.new(0, 48, 0, 0), 36)
+
+    PM.PriBox = Instance.new("TextBox")
+    PM.PriBox.Name = "PriBox"
+    PM.PriBox.Size = UDim2.new(1, -176, 1, 0)
+    PM.PriBox.Position = UDim2.new(0, 88, 0, 0)
+    PM.PriBox.BackgroundColor3 = Color3.fromRGB(12, 16, 24)
+    PM.PriBox.BorderSizePixel = 0
+    PM.PriBox.Font = Enum.Font.GothamBold
+    PM.PriBox.TextSize = 14
+    PM.PriBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    PM.PriBox.TextXAlignment = Enum.TextXAlignment.Center
+    PM.PriBox.Text = "50"
+    PM.PriBox.ClearTextOnFocus = false
+    PM.PriBox.ZIndex = 523
+    PM.PriBox.Parent = PM.StepperContainer
+    local pibCorner = Instance.new("UICorner")
+    pibCorner.CornerRadius = UDim.new(0, 4)
+    pibCorner.Parent = PM.PriBox
+    local pibStroke = Instance.new("UIStroke")
+    pibStroke.Color = Color3.fromRGB(45, 65, 95)
+    pibStroke.Thickness = 1
+    pibStroke.Parent = PM.PriBox
+
+    PM.BtnPlus1 = createStepBtn("Plus1", "+1", UDim2.new(1, -84, 0, 0), 36)
+    PM.BtnPlus10 = createStepBtn("Plus10", "+10", UDim2.new(1, -44, 0, 0), 44)
+
+    -- Presets Container
+    PM.PresetsContainer = Instance.new("Frame")
+    PM.PresetsContainer.Name = "PresetsContainer"
+    PM.PresetsContainer.Size = UDim2.new(1, -32, 0, 26)
+    PM.PresetsContainer.Position = UDim2.new(0, 16, 0, 122)
+    PM.PresetsContainer.BackgroundTransparency = 1
+    PM.PresetsContainer.ZIndex = 522
+    PM.PresetsContainer.Parent = PM.Modal
+    local presetsLayout = Instance.new("UIListLayout")
+    presetsLayout.FillDirection = Enum.FillDirection.Horizontal
+    presetsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    presetsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    presetsLayout.Padding = UDim.new(0, 6)
+    presetsLayout.Parent = PM.PresetsContainer
+
+    -- Action Buttons Container
+    PM.ActionsContainer = Instance.new("Frame")
+    PM.ActionsContainer.Name = "ActionsContainer"
+    PM.ActionsContainer.Size = UDim2.new(1, -32, 0, 30)
+    PM.ActionsContainer.Position = UDim2.new(0, 16, 1, -42)
+    PM.ActionsContainer.BackgroundTransparency = 1
+    PM.ActionsContainer.ZIndex = 522
+    PM.ActionsContainer.Parent = PM.Modal
+
+    PM.CancelBtn = Instance.new("TextButton")
+    PM.CancelBtn.Name = "CancelBtn"
+    PM.CancelBtn.Size = UDim2.new(0, 90, 1, 0)
+    PM.CancelBtn.Position = UDim2.new(0, 0, 0, 0)
+    PM.CancelBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 46)
+    PM.CancelBtn.BorderSizePixel = 0
+    PM.CancelBtn.Font = Enum.Font.GothamMedium
+    PM.CancelBtn.TextSize = 10
+    PM.CancelBtn.TextColor3 = Color3.fromRGB(170, 185, 205)
+    PM.CancelBtn.Text = "Cancel"
+    PM.CancelBtn.ZIndex = 523
+    PM.CancelBtn.Parent = PM.ActionsContainer
+    local cbCorner = Instance.new("UICorner")
+    cbCorner.CornerRadius = UDim.new(0, 4)
+    cbCorner.Parent = PM.CancelBtn
+
+    PM.SaveBtn = Instance.new("TextButton")
+    PM.SaveBtn.Name = "SaveBtn"
+    PM.SaveBtn.Size = UDim2.new(0, 140, 1, 0)
+    PM.SaveBtn.Position = UDim2.new(1, -140, 0, 0)
+    PM.SaveBtn.BackgroundColor3 = Color3.fromRGB(35, 95, 175)
+    PM.SaveBtn.BorderSizePixel = 0
+    PM.SaveBtn.Font = Enum.Font.GothamBold
+    PM.SaveBtn.TextSize = 10
+    PM.SaveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    PM.SaveBtn.Text = "💾 Save Priority"
+    PM.SaveBtn.ZIndex = 523
+    PM.SaveBtn.Parent = PM.ActionsContainer
+    local sbCorner2 = Instance.new("UICorner")
+    sbCorner2.CornerRadius = UDim.new(0, 4)
+    sbCorner2.Parent = PM.SaveBtn
+
+    local currentTargetType = nil
+    local currentItemObj = nil
+    local currentPriorityVal = 50
+
+    local function adjustBy(delta)
+        local val = (tonumber(PM.PriBox.Text) or currentPriorityVal) + delta
+        local maxLimit = (currentTargetType == "Startup") and 1000 or 100
+        currentPriorityVal = math.clamp(math.round(val), 1, maxLimit)
+        PM.PriBox.Text = tostring(currentPriorityVal)
+    end
+
+    PM.BtnMinus10.MouseButton1Click:Connect(function() adjustBy(-10) end)
+    PM.BtnMinus1.MouseButton1Click:Connect(function() adjustBy(-1) end)
+    PM.BtnPlus1.MouseButton1Click:Connect(function() adjustBy(1) end)
+    PM.BtnPlus10.MouseButton1Click:Connect(function() adjustBy(10) end)
+    PM.CancelBtn.MouseButton1Click:Connect(function() PM.Modal.Visible = false end)
+
+    local function commitPrioritySave()
+        if not currentTargetType or not currentItemObj then
+            PM.Modal.Visible = false
+            return
+        end
+
+        local rawVal = tonumber(PM.PriBox.Text) or currentPriorityVal or 50
+        local maxLimit = (currentTargetType == "Startup") and 1000 or 100
+        local finalVal = math.clamp(math.round(rawVal), 1, maxLimit)
+
+        if currentTargetType == "Task" then
+            currentItemObj.priority = finalVal
+            currentItemObj.basePriority = finalVal
+            if SetSchedulerTaskPriority then
+                SetSchedulerTaskPriority(currentItemObj.id, finalVal)
+            end
+            saveSchedulerOverrides(true)
+            emitProfile()
+            local r = cachedTaskRows[currentItemObj.id]
+            if r then
+                local priLbl = r:FindFirstChild("PriLbl")
+                if priLbl then priLbl.Text = tostring(finalVal) end
+            end
+
+        elseif currentTargetType == "Loop" then
+            currentItemObj.priority = finalVal
+            if SetLoopPriority then
+                SetLoopPriority(currentItemObj.id, finalVal)
+            end
+            saveSchedulerOverrides(true)
+            emitProfile()
+            local r = cachedLoopRows[currentItemObj.id]
+            if r then
+                local priLbl = r:FindFirstChild("PriLbl")
+                if priLbl then priLbl.Text = tostring(finalVal) end
+            end
+
+        elseif currentTargetType == "Startup" then
+            currentItemObj.priority = finalVal
+            updateScriptPragmas(currentItemObj.file, currentItemObj.stage, finalVal)
+            scanStartupScripts(true)
+            if refreshStartupTab then
+                refreshStartupTab(true)
+            end
+        end
+
+        PM.Modal.Visible = false
+    end
+
+    PM.SaveBtn.MouseButton1Click:Connect(commitPrioritySave)
+    PM.PriBox.FocusLost:Connect(function(enterPressed)
+        if enterPressed then
+            commitPrioritySave()
+        else
+            local val = tonumber(PM.PriBox.Text)
+            if val then
+                local maxLimit = (currentTargetType == "Startup") and 1000 or 100
+                currentPriorityVal = math.clamp(math.round(val), 1, maxLimit)
+                PM.PriBox.Text = tostring(currentPriorityVal)
+            else
+                PM.PriBox.Text = tostring(currentPriorityVal)
+            end
+        end
+    end)
+
+    openPriorityEditModal = function(targetType, itemObj, currentPri)
+        currentTargetType = targetType
+        currentItemObj = itemObj
+        currentPriorityVal = tonumber(currentPri) or 50
+        if targetType == "Startup" then
+            currentPriorityVal = math.clamp(math.round(currentPriorityVal), 1, 1000)
+        else
+            currentPriorityVal = math.clamp(math.round(currentPriorityVal), 1, 100)
+        end
+
+        local titleName = "Item"
+        local badgeCol = Color3.fromRGB(50, 130, 240)
+        if targetType == "Task" then
+            titleName = tostring(itemObj.name or itemObj.id or "Task")
+            badgeCol = Color3.fromRGB(50, 130, 240)
+        elseif targetType == "Loop" then
+            titleName = tostring(itemObj.caller or itemObj.name or "Loop")
+            badgeCol = Color3.fromRGB(40, 190, 210)
+        elseif targetType == "Startup" then
+            local fn = itemObj.file:match("[^/\\]+$") or itemObj.file
+            titleName = fn:gsub("%.lua$", ""):gsub("%.txt$", "")
+            badgeCol = STAGE_COLORS[itemObj.stage or "GameLoaded"] or Color3.fromRGB(160, 70, 220)
+        end
+
+        PM.TargetBadge.Text = targetType:upper()
+        PM.TargetBadge.TextColor3 = badgeCol
+        PM.TargetBadge.BackgroundColor3 = Color3.fromRGB(math.floor(badgeCol.R * 40), math.floor(badgeCol.G * 40), math.floor(badgeCol.B * 40))
+        PM.TargetName.Text = titleName
+        PM.PriBox.Text = tostring(currentPriorityVal)
+
+        for _, ch in ipairs(PM.PresetsContainer:GetChildren()) do
+            if ch:IsA("TextButton") then ch:Destroy() end
+        end
+
+        local presets = {}
+        if targetType == "Startup" then
+            presets = {
+                { name = "1000 Max", val = 1000 },
+                { name = "500 High", val = 500 },
+                { name = "100 Med", val = 100 },
+                { name = "50 Low", val = 50 },
+                { name = "10 Min", val = 10 },
+            }
+        else
+            presets = {
+                { name = "100 Max", val = 100 },
+                { name = "80 High", val = 80 },
+                { name = "50 Med", val = 50 },
+                { name = "25 Low", val = 25 },
+                { name = "10 Min", val = 10 },
+            }
+        end
+
+        for _, p in ipairs(presets) do
+            local pBtn = Instance.new("TextButton")
+            pBtn.Name = "Preset_" .. tostring(p.val)
+            pBtn.Size = UDim2.new(0, 58, 0, 22)
+            pBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
+            pBtn.BorderSizePixel = 0
+            pBtn.Font = Enum.Font.GothamMedium
+            pBtn.TextSize = 9
+            pBtn.TextColor3 = Color3.fromRGB(160, 185, 215)
+            pBtn.Text = p.name
+            pBtn.ZIndex = 523
+            pBtn.Parent = PM.PresetsContainer
+            local pc = Instance.new("UICorner")
+            pc.CornerRadius = UDim.new(0, 3)
+            pc.Parent = pBtn
+
+            local ps = Instance.new("UIStroke")
+            ps.Thickness = 1
+            ps.Color = Color3.fromRGB(45, 60, 85)
+            ps.Parent = pBtn
+
+            pBtn.MouseEnter:Connect(function()
+                pBtn.BackgroundColor3 = Color3.fromRGB(35, 50, 75)
+                ps.Color = Color3.fromRGB(80, 130, 200)
+            end)
+            pBtn.MouseLeave:Connect(function()
+                pBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
+                ps.Color = Color3.fromRGB(45, 60, 85)
+            end)
+
+            pBtn.MouseButton1Click:Connect(function()
+                currentPriorityVal = p.val
+                PM.PriBox.Text = tostring(p.val)
+            end)
+        end
+
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+        PM.Modal.Visible = true
+        task.defer(function()
+            PM.PriBox:CaptureFocus()
+        end)
+    end
+end
+
 local function isScriptGameSpecific(filePath)
     local lower = normStartupPath(filePath):lower()
     local placeIdStr = tostring(game.PlaceId)
@@ -7824,6 +8422,12 @@ table.insert(hudWindowConnections, UserInputService.InputChanged:Connect(functio
     if currentTab == "Startup" then
         if pendingStartupDrag and not isDraggingStartupRow then
             if (input.Position - pendingStartupDrag.startPos).Magnitude >= 6 then
+                local sortCol = TableSortState.Startup and TableSortState.Startup.colId or "Priority"
+                if sortCol ~= "Priority" then
+                    pendingStartupDrag = nil
+                    showTableNotice("Manual reordering is locked while sorted by " .. tostring(sortCol) .. ". Switch to PRIORITY to reorder.", true, "Startup")
+                    return
+                end
                 isDraggingStartupRow = true
                 activeStartupDrag = pendingStartupDrag
                 pendingStartupDrag = nil
@@ -7941,6 +8545,12 @@ table.insert(hudWindowConnections, UserInputService.InputChanged:Connect(functio
     elseif currentTab == "Tasks" then
         if TaskDrag.pending and not TaskDrag.isDragging then
             if (input.Position - TaskDrag.pending.startPos).Magnitude >= 6 then
+                local sortCol = TableSortState.Tasks and TableSortState.Tasks.colId or "Priority"
+                if sortCol ~= "Priority" then
+                    TaskDrag.pending = nil
+                    showTableNotice("Manual reordering is locked while sorted by " .. tostring(sortCol) .. ". Switch to PRIORITY to reorder.", true, "Tasks")
+                    return
+                end
                 TaskDrag.isDragging = true
                 TaskDrag.active = TaskDrag.pending
                 TaskDrag.pending = nil
@@ -8006,6 +8616,12 @@ table.insert(hudWindowConnections, UserInputService.InputChanged:Connect(functio
     elseif currentTab == "Loops" then
         if LoopDrag.pending and not LoopDrag.isDragging then
             if (input.Position - LoopDrag.pending.startPos).Magnitude >= 6 then
+                local sortCol = TableSortState.Loops and TableSortState.Loops.colId or "Priority"
+                if sortCol ~= "Priority" then
+                    LoopDrag.pending = nil
+                    showTableNotice("Manual reordering is locked while sorted by " .. tostring(sortCol) .. ". Switch to PRIORITY to reorder.", true, "Loops")
+                    return
+                end
                 LoopDrag.isDragging = true
                 LoopDrag.active = LoopDrag.pending
                 LoopDrag.pending = nil
@@ -8143,6 +8759,10 @@ table.insert(hudWindowConnections, UserInputService.InputEnded:Connect(function(
             s.stage = "GameLoaded"
             updateScriptPragmas(s.file, "GameLoaded", assignedPri)
         end
+
+        TableSortState.Startup.colId = "Priority"
+        TableSortState.Startup.ascending = false
+        updateHeaderSortIndicators("Startup")
 
         for k, r in pairs(cachedStartupRows) do
             r:Destroy()
@@ -8294,6 +8914,18 @@ local function renderStartupRow(scriptObj, idx)
         rCorner.CornerRadius = UDim.new(0, 4)
         rCorner.Parent = row
 
+        local isPriSort = TableSortState.Startup and TableSortState.Startup.colId == "Priority"
+        local gripLbl = Instance.new("TextLabel")
+        gripLbl.Name = "GripLbl"
+        gripLbl.Size = UDim2.new(0, 12, 0, 16)
+        gripLbl.Position = UDim2.new(0, 4, 0.5, -8)
+        gripLbl.BackgroundTransparency = 1
+        gripLbl.Font = Enum.Font.GothamBold
+        gripLbl.TextSize = 12
+        gripLbl.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
+        gripLbl.Text = ICONS.GRIP
+        gripLbl.Parent = row
+
         local dot = Instance.new("Frame")
         dot.Name = "Dot"
         dot.Size = UDim2.new(0, 8, 0, 8)
@@ -8305,17 +8937,40 @@ local function renderStartupRow(scriptObj, idx)
         dotCorner.CornerRadius = UDim.new(1, 0)
         dotCorner.Parent = dot
 
-        local priLbl = Instance.new("TextLabel")
+        local priLbl = Instance.new("TextButton")
         priLbl.Name = "PriLbl"
-        priLbl.Size = UDim2.new(0, 32, 1, 0)
-        priLbl.Position = UDim2.new(0.02, 22, 0, 0)
-        priLbl.BackgroundTransparency = 1
+        priLbl.Size = UDim2.new(0, 32, 0, 18)
+        priLbl.Position = UDim2.new(0.02, 22, 0.5, -9)
+        priLbl.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
+        priLbl.BorderSizePixel = 0
+        priLbl.AutoButtonColor = false
         priLbl.Font = Enum.Font.GothamBold
         priLbl.TextSize = 10
-        priLbl.TextColor3 = Color3.fromRGB(200, 220, 245)
-        priLbl.TextXAlignment = Enum.TextXAlignment.Left
-        priLbl.Text = "100"
+        priLbl.TextColor3 = Color3.fromRGB(210, 230, 255)
+        priLbl.TextXAlignment = Enum.TextXAlignment.Center
+        priLbl.Text = tostring(scriptObj.priority or 100)
         priLbl.Parent = row
+        local priCorner = Instance.new("UICorner")
+        priCorner.CornerRadius = UDim.new(0, 3)
+        priCorner.Parent = priLbl
+        local priStroke = Instance.new("UIStroke")
+        priStroke.Thickness = 1
+        priStroke.Color = Color3.fromRGB(45, 60, 85)
+        priStroke.Parent = priLbl
+
+        priLbl.MouseEnter:Connect(function()
+            priLbl.BackgroundColor3 = Color3.fromRGB(38, 52, 75)
+            priStroke.Color = Color3.fromRGB(80, 130, 200)
+        end)
+        priLbl.MouseLeave:Connect(function()
+            priLbl.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
+            priStroke.Color = Color3.fromRGB(45, 60, 85)
+        end)
+        priLbl.MouseButton1Click:Connect(function()
+            if openPriorityEditModal then
+                openPriorityEditModal("Startup", scriptObj, scriptObj.priority or 100)
+            end
+        end)
 
         local nameLbl = Instance.new("TextLabel")
         nameLbl.Name = "NameLbl"
@@ -8777,7 +9432,7 @@ local function renderStartupRow(scriptObj, idx)
 
         row.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                if isInsideGui(toggleBtn, input.Position) then
+                if isInsideGui(toggleBtn, input.Position) or isInsideGui(priLbl, input.Position) then
                     return
                 end
                 local bInfo = currentStartupBoundaries[scriptObj.file:lower()]
@@ -8797,7 +9452,7 @@ local function renderStartupRow(scriptObj, idx)
                     startIdx = idx,
                 }
             elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-                if isInsideGui(toggleBtn, input.Position) or isInsideGui(stageBadge, input.Position) then
+                if isInsideGui(toggleBtn, input.Position) or isInsideGui(stageBadge, input.Position) or isInsideGui(priLbl, input.Position) then
                     return
                 end
                 if accordion.Visible and isInsideGui(accordion, input.Position) then
@@ -8814,20 +9469,15 @@ local function renderStartupRow(scriptObj, idx)
     row.LayoutOrder = idx * 10
     row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
     local dot = row:FindFirstChild("Dot")
-    local priLbl = row:FindFirstChild("PriLbl")
-    if not priLbl then
-        priLbl = Instance.new("TextLabel")
-        priLbl.Name = "PriLbl"
-        priLbl.Size = UDim2.new(0, 32, 1, 0)
-        priLbl.Position = UDim2.new(0.02, 22, 0, 0)
-        priLbl.BackgroundTransparency = 1
-        priLbl.Font = Enum.Font.GothamBold
-        priLbl.TextSize = 10
-        priLbl.TextColor3 = Color3.fromRGB(200, 220, 245)
-        priLbl.TextXAlignment = Enum.TextXAlignment.Left
-        priLbl.Parent = row
+    local gripLbl = row:FindFirstChild("GripLbl")
+    if gripLbl then
+        local isPriSort = TableSortState.Startup and TableSortState.Startup.colId == "Priority"
+        gripLbl.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
     end
-    priLbl.Text = tostring(scriptObj.priority or 100)
+    local priLbl = row:FindFirstChild("PriLbl")
+    if priLbl then
+        priLbl.Text = tostring(scriptObj.priority or 100)
+    end
     local nameLbl = row:FindFirstChild("NameLbl")
     local pathLbl = row:FindFirstChild("PathLbl")
     local stageBadge = row:FindFirstChild("StageBadge")
@@ -9001,14 +9651,15 @@ local function renderLoopRow(loopObj, idx)
         rCorner.CornerRadius = UDim.new(0, 4)
         rCorner.Parent = row
 
+        local isPriSort = TableSortState.Loops and TableSortState.Loops.colId == "Priority"
         local gripLbl = Instance.new("TextLabel")
         gripLbl.Name = "GripLbl"
-        gripLbl.Size = UDim2.new(0, 14, 1, 0)
-        gripLbl.Position = UDim2.new(0, 4, 0, 0)
+        gripLbl.Size = UDim2.new(0, 12, 0, 16)
+        gripLbl.Position = UDim2.new(0, 4, 0.5, -8)
         gripLbl.BackgroundTransparency = 1
         gripLbl.Font = Enum.Font.GothamBold
         gripLbl.TextSize = 12
-        gripLbl.TextColor3 = Color3.fromRGB(90, 115, 145)
+        gripLbl.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
         gripLbl.Text = ICONS.GRIP
         gripLbl.Parent = row
 
@@ -9023,17 +9674,40 @@ local function renderLoopRow(loopObj, idx)
         dotCorner.CornerRadius = UDim.new(1, 0)
         dotCorner.Parent = dot
 
-        local priLbl = Instance.new("TextLabel")
+        local priLbl = Instance.new("TextButton")
         priLbl.Name = "PriLbl"
-        priLbl.Size = UDim2.new(0, 26, 1, 0)
-        priLbl.Position = UDim2.new(0, 32, 0, 0)
-        priLbl.BackgroundTransparency = 1
+        priLbl.Size = UDim2.new(0, 28, 0, 18)
+        priLbl.Position = UDim2.new(0, 32, 0.5, -9)
+        priLbl.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
+        priLbl.BorderSizePixel = 0
+        priLbl.AutoButtonColor = false
         priLbl.Font = Enum.Font.GothamBold
-        priLbl.TextSize = 11
-        priLbl.TextColor3 = Color3.fromRGB(200, 220, 245)
-        priLbl.TextXAlignment = Enum.TextXAlignment.Left
-        priLbl.Text = "50"
+        priLbl.TextSize = 10
+        priLbl.TextColor3 = Color3.fromRGB(210, 230, 255)
+        priLbl.TextXAlignment = Enum.TextXAlignment.Center
+        priLbl.Text = tostring(loopObj.priority or 50)
         priLbl.Parent = row
+        local priCorner = Instance.new("UICorner")
+        priCorner.CornerRadius = UDim.new(0, 3)
+        priCorner.Parent = priLbl
+        local priStroke = Instance.new("UIStroke")
+        priStroke.Thickness = 1
+        priStroke.Color = Color3.fromRGB(45, 60, 85)
+        priStroke.Parent = priLbl
+
+        priLbl.MouseEnter:Connect(function()
+            priLbl.BackgroundColor3 = Color3.fromRGB(38, 52, 75)
+            priStroke.Color = Color3.fromRGB(80, 130, 200)
+        end)
+        priLbl.MouseLeave:Connect(function()
+            priLbl.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
+            priStroke.Color = Color3.fromRGB(45, 60, 85)
+        end)
+        priLbl.MouseButton1Click:Connect(function()
+            if openPriorityEditModal then
+                openPriorityEditModal("Loop", loopObj, loopObj.priority or 50)
+            end
+        end)
 
         local nameLbl = Instance.new("TextLabel")
         nameLbl.Name = "NameLbl"
@@ -9244,7 +9918,7 @@ local function renderLoopRow(loopObj, idx)
 
         row.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                if isInsideGui(hzBtn, input.Position) or isInsideGui(lockBtn, input.Position) or isInsideGui(actions, input.Position) then
+                if isInsideGui(hzBtn, input.Position) or isInsideGui(lockBtn, input.Position) or isInsideGui(actions, input.Position) or isInsideGui(priLbl, input.Position) then
                     return
                 end
                 LoopDrag.pending = {
@@ -9265,21 +9939,16 @@ local function renderLoopRow(loopObj, idx)
 
     -- Update row state
     local dot = row:FindFirstChild("Dot")
-    local priLbl = row:FindFirstChild("PriLbl")
-    if not priLbl then
-        priLbl = Instance.new("TextLabel")
-        priLbl.Name = "PriLbl"
-        priLbl.Size = UDim2.new(0, 26, 1, 0)
-        priLbl.Position = UDim2.new(0, 32, 0, 0)
-        priLbl.BackgroundTransparency = 1
-        priLbl.Font = Enum.Font.GothamBold
-        priLbl.TextSize = 11
-        priLbl.TextColor3 = Color3.fromRGB(200, 220, 245)
-        priLbl.TextXAlignment = Enum.TextXAlignment.Left
-        priLbl.Parent = row
+    local gripLbl = row:FindFirstChild("GripLbl")
+    if gripLbl then
+        local isPriSort = TableSortState.Loops and TableSortState.Loops.colId == "Priority"
+        gripLbl.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
     end
+    local priLbl = row:FindFirstChild("PriLbl")
     local priVal = loopObj.priority or 50
-    priLbl.Text = tostring(priVal)
+    if priLbl then
+        priLbl.Text = tostring(priVal)
+    end
     if dot then
         if loopObj.paused then
             dot.BackgroundColor3 = Color3.fromRGB(255, 160, 40) -- Orange
