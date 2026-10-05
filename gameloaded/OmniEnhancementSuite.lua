@@ -160,6 +160,18 @@ local function InvalidateTargets()
     TargetCache.dirty = true
 end
 
+local playerAnonMap = {}
+local playerAnonCounter = 0
+
+local function GetAnonPlayerName(p)
+    local uid = p.UserId
+    if not playerAnonMap[uid] then
+        playerAnonCounter = playerAnonCounter + 1
+        playerAnonMap[uid] = "Player " .. tostring(playerAnonCounter)
+    end
+    return playerAnonMap[uid]
+end
+
 local function GetCompiledTargets()
     if not TargetCache.dirty then
         return TargetCache.targets
@@ -181,9 +193,9 @@ local function GetCompiledTargets()
     end
 
     local allPlayers = Players:GetPlayers()
-    for idx, p in ipairs(allPlayers) do
+    for _, p in ipairs(allPlayers) do
         if p ~= lp then
-            local anon = "Player " .. tostring(idx)
+            local anon = GetAnonPlayerName(p)
             Add(tostring(p.UserId), "00000000")
             Add(p.DisplayName, anon)
             Add(p.Name, anon)
@@ -343,10 +355,11 @@ local function HookTextObject(obj)
         if not isStreamerActive or isRedacting then return end
         local raw = GetRawText(obj)
         if raw and #raw >= 2 then
-            local orig = OriginalTexts[obj] or raw
-            local redacted = RedactString(orig)
-            if redacted ~= orig then
-                OriginalTexts[obj] = orig
+            local currentRedacted = OriginalTexts[obj] and RedactString(OriginalTexts[obj])
+            local sourceText = (raw ~= currentRedacted) and raw or (OriginalTexts[obj] or raw)
+            local redacted = RedactString(sourceText)
+            if redacted ~= sourceText then
+                OriginalTexts[obj] = sourceText
                 local currentRaw = GetRawText(obj)
                 if currentRaw ~= redacted then
                     isRedacting = true
@@ -375,10 +388,11 @@ local function HookHumanoid(hum)
         if not isStreamerActive or isRedacting then return end
         local raw = GetRawDisplayName(hum)
         if raw and #raw >= 2 then
-            local orig = OriginalTexts[hum] or raw
-            local redacted = RedactString(orig)
-            if redacted ~= orig then
-                OriginalTexts[hum] = orig
+            local currentRedacted = OriginalTexts[hum] and RedactString(OriginalTexts[hum])
+            local sourceText = (raw ~= currentRedacted) and raw or (OriginalTexts[hum] or raw)
+            local redacted = RedactString(sourceText)
+            if redacted ~= sourceText then
+                OriginalTexts[hum] = sourceText
                 local currentRaw = GetRawDisplayName(hum)
                 if currentRaw ~= redacted then
                     isRedacting = true
@@ -418,6 +432,8 @@ function StreamerMode.Enable()
     for _, c in ipairs(StreamerConns) do
         if typeof(c) == "RBXScriptConnection" or (type(c) == "table" and type(c.Disconnect) == "function") then
             pcall(function() c:Disconnect() end)
+        elseif typeof(c) == "thread" then
+            pcall(task.cancel, c)
         end
     end
     table.clear(StreamerConns)
@@ -444,41 +460,38 @@ function StreamerMode.Enable()
     HookGuiContainer(CoreGui)
 
     -- ROOT 2: PlayerGui (All Developer 2D Screen UIs & HUDs)
-    local function CheckPlayerGuiLabel(obj)
-        if not (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then return end
-        if IsEnhancementGui(obj) then return end
-        local raw = GetRawText(obj)
-        if raw and #raw >= 2 then
-            local redacted = RedactString(raw)
-            if redacted ~= raw then
-                OriginalTexts[obj] = raw
-                isRedacting = true
-                pcall(function() SetRawText(obj, redacted) end)
-                isRedacting = false
-            end
-        end
-    end
-
-    local function WatchPlayerGui(pg)
-        if not pg then return end
-        for _, d in ipairs(pg:GetDescendants()) do
-            CheckPlayerGuiLabel(d)
-        end
-        local c = pg.DescendantAdded:Connect(CheckPlayerGuiLabel)
-        table.insert(StreamerConns, c)
-    end
-
     local lp = GetLocalPlayer()
     if lp then
         local pg = lp:FindFirstChildOfClass("PlayerGui") or lp:FindFirstChild("PlayerGui")
-        if pg then WatchPlayerGui(pg) end
+        if pg then HookGuiContainer(pg) end
         local pgConn = lp.ChildAdded:Connect(function(child)
             if child:IsA("PlayerGui") or child.Name == "PlayerGui" then
-                WatchPlayerGui(child)
+                HookGuiContainer(child)
             end
         end)
         table.insert(StreamerConns, pgConn)
     end
+
+    -- Periodic Re-check Sweep across PlayerGui and Workspace every 1.5s to catch batch updates or custom tweened text
+    local sweepThread = task.spawn(function()
+        while isStreamerActive do
+            task.wait(1.5)
+            if not isStreamerActive then break end
+            local curLp = GetLocalPlayer()
+            if curLp then
+                local pg = curLp:FindFirstChildOfClass("PlayerGui") or curLp:FindFirstChild("PlayerGui")
+                if pg then
+                    for _, d in ipairs(pg:GetDescendants()) do
+                        if (d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox")) and not HookedObjects[d] and not IsEnhancementGui(d) then
+                            HookTextObject(d)
+                        end
+                    end
+                end
+            end
+            StreamerMode.Refresh()
+        end
+    end)
+    table.insert(StreamerConns, sweepThread)
 
     -- ROOT 3: Workspace (All In-World 3D Overheads, BillboardGuis, SurfaceGuis & Characters)
     local function OnWorkspaceDescendant(desc)
@@ -572,10 +585,14 @@ function StreamerMode.Disable()
     for _, c in ipairs(StreamerConns) do
         if typeof(c) == "RBXScriptConnection" or (type(c) == "table" and type(c.Disconnect) == "function") then
             pcall(function() c:Disconnect() end)
+        elseif typeof(c) == "thread" then
+            pcall(task.cancel, c)
         end
     end
     table.clear(StreamerConns)
     table.clear(HookedObjects)
+    playerAnonCounter = 0
+    table.clear(playerAnonMap)
 
     isRedacting = true
     for obj, origText in pairs(OriginalTexts) do
