@@ -1,5 +1,5 @@
 # Omni Universal 1-Click Installer
-# Run: irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/install.ps1 | iex
+# Run: irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/install.ps1 | iex
 
 param([string]$Path)
 
@@ -74,15 +74,15 @@ Write-Host ""
 $components = [ordered]@{
     "Bootloader" = @{
         LocalPath = "Bootloader.lua"
-        RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/Bootloader.lua"
+        RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"
     }
     "KernelTaskManager" = @{
         LocalPath = "kernel\KernelTaskManager.lua"
-        RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/kernel/KernelTaskManager.lua"
+        RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/kernel/KernelTaskManager.lua"
     }
     "OmniEnhancementSuite" = @{
         LocalPath = "gameloaded\OmniEnhancementSuite.lua"
-        RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/gameloaded/OmniEnhancementSuite.lua"
+        RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/gameloaded/OmniEnhancementSuite.lua"
     }
 }
 

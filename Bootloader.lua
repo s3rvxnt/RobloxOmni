@@ -261,7 +261,7 @@ end
 -- ==============================================================================
 -- GITHUB STAGE AUTO-MIRRORING & DYNAMIC SYNC
 -- ==============================================================================
-local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/"
+local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
 local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
 
 
@@ -335,7 +335,7 @@ local function getGuiParent()
 end
 
 local function initUpdateGate(guiParent, UpdateBadge)
-    local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/"
+    local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
     local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
     local LEDGER_PATH = "Omni_Ledger.json"
 
@@ -2413,7 +2413,7 @@ task.spawn(function()
                             local isLocal = (type(isfile) == "function") and (isfile("autoexec/Bootloader.lua") or isfile("workspace/autoexec/Bootloader.lua") or isfile("autoexec/CustomAutoExec.lua") or isfile("Omni_Installed.marker"))
                             if not isLocal then
                                 pcall(function()
-                                    loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/Bootloader.lua"))()
+                                    loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()
                                 end)
                             end
                         end

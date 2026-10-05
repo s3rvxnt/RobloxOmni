@@ -53,7 +53,7 @@ Drop scripts into stage folders inside your executor's `workspace/autoexec/`:
 Download and run **[`install.bat`](install.bat)**, or run this single command in PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/install.ps1 | iex
+irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/install.ps1 | iex
 ```
 
 * Automatically discovers your executor installation (Potassium, Solara, Wave, etc.).
@@ -64,7 +64,7 @@ irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/install.ps1 | i
 Paste into your executor's execution tab and hit **Execute**:
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/Bootloader.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()
 ```
 
 #### Option 3: Manual Setup

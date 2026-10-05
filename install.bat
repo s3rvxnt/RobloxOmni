@@ -30,7 +30,7 @@ echo.
 if exist "%~dp0install.ps1" (
     powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1"
 ) else (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/release/install.ps1 | iex"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/install.ps1 | iex"
 )
 goto :end
 
