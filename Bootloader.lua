@@ -2239,7 +2239,11 @@ local function executeScript(meta)
                 if fnEnv and fnEnv.game ~= gameProxy then
                     local origCloneref = getgenv().cloneref or cloneref
                     local function safeCloneref(obj, ...)
-                        if not obj or obj == gameProxy or obj == getgenv()._VirtualSchedulerProxiedRunService or typeof(obj) ~= "Instance" then
+                        if not obj
+                            or rawequal(obj, gameProxy)
+                            or (getgenv()._VirtualSchedulerProxiedRunService and rawequal(obj, getgenv()._VirtualSchedulerProxiedRunService))
+                            or (getgenv().RunService and rawequal(obj, getgenv().RunService))
+                            or typeof(obj) ~= "Instance" then
                             return obj
                         end
                         return origCloneref(obj, ...)

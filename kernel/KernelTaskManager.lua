@@ -2114,7 +2114,13 @@ local function createGameProxy(proxiedRS)
         elseif key == "RunService" then
             return getRS()
         end
-        return origGame[key]
+        local val = origGame[key]
+        if type(val) == "function" then
+            return function(_, ...)
+                return val(origGame, ...)
+            end
+        end
+        return val
     end
     mt.__namecall = function(self, ...)
         local method = (getnamecallmethod and getnamecallmethod()) or ""
@@ -2134,37 +2140,72 @@ getgenv()._OmniCreateGameProxy = createGameProxy
 getgenv()._OmniGameProxy = createGameProxy(ProxiedRunService)
 getgenv().game = getgenv()._OmniGameProxy
 
--- Wrap typeof so typeof(getgenv().game) returns "Instance"
+-- Wrap typeof so typeof(getgenv().game) and typeof(ProxiedRunService) return "Instance"
 if not getgenv()._KernelOrigTypeof then
     local origTypeof = typeof
     getgenv()._KernelOrigTypeof = origTypeof
     getgenv().typeof = (newcclosure and newcclosure(function(obj)
-        if rawequal(obj, getgenv()._OmniGameProxy) then
+        if rawequal(obj, getgenv()._OmniGameProxy)
+            or (getgenv()._VirtualSchedulerProxiedRunService and rawequal(obj, getgenv()._VirtualSchedulerProxiedRunService))
+            or (getgenv().RunService and rawequal(obj, getgenv().RunService)) then
             return "Instance"
         end
         return origTypeof(obj)
     end)) or function(obj)
-        if rawequal(obj, getgenv()._OmniGameProxy) then
+        if rawequal(obj, getgenv()._OmniGameProxy)
+            or (getgenv()._VirtualSchedulerProxiedRunService and rawequal(obj, getgenv()._VirtualSchedulerProxiedRunService))
+            or (getgenv().RunService and rawequal(obj, getgenv().RunService)) then
             return "Instance"
         end
         return origTypeof(obj)
     end
 end
 
--- Wrap getrawmetatable so getrawmetatable(getgenv().game) returns virgin origGame metatable
+-- Wrap getrawmetatable so getrawmetatable(getgenv().game) and getrawmetatable(RunService) return virgin metatables
 if not getgenv()._KernelOrigGetrawmetatable and type(getrawmetatable) == "function" then
     local origGetrawmetatable = getrawmetatable
     getgenv()._KernelOrigGetrawmetatable = origGetrawmetatable
     getgenv().getrawmetatable = (newcclosure and newcclosure(function(obj)
         if rawequal(obj, getgenv()._OmniGameProxy) then
             return origGetrawmetatable(origGame)
+        elseif (getgenv()._VirtualSchedulerProxiedRunService and rawequal(obj, getgenv()._VirtualSchedulerProxiedRunService))
+            or (getgenv().RunService and rawequal(obj, getgenv().RunService)) then
+            return origGetrawmetatable(rawRunService)
         end
         return origGetrawmetatable(obj)
     end)) or function(obj)
         if rawequal(obj, getgenv()._OmniGameProxy) then
             return origGetrawmetatable(origGame)
+        elseif (getgenv()._VirtualSchedulerProxiedRunService and rawequal(obj, getgenv()._VirtualSchedulerProxiedRunService))
+            or (getgenv().RunService and rawequal(obj, getgenv().RunService)) then
+            return origGetrawmetatable(rawRunService)
         end
         return origGetrawmetatable(obj)
+    end
+end
+
+-- Wrap cloneref so cloneref(ProxiedRunService) or cloneref(gameProxy) returns obj safely
+if not getgenv()._KernelOrigCloneref and type(cloneref) == "function" then
+    local origCloneref = cloneref
+    getgenv()._KernelOrigCloneref = origCloneref
+    getgenv().cloneref = (newcclosure and newcclosure(function(obj, ...)
+        if not obj
+            or rawequal(obj, getgenv()._OmniGameProxy)
+            or (getgenv()._VirtualSchedulerProxiedRunService and rawequal(obj, getgenv()._VirtualSchedulerProxiedRunService))
+            or (getgenv().RunService and rawequal(obj, getgenv().RunService))
+            or typeof(obj) ~= "Instance" then
+            return obj
+        end
+        return origCloneref(obj, ...)
+    end)) or function(obj, ...)
+        if not obj
+            or rawequal(obj, getgenv()._OmniGameProxy)
+            or (getgenv()._VirtualSchedulerProxiedRunService and rawequal(obj, getgenv()._VirtualSchedulerProxiedRunService))
+            or (getgenv().RunService and rawequal(obj, getgenv().RunService))
+            or typeof(obj) ~= "Instance" then
+            return obj
+        end
+        return origCloneref(obj, ...)
     end
 end
 
@@ -3903,6 +3944,10 @@ local function cleanUpScheduler(isTeardown)
         getgenv().getrawmetatable = getgenv()._KernelOrigGetrawmetatable
         getgenv()._KernelOrigGetrawmetatable = nil
     end
+    if getgenv()._KernelOrigCloneref then
+        getgenv().cloneref = getgenv()._KernelOrigCloneref
+        getgenv()._KernelOrigCloneref = nil
+    end
     if getgenv().RunService == ProxiedRunService then
         getgenv().RunService = rawRunService
     end
@@ -3919,24 +3964,35 @@ local ProxiedRunService = setmetatable({
     PreSimulation = ProxiedSignals.Stepped,
     PreRender = ProxiedSignals.RenderStepped,
     BindToRenderStep = function(self, ...)
-        return ProxiedBindToRenderStep(RunService, ...)
+        return ProxiedBindToRenderStep(rawRunService, ...)
     end,
     UnbindFromRenderStep = function(self, ...)
-        return ProxiedUnbindFromRenderStep(RunService, ...)
+        return ProxiedUnbindFromRenderStep(rawRunService, ...)
     end,
 }, {
     __index = function(_, key)
-        return RunService[key]
+        if key == "ClassName" then return "RunService" end
+        local val = rawRunService[key]
+        if type(val) == "function" then
+            return function(self, ...)
+                return val(rawRunService, ...)
+            end
+        end
+        return val
     end,
     __namecall = function(_, ...)
         local method = (getnamecallmethod and getnamecallmethod()) or ""
         if method == "BindToRenderStep" then
-            return ProxiedBindToRenderStep(RunService, ...)
+            return ProxiedBindToRenderStep(rawRunService, ...)
         elseif method == "UnbindFromRenderStep" then
-            return ProxiedUnbindFromRenderStep(RunService, ...)
+            return ProxiedUnbindFromRenderStep(rawRunService, ...)
+        elseif method ~= "" and type(rawRunService[method]) == "function" then
+            return rawRunService[method](rawRunService, ...)
         end
-        return RunService[method](RunService, ...)
+        return rawRunService[method](rawRunService, ...)
     end,
+    __tostring = function() return tostring(rawRunService) end,
+    __eq = function(a, b) return rawequal(a, b) or a == rawRunService or b == rawRunService end,
 })
 
 -- Global environment exports
