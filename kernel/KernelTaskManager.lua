@@ -180,22 +180,28 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             end
 
             local fn, compileErr = origLoadstring(src, chunkname)
-            if fn and type(src) == "string" and not isObf then
-                local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
-                if gameProxy then
-                    local origCloneref = getgenv().cloneref or cloneref
-                    local function safeCloneref(obj, ...)
-                        if not obj or obj == gameProxy or obj == getgenv()._VirtualSchedulerProxiedRunService or typeof(obj) ~= "Instance" then
-                            return obj
+            if fn and type(src) == "string" then
+                if not isObf then
+                    local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
+                    if gameProxy then
+                        local origCloneref = getgenv().cloneref or cloneref
+                        local function safeCloneref(obj, ...)
+                            if not obj or obj == gameProxy or obj == getgenv()._VirtualSchedulerProxiedRunService or typeof(obj) ~= "Instance" then
+                                return obj
+                            end
+                            return origCloneref(obj, ...)
                         end
-                        return origCloneref(obj, ...)
+                        local scriptEnv = setmetatable({
+                            game = gameProxy,
+                            RunService = getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService,
+                            cloneref = (type(origCloneref) == "function" and safeCloneref) or nil,
+                        }, { __index = getfenv(fn) })
+                        pcall(setfenv, fn, scriptEnv)
                     end
-                    local scriptEnv = setmetatable({
-                        game = gameProxy,
-                        RunService = getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService,
-                        cloneref = (type(origCloneref) == "function" and safeCloneref) or nil,
-                    }, { __index = getfenv(fn) })
-                    pcall(setfenv, fn, scriptEnv)
+                else
+                    local rawGame = (workspace and workspace.Parent) or game
+                    local obfEnv = setmetatable({ game = rawGame }, { __index = getfenv(fn) })
+                    pcall(setfenv, fn, obfEnv)
                 end
             end
 
@@ -2091,8 +2097,9 @@ installGlobalHooks()
 -- ==============================================================================
 -- Transparent GameProxy Provider for Un-Obfuscated Scripts
 -- ==============================================================================
-local origGame = game
+local origGame = (workspace and workspace.Parent) or game
 local function createGameProxy(proxiedRS)
+    proxiedRS = proxiedRS or ProxiedRunService or getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService
     local gameProxy = newproxy(true)
     local mt = getmetatable(gameProxy)
     local function getRS()
@@ -2119,12 +2126,47 @@ local function createGameProxy(proxiedRS)
         return origGame[method](origGame, ...)
     end
     mt.__tostring = function() return tostring(origGame) end
-    mt.__eq = function(a, b) return a == origGame or b == origGame end
+    mt.__eq = function(a, b) return rawequal(a, b) or a == origGame or b == origGame end
     return gameProxy
 end
 
 getgenv()._OmniCreateGameProxy = createGameProxy
 getgenv()._OmniGameProxy = createGameProxy(ProxiedRunService)
+getgenv().game = getgenv()._OmniGameProxy
+
+-- Wrap typeof so typeof(getgenv().game) returns "Instance"
+if not getgenv()._KernelOrigTypeof then
+    local origTypeof = typeof
+    getgenv()._KernelOrigTypeof = origTypeof
+    getgenv().typeof = (newcclosure and newcclosure(function(obj)
+        if rawequal(obj, getgenv()._OmniGameProxy) then
+            return "Instance"
+        end
+        return origTypeof(obj)
+    end)) or function(obj)
+        if rawequal(obj, getgenv()._OmniGameProxy) then
+            return "Instance"
+        end
+        return origTypeof(obj)
+    end
+end
+
+-- Wrap getrawmetatable so getrawmetatable(getgenv().game) returns virgin origGame metatable
+if not getgenv()._KernelOrigGetrawmetatable and type(getrawmetatable) == "function" then
+    local origGetrawmetatable = getrawmetatable
+    getgenv()._KernelOrigGetrawmetatable = origGetrawmetatable
+    getgenv().getrawmetatable = (newcclosure and newcclosure(function(obj)
+        if rawequal(obj, getgenv()._OmniGameProxy) then
+            return origGetrawmetatable(origGame)
+        end
+        return origGetrawmetatable(obj)
+    end)) or function(obj)
+        if rawequal(obj, getgenv()._OmniGameProxy) then
+            return origGetrawmetatable(origGame)
+        end
+        return origGetrawmetatable(obj)
+    end
+end
 
 -- ==============================================================================
 -- Game Tasks Discovery & Selective Ingestion Subsystem
@@ -3850,6 +3892,17 @@ local function cleanUpScheduler(isTeardown)
     getgenv()._VirtualSchedulerPersistedIngestedKeys = nil
 
     -- Clear global environment proxies pointing to this DataModel
+    if rawequal(getgenv().game, getgenv()._OmniGameProxy) then
+        getgenv().game = origGame
+    end
+    if getgenv()._KernelOrigTypeof then
+        getgenv().typeof = getgenv()._KernelOrigTypeof
+        getgenv()._KernelOrigTypeof = nil
+    end
+    if getgenv()._KernelOrigGetrawmetatable then
+        getgenv().getrawmetatable = getgenv()._KernelOrigGetrawmetatable
+        getgenv()._KernelOrigGetrawmetatable = nil
+    end
     if getgenv().RunService == ProxiedRunService then
         getgenv().RunService = rawRunService
     end
@@ -3890,6 +3943,7 @@ local ProxiedRunService = setmetatable({
 getgenv().RunService = ProxiedRunService
 getgenv()._VirtualSchedulerProxiedRunService = ProxiedRunService
 getgenv()._OmniGameProxy = createGameProxy(ProxiedRunService)
+getgenv().game = getgenv()._OmniGameProxy
 getgenv().ThrottledConnect = ThrottledConnect
 getgenv().SuperStep = RegisterSuperStep
 getgenv().RegisterSuperStep = RegisterSuperStep

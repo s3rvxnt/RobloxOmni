@@ -138,22 +138,28 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             end
 
             local fn, compileErr = origLoadstring(src, chunkname)
-            if fn and type(src) == "string" and not isObf then
-                local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
-                if gameProxy then
-                    local origCloneref = getgenv().cloneref or cloneref
-                    local function safeCloneref(obj, ...)
-                        if not obj or obj == gameProxy or obj == getgenv()._VirtualSchedulerProxiedRunService or typeof(obj) ~= "Instance" then
-                            return obj
+            if fn and type(src) == "string" then
+                if not isObf then
+                    local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
+                    if gameProxy then
+                        local origCloneref = getgenv().cloneref or cloneref
+                        local function safeCloneref(obj, ...)
+                            if not obj or obj == gameProxy or obj == getgenv()._VirtualSchedulerProxiedRunService or typeof(obj) ~= "Instance" then
+                                return obj
+                            end
+                            return origCloneref(obj, ...)
                         end
-                        return origCloneref(obj, ...)
+                        local scriptEnv = setmetatable({
+                            game = gameProxy,
+                            RunService = getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService,
+                            cloneref = (type(origCloneref) == "function" and safeCloneref) or nil,
+                        }, { __index = getfenv(fn) })
+                        pcall(setfenv, fn, scriptEnv)
                     end
-                    local scriptEnv = setmetatable({
-                        game = gameProxy,
-                        RunService = getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService,
-                        cloneref = (type(origCloneref) == "function" and safeCloneref) or nil,
-                    }, { __index = getfenv(fn) })
-                    pcall(setfenv, fn, scriptEnv)
+                else
+                    local rawGame = (workspace and workspace.Parent) or game
+                    local obfEnv = setmetatable({ game = rawGame }, { __index = getfenv(fn) })
+                    pcall(setfenv, fn, obfEnv)
                 end
             end
 
@@ -2245,6 +2251,13 @@ local function executeScript(meta)
                     }, { __index = fnEnv })
                     pcall(setfenv, compiledFn, scriptEnv)
                 end
+            end
+        else
+            local rawGame = (workspace and workspace.Parent) or game
+            local fnEnv = getfenv(compiledFn)
+            if fnEnv and fnEnv.game ~= rawGame then
+                local obfEnv = setmetatable({ game = rawGame }, { __index = fnEnv })
+                pcall(setfenv, compiledFn, obfEnv)
             end
         end
 
