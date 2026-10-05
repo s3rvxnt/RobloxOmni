@@ -88,7 +88,8 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             end
 
             -- Adaptive Execution Gateway: auto-exempt obfuscated scripts instantly
-            if type(src) == "string" and isObfuscatedCode(src) then
+            local isObf = (type(src) == "string" and isObfuscatedCode(src))
+            if isObf then
                 local exempt = getgenv()._KernelExemptScripts
                 if exempt then
                     if chunkname and type(chunkname) == "string" and chunkname ~= "" then
@@ -101,7 +102,16 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 end
             end
 
-            return origLoadstring(src, chunkname)
+            local fn, compileErr = origLoadstring(src, chunkname)
+            if fn and type(src) == "string" and not isObf then
+                local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
+                if gameProxy then
+                    local scriptEnv = setmetatable({ game = gameProxy }, { __index = getfenv(fn) })
+                    pcall(setfenv, fn, scriptEnv)
+                end
+            end
+
+            return fn, compileErr
         end
         getgenv().loadstring = (newcclosure and newcclosure(loadstringShim)) or loadstringShim
         getgenv()._AdaptiveExecutionGatewayInstalled = true

@@ -130,7 +130,8 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             end
 
             -- Adaptive Execution Gateway: auto-exempt obfuscated scripts instantly
-            if type(src) == "string" and isObfuscatedCode(src) then
+            local isObf = (type(src) == "string" and isObfuscatedCode(src))
+            if isObf then
                 if chunkname and type(chunkname) == "string" and chunkname ~= "" then
                     _KernelExemptScripts[chunkname:lower()] = true
                 end
@@ -140,7 +141,16 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 _KernelExemptScripts["luaauth"] = true
             end
 
-            return origLoadstring(src, chunkname)
+            local fn, compileErr = origLoadstring(src, chunkname)
+            if fn and type(src) == "string" and not isObf then
+                local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
+                if gameProxy then
+                    local scriptEnv = setmetatable({ game = gameProxy }, { __index = getfenv(fn) })
+                    pcall(setfenv, fn, scriptEnv)
+                end
+            end
+
+            return fn, compileErr
         end
         getgenv().loadstring = (newcclosure and newcclosure(loadstringShim)) or loadstringShim
         getgenv()._AdaptiveExecutionGatewayInstalled = true
@@ -1999,8 +2009,8 @@ local function installGlobalHooks()
     end)
 
     -- Primary: hookmetamethod (Potassium, Synapse, modern Luau executors)
-    -- We hook __index ONLY. __namecall is intentionally preserved 100% VIRGIN to prevent anti-tamper triggers (Luraph v14) and call mismatch crashes.
-    if hookmetamethod then
+    -- Disabled by default to preserve 100% virgin metatables for third-party scripts (Luraph v14)
+    if hookmetamethod and getgenv()._OmniEnableMetamethodHooks then
         local ok, oldIdx = pcall(hookmetamethod, game, "__index", customIndex)
         if ok and oldIdx and not origInstanceIndex then
             origInstanceIndex = oldIdx
@@ -2009,7 +2019,7 @@ local function installGlobalHooks()
     end
 
     -- Fallback: getrawmetatable + setreadonly (Sirhurt, older executors)
-    if not origInstanceIndex and getrawmetatable and setreadonly then
+    if not origInstanceIndex and getrawmetatable and setreadonly and getgenv()._OmniEnableMetamethodHooks then
         local ok, mt = pcall(getrawmetatable, game)
         if ok and mt then
             pcall(setreadonly, mt, false)
@@ -2022,12 +2032,48 @@ local function installGlobalHooks()
         end
     end
 
-    getgenv()._VirtualSchedulerHooksActive = true
+    getgenv()._VirtualSchedulerHooksActive = (getgenv()._OmniEnableMetamethodHooks == true)
     getgenv()._VirtualSchedulerOrigIndex = origInstanceIndex
     getgenv()._VirtualSchedulerOrigNamecall = nil
 end
 
 installGlobalHooks()
+
+-- ==============================================================================
+-- Transparent GameProxy Provider for Un-Obfuscated Scripts
+-- ==============================================================================
+local origGame = game
+local function createGameProxy(proxiedRS)
+    proxiedRS = proxiedRS or ProxiedRunService or getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService
+    local gameProxy = newproxy(true)
+    local mt = getmetatable(gameProxy)
+    mt.__index = function(self, key)
+        if key == "GetService" or key == "FindService" or key == "service" then
+            return function(_, serviceName)
+                if serviceName == "RunService" then return proxiedRS end
+                return origGame:GetService(serviceName)
+            end
+        elseif key == "RunService" then
+            return proxiedRS
+        end
+        return origGame[key]
+    end
+    mt.__namecall = function(self, ...)
+        local method = (getnamecallmethod and getnamecallmethod()) or ""
+        if method == "GetService" or method == "FindService" or method == "service" then
+            local serviceName = ...
+            if serviceName == "RunService" then return proxiedRS end
+            return origGame:GetService(serviceName)
+        end
+        return origGame[method](origGame, ...)
+    end
+    mt.__tostring = function() return tostring(origGame) end
+    mt.__eq = function(a, b) return a == origGame or b == origGame end
+    return gameProxy
+end
+
+getgenv()._OmniCreateGameProxy = createGameProxy
+getgenv()._OmniGameProxy = createGameProxy(ProxiedRunService)
 
 -- ==============================================================================
 -- Game Tasks Discovery & Selective Ingestion Subsystem
