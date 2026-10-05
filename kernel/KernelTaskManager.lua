@@ -145,7 +145,10 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             if fn and type(src) == "string" and not isObf then
                 local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
                 if gameProxy then
-                    local scriptEnv = setmetatable({ game = gameProxy }, { __index = getfenv(fn) })
+                    local scriptEnv = setmetatable({
+                        game = gameProxy,
+                        RunService = getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService,
+                    }, { __index = getfenv(fn) })
                     pcall(setfenv, fn, scriptEnv)
                 end
             end
@@ -2044,17 +2047,19 @@ installGlobalHooks()
 -- ==============================================================================
 local origGame = game
 local function createGameProxy(proxiedRS)
-    proxiedRS = proxiedRS or ProxiedRunService or getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService
     local gameProxy = newproxy(true)
     local mt = getmetatable(gameProxy)
+    local function getRS()
+        return proxiedRS or ProxiedRunService or getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService
+    end
     mt.__index = function(self, key)
         if key == "GetService" or key == "FindService" or key == "service" then
             return function(_, serviceName)
-                if serviceName == "RunService" then return proxiedRS end
+                if serviceName == "RunService" then return getRS() end
                 return origGame:GetService(serviceName)
             end
         elseif key == "RunService" then
-            return proxiedRS
+            return getRS()
         end
         return origGame[key]
     end
@@ -2062,7 +2067,7 @@ local function createGameProxy(proxiedRS)
         local method = (getnamecallmethod and getnamecallmethod()) or ""
         if method == "GetService" or method == "FindService" or method == "service" then
             local serviceName = ...
-            if serviceName == "RunService" then return proxiedRS end
+            if serviceName == "RunService" then return getRS() end
             return origGame:GetService(serviceName)
         end
         return origGame[method](origGame, ...)
@@ -3802,6 +3807,8 @@ local ProxiedRunService = setmetatable({
 
 -- Global environment exports
 getgenv().RunService = ProxiedRunService
+getgenv()._VirtualSchedulerProxiedRunService = ProxiedRunService
+getgenv()._OmniGameProxy = createGameProxy(ProxiedRunService)
 getgenv().ThrottledConnect = ThrottledConnect
 getgenv().SuperStep = RegisterSuperStep
 getgenv().RegisterSuperStep = RegisterSuperStep

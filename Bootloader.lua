@@ -106,7 +106,10 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             if fn and type(src) == "string" and not isObf then
                 local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
                 if gameProxy then
-                    local scriptEnv = setmetatable({ game = gameProxy }, { __index = getfenv(fn) })
+                    local scriptEnv = setmetatable({
+                        game = gameProxy,
+                        RunService = getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService,
+                    }, { __index = getfenv(fn) })
                     pcall(setfenv, fn, scriptEnv)
                 end
             end
@@ -2177,6 +2180,23 @@ local function executeScript(meta)
     }
 
     if compiledFn then
+        -- Attach scoped environment to un-obfuscated scripts so game:GetService("RunService") routes to Active Tasks
+        local exempt = getgenv()._KernelExemptScripts or {}
+        local isExempt = (meta.name and exempt[meta.name:lower()]) or (meta.file and exempt[meta.file:lower()])
+        if not isExempt then
+            local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
+            if gameProxy then
+                local fnEnv = getfenv(compiledFn)
+                if fnEnv and fnEnv.game ~= gameProxy then
+                    local scriptEnv = setmetatable({
+                        game = gameProxy,
+                        RunService = getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService,
+                    }, { __index = fnEnv })
+                    pcall(setfenv, compiledFn, scriptEnv)
+                end
+            end
+        end
+
         local execStart = os.clock()
         -- Coroutine-isolated execution: prevents top-level yields or loops from freezing the bootloader
         local thread = coroutine.create(function()
