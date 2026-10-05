@@ -1988,8 +1988,8 @@ local function installGlobalHooks()
         end
     end)
 
-    -- Primary: hookmetamethod (Potassium, Synapse, modern Luau executors)
-    if hookmetamethod then
+    -- Primary: hookmetamethod (Potassium, Synapse, modern Luau executors) - Disabled by default to preserve virgin C metatables for third-party scripts (Luraph)
+    if hookmetamethod and getgenv()._OmniEnableMetamethodHooks then
         local ok, oldIdx = pcall(hookmetamethod, game, "__index", customIndex)
         if ok and oldIdx and not origInstanceIndex then
             origInstanceIndex = oldIdx
@@ -2004,7 +2004,7 @@ local function installGlobalHooks()
     end
 
     -- Fallback: getrawmetatable + setreadonly (Sirhurt, older executors)
-    if not origInstanceIndex and getrawmetatable and setreadonly then
+    if not origInstanceIndex and getrawmetatable and setreadonly and getgenv()._OmniEnableMetamethodHooks then
         local ok, mt = pcall(getrawmetatable, game)
         if ok and mt then
             pcall(setreadonly, mt, false)
@@ -2017,7 +2017,7 @@ local function installGlobalHooks()
         end
     end
 
-    getgenv()._VirtualSchedulerHooksActive = true
+    getgenv()._VirtualSchedulerHooksActive = (getgenv()._OmniEnableMetamethodHooks == true)
     getgenv()._VirtualSchedulerOrigIndex = origInstanceIndex
     getgenv()._VirtualSchedulerOrigNamecall = origInstanceNamecall
 end
@@ -3088,8 +3088,8 @@ local function ClearLoopRegistry()
     return true
 end
 
--- Install task.wait and wait hooks safely with trampoline capture
-if hookfunction then
+-- Install task.wait and wait hooks safely with trampoline capture (Disabled by default to preserve virgin C closures for Luraph/Moonsec)
+if hookfunction and getgenv()._OmniEnableWaitHooks then
     if task and task.wait and not getgenv()._KernelOrigTaskWait then
         pcall(function()
             local hook = (newcclosure and newcclosure(hookedTaskWait)) or hookedTaskWait
@@ -3109,6 +3109,9 @@ if hookfunction then
     else
         origWait = getgenv()._KernelOrigWait
     end
+else
+    origTaskWait = (task and task.wait) or wait
+    origWait = wait or (task and task.wait)
 end
 
 

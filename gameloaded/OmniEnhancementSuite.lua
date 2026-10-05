@@ -271,7 +271,7 @@ local function NewIndexHandler(self, key, value)
     return originalNewIndex(self, key, value)
 end
 
-if typeof(hookmetamethod) == "function" then
+if typeof(hookmetamethod) == "function" and (genv and genv._OmniEnableMetamethodHooks) then
     if not originalIndex then
         originalIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
             if genv and genv.__EnhancementIndexHandler then
@@ -293,6 +293,9 @@ if typeof(hookmetamethod) == "function" then
         if genv then genv.__EnhancementOriginalNewIndex = originalNewIndex end
     end
     if genv then genv.__EnhancementNewIndexHandler = NewIndexHandler end
+else
+    originalIndex = function(self, key) return self[key] end
+    originalNewIndex = function(self, key, value) self[key] = value end
 end
 
 local function GetRawText(obj)
