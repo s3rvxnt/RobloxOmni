@@ -23,7 +23,7 @@ end
 -- ============================================================================
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
-local RunService = (typeof(getgenv) == "function" and getgenv().RunService) or game:GetService("RunService")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Teams = game:GetService("Teams")
 local UserInputService = game:GetService("UserInputService")

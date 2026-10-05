@@ -1929,10 +1929,46 @@ local function installGlobalHooks()
     local origInstanceNamecall = getgenv()._VirtualSchedulerOrigNamecall
     local RealRunService = RunService
 
+    -- Adaptive Execution Gateway: Instant caller obfuscation detection
+    local function isCallerObfuscated()
+        if not debug or not debug.info then return false end
+        for lvl = 2, 12 do
+            local s = debug.info(lvl, "s")
+            if not s then break end
+            local l = tostring(s):lower()
+            if l:find("luraph", 1, true) or l:find("lph", 1, true)
+                or l:find("moonsec", 1, true) or l:find("ironbrew", 1, true)
+                or l:find("luaauth", 1, true) or l:find("prometheus", 1, true)
+                or l:find("psu", 1, true) or l:find("aztup", 1, true)
+                or l:find("synapse xen", 1, true) or l:find("boron", 1, true)
+                or l:find("wearedevs", 1, true) then
+                return true
+            end
+            local exempt = _KernelExemptScripts or getgenv()._KernelExemptScripts
+            if exempt then
+                for pattern, _ in pairs(exempt) do
+                    if l:find(pattern, 1, true) ~= nil then
+                        return true
+                    end
+                end
+            end
+        end
+        return false
+    end
+
     local customIndex
     customIndex = (newcclosure and newcclosure or function(fn) return fn end)(function(self, key)
         -- STRICT CALLER ISOLATION: Game scripts (checkcaller() == false) MUST NEVER be intercepted!
         if not (checkcaller and checkcaller()) then
+            local orig = origInstanceIndex or getgenv()._VirtualSchedulerOrigIndex
+            if orig then
+                return orig(self, key)
+            end
+            return
+        end
+
+        -- ADAPTIVE EXECUTION GATEWAY: Obfuscated third-party scripts pass through untouched to virgin engine
+        if isCallerObfuscated() then
             local orig = origInstanceIndex or getgenv()._VirtualSchedulerOrigIndex
             if orig then
                 return orig(self, key)
@@ -1974,6 +2010,16 @@ local function installGlobalHooks()
             return
         end
 
+        -- ADAPTIVE EXECUTION GATEWAY: Obfuscated third-party scripts pass through untouched to virgin engine
+        if isCallerObfuscated() then
+            local orig = origInstanceNamecall or getgenv()._VirtualSchedulerOrigNamecall
+            if orig then
+                if setnamecallmethod and method ~= "" then setnamecallmethod(method) end
+                return orig(self, ...)
+            end
+            return
+        end
+
         if self == RealRunService then
             if method == "BindToRenderStep" then
                 return ProxiedBindToRenderStep(self, ...)
@@ -1988,8 +2034,8 @@ local function installGlobalHooks()
         end
     end)
 
-    -- Primary: hookmetamethod (Potassium, Synapse, modern Luau executors) - Disabled by default to preserve virgin C metatables for third-party scripts (Luraph)
-    if hookmetamethod and getgenv()._OmniEnableMetamethodHooks then
+    -- Primary: hookmetamethod (Potassium, Synapse, modern Luau executors)
+    if hookmetamethod then
         local ok, oldIdx = pcall(hookmetamethod, game, "__index", customIndex)
         if ok and oldIdx and not origInstanceIndex then
             origInstanceIndex = oldIdx
@@ -2004,7 +2050,7 @@ local function installGlobalHooks()
     end
 
     -- Fallback: getrawmetatable + setreadonly (Sirhurt, older executors)
-    if not origInstanceIndex and getrawmetatable and setreadonly and getgenv()._OmniEnableMetamethodHooks then
+    if not origInstanceIndex and getrawmetatable and setreadonly then
         local ok, mt = pcall(getrawmetatable, game)
         if ok and mt then
             pcall(setreadonly, mt, false)
@@ -2017,7 +2063,7 @@ local function installGlobalHooks()
         end
     end
 
-    getgenv()._VirtualSchedulerHooksActive = (getgenv()._OmniEnableMetamethodHooks == true)
+    getgenv()._VirtualSchedulerHooksActive = true
     getgenv()._VirtualSchedulerOrigIndex = origInstanceIndex
     getgenv()._VirtualSchedulerOrigNamecall = origInstanceNamecall
 end
