@@ -145,9 +145,17 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             if fn and type(src) == "string" and not isObf then
                 local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
                 if gameProxy then
+                    local origCloneref = getgenv().cloneref or cloneref
+                    local function safeCloneref(obj, ...)
+                        if not obj or obj == gameProxy or obj == getgenv()._VirtualSchedulerProxiedRunService or typeof(obj) ~= "Instance" then
+                            return obj
+                        end
+                        return origCloneref(obj, ...)
+                    end
                     local scriptEnv = setmetatable({
                         game = gameProxy,
                         RunService = getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService,
+                        cloneref = (type(origCloneref) == "function" and safeCloneref) or nil,
                     }, { __index = getfenv(fn) })
                     pcall(setfenv, fn, scriptEnv)
                 end
