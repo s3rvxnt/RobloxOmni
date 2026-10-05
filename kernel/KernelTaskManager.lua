@@ -1269,7 +1269,7 @@ local function getCallingContext(minLvl)
         for lvl = startLvl, 15 do
             local src, line, fn = debug.info(lvl, "slf")
             if src and src ~= "[C]" then
-                if rawSelf and src == rawSelf and (rawSelf ~= "" or lvl <= 4) then
+                if rawSelf and rawSelf ~= "" and rawSelf ~= "[C]" and src == rawSelf then
                     -- Kernel internal frame, skip
                 elseif src == "" then
                     if not anonymousCaller and line and line > 0 then
@@ -2650,10 +2650,13 @@ end
 -- Loop Governor & Preemptive Thread Manager Subsystem
 -- ==============================================================================
 
-local loopRegistry = setmetatable({}, { __mode = "k" })         -- [thread] = loopObject
-local loopOrder = {}                                              -- array of loop IDs for deterministic iteration
-local ignoredThreads = setmetatable({}, { __mode = "k" })       -- [thread] = true (internal/kernel threads to skip)
-local loopIdCounter = 0
+local loopRegistry = getgenv()._OmniLoopRegistry or setmetatable({}, { __mode = "k" })
+getgenv()._OmniLoopRegistry = loopRegistry
+local loopOrder = getgenv()._OmniLoopOrder or {}
+getgenv()._OmniLoopOrder = loopOrder
+local ignoredThreads = getgenv()._OmniIgnoredThreads or setmetatable({}, { __mode = "k" })
+getgenv()._OmniIgnoredThreads = ignoredThreads
+local loopIdCounter = getgenv()._OmniLoopIdCounter or 0
 local loopsPausedAll = false
 
 local origTaskWait = getgenv()._KernelOrigTaskWait
@@ -2949,8 +2952,10 @@ local function hookedTaskWait(duration)
     local loop = loopRegistry[curThread]
     if not loop then
         local caller = getCallingContext(2)
-        if not caller or isSelfOrKernel(caller) then
+        if isSelfOrKernel(caller) then
             ignoredThreads[curThread] = true
+            return waitFn(duration)
+        elseif not caller then
             return waitFn(duration)
         end
         local isExec = isExecutorOrigin(caller, caller, isCallerExec)
@@ -2999,8 +3004,11 @@ local function hookedWait(duration)
     local loop = loopRegistry[curThread]
     if not loop then
         local caller = getCallingContext(2)
-        if not caller or isSelfOrKernel(caller) then
+        if isSelfOrKernel(caller) then
             ignoredThreads[curThread] = true
+            local d, t = waitFn(duration)
+            return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
+        elseif not caller then
             local d, t = waitFn(duration)
             return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
         end
@@ -3152,30 +3160,57 @@ local function ClearLoopRegistry()
     return true
 end
 
--- Install task.wait and wait hooks safely with trampoline capture (Disabled by default to preserve virgin C closures for Luraph/Moonsec)
-if hookfunction and getgenv()._OmniEnableWaitHooks then
-    if task and task.wait and not getgenv()._KernelOrigTaskWait then
-        pcall(function()
-            local hook = (newcclosure and newcclosure(hookedTaskWait)) or hookedTaskWait
-            origTaskWait = hookfunction(task.wait, hook)
-            getgenv()._KernelOrigTaskWait = origTaskWait
-        end)
-    else
-        origTaskWait = getgenv()._KernelOrigTaskWait
-    end
+-- Install task.wait and wait hooks safely with dynamic delegation trampoline (Enabled by default; exempt scripts bypass via isSelfOrKernel)
+getgenv()._OmniActiveHookedTaskWait = hookedTaskWait
+getgenv()._OmniActiveHookedWait = hookedWait
 
-    if wait and not getgenv()._KernelOrigWait then
-        pcall(function()
-            local hook = (newcclosure and newcclosure(hookedWait)) or hookedWait
-            origWait = hookfunction(wait, hook)
-            getgenv()._KernelOrigWait = origWait
-        end)
+if hookfunction and getgenv()._OmniEnableWaitHooks ~= false then
+    if not getgenv()._OmniWaitTrampolineInstalled then
+        if task and task.wait then
+            pcall(function()
+                local function taskWaitTrampoline(...)
+                    local activeHook = getgenv()._OmniActiveHookedTaskWait
+                    if activeHook then
+                        return activeHook(...)
+                    end
+                    local orig = getgenv()._KernelOrigTaskWait
+                    if orig then return orig(...) end
+                    return ...
+                end
+                local hook = (newcclosure and newcclosure(taskWaitTrampoline)) or taskWaitTrampoline
+                origTaskWait = hookfunction(task.wait, hook)
+                getgenv()._KernelOrigTaskWait = origTaskWait
+            end)
+        else
+            origTaskWait = getgenv()._KernelOrigTaskWait or (task and task.wait)
+        end
+
+        if wait then
+            pcall(function()
+                local function waitTrampoline(...)
+                    local activeHook = getgenv()._OmniActiveHookedWait
+                    if activeHook then
+                        return activeHook(...)
+                    end
+                    local orig = getgenv()._KernelOrigWait
+                    if orig then return orig(...) end
+                    return ...
+                end
+                local hook = (newcclosure and newcclosure(waitTrampoline)) or waitTrampoline
+                origWait = hookfunction(wait, hook)
+                getgenv()._KernelOrigWait = origWait
+            end)
+        else
+            origWait = getgenv()._KernelOrigWait or wait
+        end
+        getgenv()._OmniWaitTrampolineInstalled = true
     else
-        origWait = getgenv()._KernelOrigWait
+        origTaskWait = getgenv()._KernelOrigTaskWait or (task and task.wait)
+        origWait = getgenv()._KernelOrigWait or wait
     end
 else
-    origTaskWait = (task and task.wait) or wait
-    origWait = wait or (task and task.wait)
+    origTaskWait = getgenv()._KernelOrigTaskWait or (task and task.wait) or wait
+    origWait = getgenv()._KernelOrigWait or wait or (task and task.wait)
 end
 
 
