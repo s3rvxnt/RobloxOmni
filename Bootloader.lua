@@ -36,23 +36,66 @@ if type(isfolder) ~= "function" or type(listfiles) ~= "function" then
     return
 end
 
--- Safe loadstring shim: handles Instance arguments (e.g. TopbarPlus / legacy tools) gracefully
-if not getgenv()._KernelLoadstringShimInstalled then
-    local origLoadstring = getgenv().loadstring or loadstring
+-- Universal Scheduler Exemption Registry
+if not getgenv()._KernelExemptScripts then
+    getgenv()._KernelExemptScripts = {}
+end
+
+local function isObfuscatedCode(src)
+    if type(src) ~= "string" or #src < 30 then return false end
+    local head = src:sub(1, 4000):lower()
+    return head:find("luraph", 1, true) ~= nil
+        or head:find("lph_", 1, true) ~= nil
+        or head:find("luaauth", 1, true) ~= nil
+        or head:find("moonsec", 1, true) ~= nil
+        or head:find("ironbrew", 1, true) ~= nil
+        or head:find("prometheus", 1, true) ~= nil
+        or head:find("psu obfuscator", 1, true) ~= nil
+        or head:find("aztup", 1, true) ~= nil
+        or head:find("synapse xen", 1, true) ~= nil
+        or head:find("boron", 1, true) ~= nil
+        or head:find("obfuscated with", 1, true) ~= nil
+        or head:find("this file was obfuscated", 1, true) ~= nil
+        or head:find("protected by", 1, true) ~= nil
+        or src:sub(1, 4) == "\27Lua"
+        or head:find("\\27lua", 1, true) ~= nil
+        or head:find("\\x1blua", 1, true) ~= nil
+end
+
+-- Safe loadstring shim with Adaptive Execution Gateway
+if not getgenv()._AdaptiveExecutionGatewayInstalled then
+    local origLoadstring = getgenv()._KernelOrigLoadstring or getgenv().loadstring or loadstring
+    getgenv()._KernelOrigLoadstring = origLoadstring
     if type(origLoadstring) == "function" then
         getgenv().loadstring = function(src, chunkname)
             if typeof(src) == "Instance" then
                 if src:IsA("LuaSourceContainer") then
                     local ok, code = pcall(function() return (decompile and decompile(src)) or src.Source end)
                     if ok and type(code) == "string" and code ~= "" then
-                        return origLoadstring(code, chunkname or ("@" .. src:GetFullName()))
+                        src = code
+                        chunkname = chunkname or ("@" .. src:GetFullName())
+                    else
+                        return function() end
                     end
+                else
+                    return function() end
                 end
-                -- Gracefully return a safe no-op callable so callers like TopbarPlus don't throw runtime errors
-                return function() end
             end
+
+            -- Adaptive Execution Gateway: auto-exempt obfuscated scripts instantly
+            if type(src) == "string" and isObfuscatedCode(src) then
+                if chunkname and type(chunkname) == "string" and chunkname ~= "" then
+                    getgenv()._KernelExemptScripts[chunkname:lower()] = true
+                end
+                getgenv()._KernelExemptScripts["luraph"] = true
+                getgenv()._KernelExemptScripts["moonsec"] = true
+                getgenv()._KernelExemptScripts["ironbrew"] = true
+                getgenv()._KernelExemptScripts["luaauth"] = true
+            end
+
             return origLoadstring(src, chunkname)
         end
+        getgenv()._AdaptiveExecutionGatewayInstalled = true
         getgenv()._KernelLoadstringShimInstalled = true
     end
 end

@@ -97,9 +97,10 @@ local function isObfuscatedCode(src)
         or head:find("\\x1blua", 1, true) ~= nil
 end
 
--- Safe loadstring shim: handles Instance arguments (e.g. TopbarPlus / legacy tools) gracefully
-if not getgenv()._KernelLoadstringShimInstalled then
-    local origLoadstring = getgenv().loadstring or loadstring
+-- Safe loadstring shim with Adaptive Execution Gateway
+if not getgenv()._AdaptiveExecutionGatewayInstalled then
+    local origLoadstring = getgenv()._KernelOrigLoadstring or getgenv().loadstring or loadstring
+    getgenv()._KernelOrigLoadstring = origLoadstring
     if type(origLoadstring) == "function" then
         getgenv().loadstring = function(src, chunkname)
             if typeof(src) == "Instance" then
@@ -129,6 +130,7 @@ if not getgenv()._KernelLoadstringShimInstalled then
 
             return origLoadstring(src, chunkname)
         end
+        getgenv()._AdaptiveExecutionGatewayInstalled = true
         getgenv()._KernelLoadstringShimInstalled = true
     end
 end
