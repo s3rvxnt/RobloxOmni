@@ -76,11 +76,31 @@ local SELF_SRC = (rawSelf and rawSelf ~= "" and rawSelf ~= "[C]") and tostring(r
 -- hooks and loop throttlers, guaranteeing virgin C-closure execution without
 -- intrusive trampoline mutation.
 
-local function isObfuscatedCode(src)
-    if type(src) ~= "string" or #src < 30 then return false end
+local function isObfuscatedCode(src, chunkname)
+    if chunkname and type(chunkname) == "string" and chunkname ~= "" then
+        local cLower = chunkname:lower()
+        if cLower:find("luraph", 1, true)
+            or cLower:find("lph", 1, true)
+            or cLower:find("luaauth", 1, true)
+            or cLower:find("moonsec", 1, true)
+            or cLower:find("ironbrew", 1, true)
+            or cLower:find("plasmii", 1, true)
+            or cLower:find("obf", 1, true) then
+            return true
+        end
+        local exempt = getgenv()._KernelExemptScripts
+        if exempt and (exempt[cLower] or exempt[cLower:gsub("^[@%[]", "")]) then
+            return true
+        end
+    end
+
+    if type(src) ~= "string" or #src < 10 then return false end
     local head = src:sub(1, 4000):lower()
     return head:find("luraph", 1, true) ~= nil
         or head:find("lph_", 1, true) ~= nil
+        or head:find("lh={", 1, true) ~= nil
+        or head:find("lh = {", 1, true) ~= nil
+        or head:find(",lh={},", 1, true) ~= nil
         or head:find("luaauth", 1, true) ~= nil
         or head:find("moonsec", 1, true) ~= nil
         or head:find("ironbrew", 1, true) ~= nil
@@ -129,16 +149,34 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 end
             end
 
-            -- Adaptive Execution Gateway: auto-exempt obfuscated scripts instantly
-            local isObf = (type(src) == "string" and isObfuscatedCode(src))
-            if isObf then
-                if chunkname and type(chunkname) == "string" and chunkname ~= "" then
-                    _KernelExemptScripts[chunkname:lower()] = true
+            -- Stack origin inspection: check if caller itself is an exempt/obfuscated script
+            local isCallerExempt = false
+            if debug and debug.info then
+                for lvl = 2, 7 do
+                    local cSrc = debug.info(lvl, "s")
+                    if cSrc and type(cSrc) == "string" and cSrc ~= "" and cSrc ~= "[C]" then
+                        local clean = cSrc:gsub("^[@%[]", ""):gsub("\"%]$", ""):lower()
+                        if isObfuscatedCode("", clean) or (getgenv()._KernelExemptScripts and getgenv()._KernelExemptScripts[clean]) then
+                            isCallerExempt = true
+                            break
+                        end
+                    end
                 end
-                _KernelExemptScripts["luraph"] = true
-                _KernelExemptScripts["moonsec"] = true
-                _KernelExemptScripts["ironbrew"] = true
-                _KernelExemptScripts["luaauth"] = true
+            end
+
+            -- Adaptive Execution Gateway: auto-exempt obfuscated scripts instantly
+            local isObf = isCallerExempt or (type(src) == "string" and isObfuscatedCode(src, chunkname))
+            local exempt = _KernelExemptScripts or getgenv()._KernelExemptScripts
+            if isObf and exempt then
+                if chunkname and type(chunkname) == "string" and chunkname ~= "" then
+                    exempt[chunkname:lower()] = true
+                    exempt[chunkname:gsub("^[@%[]", ""):lower()] = true
+                end
+                exempt["luraph"] = true
+                exempt["moonsec"] = true
+                exempt["ironbrew"] = true
+                exempt["luaauth"] = true
+                exempt["plasmii"] = true
             end
 
             local fn, compileErr = origLoadstring(src, chunkname)
