@@ -97,18 +97,30 @@ local function isObfuscatedCode(src)
         or head:find("\\x1blua", 1, true) ~= nil
 end
 
+-- Universal Scheduler Exemption Registry (API for external scripts/addons to opt out of loop management)
+local _KernelExemptScripts = getgenv()._KernelExemptScripts or {}
+getgenv()._KernelExemptScripts = _KernelExemptScripts
+getgenv().ExemptScriptFromScheduler = function(pattern)
+    if pattern and type(pattern) == "string" and pattern ~= "" then
+        _KernelExemptScripts[pattern:lower()] = true
+        return true
+    end
+    return false
+end
+
 -- Safe loadstring shim with Adaptive Execution Gateway
 if not getgenv()._AdaptiveExecutionGatewayInstalled then
     local origLoadstring = getgenv()._KernelOrigLoadstring or getgenv().loadstring or loadstring
     getgenv()._KernelOrigLoadstring = origLoadstring
     if type(origLoadstring) == "function" then
-        getgenv().loadstring = function(src, chunkname)
+        local function loadstringShim(src, chunkname)
             if typeof(src) == "Instance" then
                 if src:IsA("LuaSourceContainer") then
+                    local fullName = pcall(function() return src:GetFullName() end) and src:GetFullName() or "Instance"
+                    chunkname = chunkname or ("@" .. fullName)
                     local ok, code = pcall(function() return (decompile and decompile(src)) or src.Source end)
                     if ok and type(code) == "string" and code ~= "" then
                         src = code
-                        chunkname = chunkname or ("@" .. src:GetFullName())
                     else
                         return function() end
                     end
@@ -130,20 +142,10 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
             return origLoadstring(src, chunkname)
         end
+        getgenv().loadstring = (newcclosure and newcclosure(loadstringShim)) or loadstringShim
         getgenv()._AdaptiveExecutionGatewayInstalled = true
         getgenv()._KernelLoadstringShimInstalled = true
     end
-end
-
--- Universal Scheduler Exemption Registry (API for external scripts/addons to opt out of loop management)
-local _KernelExemptScripts = {}
-getgenv()._KernelExemptScripts = _KernelExemptScripts
-getgenv().ExemptScriptFromScheduler = function(pattern)
-    if pattern and type(pattern) == "string" and pattern ~= "" then
-        _KernelExemptScripts[pattern:lower()] = true
-        return true
-    end
-    return false
 end
 
 local function isSelfOrKernel(name)
@@ -1996,56 +1998,13 @@ local function installGlobalHooks()
         end
     end)
 
-    local customNamecall
-    customNamecall = (newcclosure and newcclosure or function(fn) return fn end)(function(self, ...)
-        local method = (getnamecallmethod and getnamecallmethod()) or ""
-
-        -- STRICT CALLER ISOLATION: Game scripts (checkcaller() == false) MUST NEVER be intercepted!
-        if not (checkcaller and checkcaller()) then
-            local orig = origInstanceNamecall or getgenv()._VirtualSchedulerOrigNamecall
-            if orig then
-                if setnamecallmethod and method ~= "" then setnamecallmethod(method) end
-                return orig(self, ...)
-            end
-            return
-        end
-
-        -- ADAPTIVE EXECUTION GATEWAY: Obfuscated third-party scripts pass through untouched to virgin engine
-        if isCallerObfuscated() then
-            local orig = origInstanceNamecall or getgenv()._VirtualSchedulerOrigNamecall
-            if orig then
-                if setnamecallmethod and method ~= "" then setnamecallmethod(method) end
-                return orig(self, ...)
-            end
-            return
-        end
-
-        if self == RealRunService then
-            if method == "BindToRenderStep" then
-                return ProxiedBindToRenderStep(self, ...)
-            elseif method == "UnbindFromRenderStep" then
-                return ProxiedUnbindFromRenderStep(self, ...)
-            end
-        end
-        local orig = origInstanceNamecall or getgenv()._VirtualSchedulerOrigNamecall
-        if orig then
-            if setnamecallmethod and method ~= "" then setnamecallmethod(method) end
-            return orig(self, ...)
-        end
-    end)
-
     -- Primary: hookmetamethod (Potassium, Synapse, modern Luau executors)
+    -- We hook __index ONLY. __namecall is intentionally preserved 100% VIRGIN to prevent anti-tamper triggers (Luraph v14) and call mismatch crashes.
     if hookmetamethod then
         local ok, oldIdx = pcall(hookmetamethod, game, "__index", customIndex)
         if ok and oldIdx and not origInstanceIndex then
             origInstanceIndex = oldIdx
             getgenv()._VirtualSchedulerOrigIndex = oldIdx
-        end
-
-        local okNc, oldNc = pcall(hookmetamethod, game, "__namecall", customNamecall)
-        if okNc and oldNc and not origInstanceNamecall then
-            origInstanceNamecall = oldNc
-            getgenv()._VirtualSchedulerOrigNamecall = oldNc
         end
     end
 
@@ -2065,7 +2024,7 @@ local function installGlobalHooks()
 
     getgenv()._VirtualSchedulerHooksActive = true
     getgenv()._VirtualSchedulerOrigIndex = origInstanceIndex
-    getgenv()._VirtualSchedulerOrigNamecall = origInstanceNamecall
+    getgenv()._VirtualSchedulerOrigNamecall = nil
 end
 
 installGlobalHooks()

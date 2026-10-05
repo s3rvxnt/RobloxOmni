@@ -63,17 +63,22 @@ local function isObfuscatedCode(src)
 end
 
 -- Safe loadstring shim with Adaptive Execution Gateway
+if not getgenv()._KernelExemptScripts then
+    getgenv()._KernelExemptScripts = {}
+end
+
 if not getgenv()._AdaptiveExecutionGatewayInstalled then
     local origLoadstring = getgenv()._KernelOrigLoadstring or getgenv().loadstring or loadstring
     getgenv()._KernelOrigLoadstring = origLoadstring
     if type(origLoadstring) == "function" then
-        getgenv().loadstring = function(src, chunkname)
+        local function loadstringShim(src, chunkname)
             if typeof(src) == "Instance" then
                 if src:IsA("LuaSourceContainer") then
+                    local fullName = pcall(function() return src:GetFullName() end) and src:GetFullName() or "Instance"
+                    chunkname = chunkname or ("@" .. fullName)
                     local ok, code = pcall(function() return (decompile and decompile(src)) or src.Source end)
                     if ok and type(code) == "string" and code ~= "" then
                         src = code
-                        chunkname = chunkname or ("@" .. src:GetFullName())
                     else
                         return function() end
                     end
@@ -84,17 +89,21 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
             -- Adaptive Execution Gateway: auto-exempt obfuscated scripts instantly
             if type(src) == "string" and isObfuscatedCode(src) then
-                if chunkname and type(chunkname) == "string" and chunkname ~= "" then
-                    getgenv()._KernelExemptScripts[chunkname:lower()] = true
+                local exempt = getgenv()._KernelExemptScripts
+                if exempt then
+                    if chunkname and type(chunkname) == "string" and chunkname ~= "" then
+                        exempt[chunkname:lower()] = true
+                    end
+                    exempt["luraph"] = true
+                    exempt["moonsec"] = true
+                    exempt["ironbrew"] = true
+                    exempt["luaauth"] = true
                 end
-                getgenv()._KernelExemptScripts["luraph"] = true
-                getgenv()._KernelExemptScripts["moonsec"] = true
-                getgenv()._KernelExemptScripts["ironbrew"] = true
-                getgenv()._KernelExemptScripts["luaauth"] = true
             end
 
             return origLoadstring(src, chunkname)
         end
+        getgenv().loadstring = (newcclosure and newcclosure(loadstringShim)) or loadstringShim
         getgenv()._AdaptiveExecutionGatewayInstalled = true
         getgenv()._KernelLoadstringShimInstalled = true
     end
