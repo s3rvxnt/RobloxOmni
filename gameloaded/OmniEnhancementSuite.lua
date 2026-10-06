@@ -79,7 +79,7 @@ local config = {
     crowd_optimizer = false,
     crowd_shadows = true,
     crowd_anim_lod = true,
-    crowd_face_controls = true,
+    crowd_face_controls = false,
     chat_timestamps = true,
     mention_chimes = true,
     anti_afk = true,
@@ -2536,24 +2536,11 @@ local function ApplyShadowsToChar(char, enableCulling)
 end
 
 -- 2. Facial Morph Culling (FaceControls)
+-- Non-destructive: In Roblox C++, unparenting replicated FaceControls (.Parent = nil)
+-- triggers replication deadlock and "Something unexpectedly tried to set the parent to NULL".
+-- Facial morph computation is cleanly suppressed by pausing animation tracks in StepAnimationLOD.
 local function ApplyFaceControlsToChar(char, enableCulling)
-    if not char then return end
-    for _, desc in ipairs(char:GetDescendants()) do
-        if desc:IsA("FaceControls") then
-            if enableCulling then
-                if desc.Parent then
-                    storedFaceControls[desc] = desc.Parent
-                    desc.Parent = nil
-                end
-            else
-                local head = storedFaceControls[desc]
-                if head and head:IsDescendantOf(game) then
-                    pcall(function() desc.Parent = head end)
-                end
-                storedFaceControls[desc] = nil
-            end
-        end
-    end
+    -- Intentionally non-destructive (no-op) to preserve C++ replication invariants
 end
 
 -- 3. Animation Distance LOD & Stationary Pose Optimizer
@@ -2641,9 +2628,6 @@ local function HookCrowdCharacter(player, char)
         if not isCrowdActive then return end
         if config.crowd_shadows and desc:IsA("BasePart") then
             desc.CastShadow = false
-        elseif config.crowd_face_controls and desc:IsA("FaceControls") and desc.Parent then
-            storedFaceControls[desc] = desc.Parent
-            desc.Parent = nil
         end
     end))
 
@@ -2764,11 +2748,6 @@ function CrowdOptimizer.Disable()
     end
 
     -- 2. Restore FaceControls
-    for fc, head in pairs(storedFaceControls) do
-        if typeof(fc) == "Instance" and typeof(head) == "Instance" and head:IsDescendantOf(game) then
-            pcall(function() fc.Parent = head end)
-        end
-    end
     table.clear(storedFaceControls)
 
     -- 3. Resume Animators
