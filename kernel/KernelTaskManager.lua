@@ -3053,9 +3053,15 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
         end
         local durationUs = math.max(0, (now - (loop.iterationStart or now)) * 1000000)
         local durationMs = durationUs / 1000
-        -- If durationMs > 50ms, the coroutine yielded on an RBXScriptSignal / event (:Wait()) between task.waits
-        -- Clamp cpuMs to prevent idle event wait time from inflating Lua execution load
-        local cpuMs = math.min(durationMs, 10.0)
+        -- If durationMs > 25ms, the coroutine yielded on an RBXScriptSignal / event (:Wait()) between task.waits
+        -- (e.g. Tween.Completed:Wait(), RemoteFunction:InvokeServer()). The thread was suspended in C++ memory,
+        -- not burning Lua CPU. Do not inflate Lua execution load with idle event wait time.
+        local cpuMs
+        if durationMs > 25.0 then
+            cpuMs = math.min(loop.avgTimeMs > 0 and loop.avgTimeMs or 0.02, 0.05)
+        else
+            cpuMs = durationMs
+        end
         loop.lastDurationUs = durationUs
         loop.lastTimeMs = durationMs
         loop.avgTimeMs = (loop.avgTimeMs * 0.85) + (cpuMs * 0.15)
