@@ -2821,6 +2821,20 @@ local rawWait = origWait or wait or getgenv().wait
 
 local HZ_CYCLE_LIST = { 60, 30, 15, 5, 1, 0 } -- 0 means Max / Uncapped
 
+local function sanitizeWaitDelay(d)
+    if typeof(d) == "number" then
+        if d ~= d or d < 0 then return 0 end
+        return d
+    elseif typeof(d) == "Instance" and d:IsA("ValueBase") then
+        local ok, v = pcall(function() return tonumber(d.Value) end)
+        if ok and v and v == v and v >= 0 then return v end
+    elseif d ~= nil then
+        local ok, v = pcall(function() return tonumber(d) end)
+        if ok and v and v == v and v >= 0 then return v end
+    end
+    return 0
+end
+
 local function buildLoopProfile()
     local now = os.clock()
     local list = {}
@@ -2837,7 +2851,8 @@ local function buildLoopProfile()
         end)
 
         -- Check if thread is dead. If suspended/running, calculate stale threshold based on last requested wait duration
-        local waitLimit = math.max(60.0, ((loop.lastWaitRequested or 0) * 2) + 15.0)
+        local reqDelay = sanitizeWaitDelay(loop.lastWaitRequested)
+        local waitLimit = math.max(60.0, (reqDelay * 2) + 15.0)
         if not isDead and not loop.paused and (now - (loop.lastYieldTime or now)) > waitLimit then
             isDead = true
         end
@@ -2932,6 +2947,7 @@ end
 local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
     local now = os.clock()
     local loop = loopRegistry[thread]
+    local numDelay = sanitizeWaitDelay(requestedDelay)
 
     if not loop then
         local callerStr = caller or "UnknownScript:0"
@@ -3110,7 +3126,7 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
 
     loop.iterations = loop.iterations + 1
     loop.lastYieldTime = now
-    loop.lastWaitRequested = requestedDelay
+    loop.lastWaitRequested = numDelay
     return loop
 end
 
@@ -3155,8 +3171,9 @@ local function hookedTaskWait(duration)
     end
 
     -- 3. Frequency Throttling Clamp:
-    local effectiveDelay = duration or 0
-    if loop.minDelay and loop.minDelay > effectiveDelay then
+    local numDelay = sanitizeWaitDelay(duration)
+    local effectiveDelay = duration
+    if loop.minDelay and loop.minDelay > numDelay then
         effectiveDelay = loop.minDelay
     end
 
@@ -3210,8 +3227,9 @@ local function hookedWait(duration)
     end
 
     -- 3. Frequency Throttling Clamp:
-    local effectiveDelay = duration or 0
-    if loop.minDelay and loop.minDelay > effectiveDelay then
+    local numDelay = sanitizeWaitDelay(duration)
+    local effectiveDelay = duration
+    if loop.minDelay and loop.minDelay > numDelay then
         effectiveDelay = loop.minDelay
     end
 
