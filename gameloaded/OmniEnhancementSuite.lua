@@ -181,7 +181,7 @@ local function GetCompiledTargets()
     local function Add(str, replacement)
         if typeof(str) == "string" and #str > 1 then
             local pat = BuildCaseInsensitivePattern(str)
-            table.insert(targets, { pattern = pat, rep = EscapeReplacement(replacement), len = #str })
+            table.insert(targets, { pattern = pat, rep = EscapeReplacement(replacement), len = #str, plainLower = str:lower() })
         end
     end
 
@@ -218,9 +218,13 @@ local function RedactString(str)
         return str
     end
     local targets = GetCompiledTargets()
+    local lowerStr = str:lower()
     local res = str
     for _, t in ipairs(targets) do
-        res = res:gsub(t.pattern, t.rep)
+        if lowerStr:find(t.plainLower, 1, true) then
+            res = res:gsub(t.pattern, t.rep)
+            lowerStr = res:lower()
+        end
     end
     return res
 end
@@ -472,10 +476,10 @@ function StreamerMode.Enable()
         table.insert(StreamerConns, pgConn)
     end
 
-    -- Periodic Re-check Sweep across PlayerGui and Workspace every 1.5s to catch batch updates or custom tweened text
+    -- Periodic Re-check Sweep across PlayerGui every 15s (DescendantAdded already catches dynamic additions)
     local sweepThread = task.spawn(function()
         while isStreamerActive do
-            task.wait(1.5)
+            task.wait(15)
             if not isStreamerActive then break end
             local curLp = GetLocalPlayer()
             if curLp then
@@ -488,7 +492,6 @@ function StreamerMode.Enable()
                     end
                 end
             end
-            StreamerMode.Refresh()
         end
     end)
     table.insert(StreamerConns, sweepThread)
@@ -1105,6 +1108,15 @@ local function SetLeaderboardTeamIcon(teamName, show)
     end
 end
 
+local function GetEffectiveTrackerColor(player)
+    local team = player and player.Team
+    local teamColor = player and player.TeamColor
+    if team and teamColor and teamColor.Name ~= "White" and teamColor.Name ~= "Medium stone grey" then
+        return teamColor.Color
+    end
+    return Color3.fromRGB(0, 230, 255)
+end
+
 local function BuildCharacterBoxes(character, teamColor, parentFolder)
     local boxes = {}
     if not character or not character.Parent then return boxes end
@@ -1189,24 +1201,26 @@ local function TrackPlayerInternal(player)
     container.Name = playerName .. "Locate"
     container.Parent = CoreGui
     
+    local trackerColor = GetEffectiveTrackerColor(player)
     local tracerGui = Instance.new("ScreenGui")
     tracerGui.Name = playerName .. "TracerGui"
     tracerGui.IgnoreGuiInset = true
+    tracerGui.DisplayOrder = 1000
     tracerGui.Parent = CoreGui
     
     local tracerLine = Instance.new("Frame")
     tracerLine.Name = "Line"
     tracerLine.AnchorPoint = Vector2.new(0.5, 0.5)
     tracerLine.BorderSizePixel = 0
-    tracerLine.BackgroundColor3 = player.TeamColor.Color
-    tracerLine.ZIndex = 100
+    tracerLine.BackgroundColor3 = trackerColor
+    tracerLine.ZIndex = 1000
     tracerLine.Visible = false
     tracerLine.Parent = tracerGui
     
     local entry = {
         Player = player,
         Character = player.Character,
-        TeamColor = player.TeamColor.Color,
+        TeamColor = trackerColor,
         CurrentTeam = player.Team,
         Container = container,
         TracerGui = tracerGui,
@@ -1316,7 +1330,7 @@ local function UpdatePlayerTeamColor(player)
     local entry = TrackedPlayers[player.Name]
     if not entry then return end
     
-    local newColor = player.TeamColor.Color
+    local newColor = GetEffectiveTrackerColor(player)
     if entry.TeamColor ~= newColor then
         entry.TeamColor = newColor
         entry.CurrentTeam = player.Team
@@ -1618,11 +1632,11 @@ local RenderConnection = RunService.RenderStepped:Connect(function(dt)
                         local midPoint = (tracerStartPos + targetScreenPos) * 0.5
                         local angle = math.deg(math.atan2(delta.Y, delta.X))
 
-                        tracerLine.Size = UDim2.new(0, dist2D, 0, 1)
+                        tracerLine.Size = UDim2.new(0, dist2D, 0, 2)
                         tracerLine.Position = UDim2.new(0, midPoint.X, 0, midPoint.Y)
                         tracerLine.Rotation = angle
 
-                        local targetTransparency = (isOffScreen or isObstructed) and 0 or math.clamp(1.3 - (camDist / 100), 0, 1)
+                        local targetTransparency = 0
                         local curTrans = entry.CurrentTracerTrans or targetTransparency
                         curTrans = curTrans + (targetTransparency - curTrans) * tracerAlpha
                         entry.CurrentTracerTrans = curTrans
@@ -1904,6 +1918,8 @@ local function Modification1(child)
     DropDown:SetAttribute("LocatorHooked", true)
     LocateButton.Parent = inner
     Own(LocateButton)
+    local dismissHandler = LocateButton:FindFirstChild("DismissInputHandler")
+    if dismissHandler then dismissHandler:Destroy() end
     
     if not LocateButton:FindFirstChild("Divider") then
         LocateButton.Image = ""
@@ -1920,84 +1936,146 @@ local function Modification1(child)
         Divider.ZIndex = 3
     end
     
-    local PlayerHeader = inner:WaitForChild("PlayerHeader")
-    local Background = PlayerHeader:WaitForChild("Background")
-    local TextContainerFrame = Background:WaitForChild("TextContainerFrame")
-    local PlayerNameLbl = TextContainerFrame:WaitForChild("PlayerName")
-    local DisplayNameLbl = TextContainerFrame:WaitForChild("DisplayName")
+    local PlayerHeader = inner:WaitForChild("PlayerHeader", 5)
+    if not PlayerHeader then return end
+    
+    local PlayerNameLbl = PlayerHeader:FindFirstChild("PlayerName", true)
+    local DisplayNameLbl = PlayerHeader:FindFirstChild("DisplayName", true)
     
     PlayerHeader.LayoutOrder = -2
     LocateButton.LayoutOrder = 0
     LocateButton.Name = "LocateButton"
-    if LocateButton.HoverBackground:FindFirstChild("Icon") then
-        LocateButton.HoverBackground.Icon:Destroy()
+    LocateButton.Visible = true
+
+    -- Safely find Text, Icon, and HoverBackground recursively anywhere inside LocateButton
+    local textLabel = LocateButton:FindFirstChild("Text", true)
+    local iconLabel = LocateButton:FindFirstChild("Icon", true)
+    local hoverBg = LocateButton:FindFirstChild("HoverBackground", true) or LocateButton
+
+    if not iconLabel then
+        iconLabel = Instance.new("ImageLabel")
+        iconLabel.Name = "Icon"
+        iconLabel.Size = UDim2.new(0, 36, 0, 36)
+        iconLabel.BackgroundTransparency = 1
+        iconLabel.Parent = (hoverBg:IsA("GuiObject") and hoverBg or LocateButton)
     end
     
-    local ImageIcon = Instance.new("ImageLabel")
-    ImageIcon.Name = "Icon"
-    ImageIcon.Size = UDim2.new(0, 36, 0, 36)
-    ImageIcon.ImageRectOffset = Vector2.new(0, 0)
-    ImageIcon.ImageRectSize = Vector2.new(0, 0)
-    ImageIcon.Parent = LocateButton.HoverBackground
-    ImageIcon.BackgroundTransparency = 1
-    
     local function GetTargetPlayer()
-        local rawText = PlayerNameLbl.Text
-        local pName = rawText:sub(1, 1) == "@" and rawText:sub(2) or rawText
-        local player = Players:FindFirstChild(pName)
-        if not player then
+        local player = nil
+        local pName = ""
+        
+        -- 1. Resolve directly by UserId from AvatarImage thumbnail URL
+        local avatarImg = PlayerHeader:FindFirstChild("AvatarImage", true)
+        if avatarImg and avatarImg:IsA("ImageLabel") and avatarImg.Image ~= "" then
+            local uidStr = avatarImg.Image:match("id=(%d+)")
+            local uid = uidStr and tonumber(uidStr)
+            if uid then
+                player = Players:GetPlayerByUserId(uid)
+            end
+        end
+
+        -- 2. Resolve via OriginalTexts (un-redacted text from StreamerMode)
+        if not player and PlayerNameLbl and PlayerNameLbl:IsA("TextLabel") then
+            local origText = OriginalTexts and OriginalTexts[PlayerNameLbl]
+            if origText and origText ~= "" then
+                local clean = origText:sub(1, 1) == "@" and origText:sub(2) or origText
+                player = Players:FindFirstChild(clean)
+            end
+        end
+
+        -- 3. Resolve via StreamerMode anonymization map (e.g. "Player 8")
+        if not player and PlayerNameLbl and PlayerNameLbl:IsA("TextLabel") then
+            local rawText = PlayerNameLbl.Text
+            local clean = rawText:sub(1, 1) == "@" and rawText:sub(2) or rawText
             for _, p in ipairs(Players:GetPlayers()) do
-                if p.DisplayName == rawText or p.Name == pName then
+                if GetAnonPlayerName and GetAnonPlayerName(p) == clean then
                     player = p
                     break
                 end
             end
         end
+
+        -- 4. Fallback: match by Name or DisplayName
+        if not player and PlayerNameLbl and PlayerNameLbl:IsA("TextLabel") then
+            local rawText = PlayerNameLbl.Text
+            local clean = rawText:sub(1, 1) == "@" and rawText:sub(2) or rawText
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p.Name == clean or p.DisplayName == clean or p.DisplayName == rawText then
+                    player = p
+                    break
+                end
+            end
+        end
+
+        if player then
+            pName = player.Name
+        elseif PlayerNameLbl and PlayerNameLbl:IsA("TextLabel") then
+            local rawText = PlayerNameLbl.Text
+            pName = rawText:sub(1, 1) == "@" and rawText:sub(2) or rawText
+        end
+
         return player, pName
     end
 
     local function GetTargetInfo()
         local player, pName = GetTargetPlayer()
+        local dName = (DisplayNameLbl and DisplayNameLbl:IsA("TextLabel") and DisplayNameLbl.Text) or (player and player.DisplayName) or pName
         return {
             player = player,
             cleanName = pName,
-            displayName = DisplayNameLbl.Text,
+            displayName = dName,
         }
     end
     
     local function UpdateButtonUI()
         local _, pName = GetTargetPlayer()
-        if IsPlayerIndividuallyTracked(pName) then
-            ImageIcon.Image = "rbxassetid://93890392372456"
-            LocateButton.HoverBackground:WaitForChild("Text").Text = "Untrack Player"
-        else
-            ImageIcon.Image = "rbxassetid://129354637755552"
-            LocateButton.HoverBackground:WaitForChild("Text").Text = "Track Player"
+        local isTracked = (pName ~= "" and IsPlayerIndividuallyTracked(pName))
+        if textLabel then
+            textLabel.Text = isTracked and "Untrack Player" or "Track Player"
+        end
+        if iconLabel then
+            iconLabel.Image = isTracked and "rbxassetid://93890392372456" or "rbxassetid://129354637755552"
+            iconLabel.ImageRectOffset = Vector2.new(0, 0)
+            iconLabel.ImageRectSize = Vector2.new(0, 0)
         end
     end
     
     UpdateButtonUI()
     
-    local HoverEnterListener = LocateButton.MouseEnter:Connect(function()
-        LocateButton.HoverBackground.BackgroundColor3 = Color3.fromRGB(208, 217, 251)
-        LocateButton.HoverBackground.BackgroundTransparency = 0.92
-    end)
-    local HoverLeaveListener = LocateButton.MouseLeave:Connect(function()
-        LocateButton.HoverBackground.BackgroundTransparency = 1
-    end)
-    local HoldListener = LocateButton.MouseButton1Down:Connect(function()
-        LocateButton.HoverBackground.BackgroundTransparency = 0.88
-    end)
+    local HoverEnterListener, HoverLeaveListener, HoldListener
+    if hoverBg and hoverBg:IsA("GuiObject") then
+        HoverEnterListener = LocateButton.MouseEnter:Connect(function()
+            pcall(function()
+                hoverBg.BackgroundColor3 = Color3.fromRGB(208, 217, 251)
+                hoverBg.BackgroundTransparency = 0.92
+            end)
+        end)
+        HoverLeaveListener = LocateButton.MouseLeave:Connect(function()
+            pcall(function()
+                hoverBg.BackgroundTransparency = 1
+            end)
+        end)
+        HoldListener = LocateButton.MouseButton1Down:Connect(function()
+            pcall(function()
+                hoverBg.BackgroundTransparency = 0.88
+            end)
+        end)
+        Own(HoverEnterListener)
+        Own(HoverLeaveListener)
+        Own(HoldListener)
+    end
     
     local ActionListener = LocateButton.Activated:Connect(function()
         local player, pName = GetTargetPlayer()
-        if IsPlayerIndividuallyTracked(pName) then
-            IndividuallyTrackedPlayers[pName] = nil
-        else
-            IndividuallyTrackedPlayers[pName] = true
+        if pName ~= "" then
+            if IsPlayerIndividuallyTracked(pName) then
+                IndividuallyTrackedPlayers[pName] = nil
+            else
+                IndividuallyTrackedPlayers[pName] = true
+            end
+            if player then ReevaluatePlayer(player) end
+            UpdateButtonUI()
         end
-        if player then ReevaluatePlayer(player) end
-        UpdateButtonUI()
     end)
 
     local EXPAND_HEIGHT = 80
@@ -2117,26 +2195,30 @@ local function Modification1(child)
     end
 
     CreatePill(row1, false, "Copy User ID", function(target)
-        if target.player then
-            SafeSetClipboard(tostring(target.player.UserId))
+        local targetPlayer = target.player or (target.cleanName ~= "" and Players:FindFirstChild(target.cleanName))
+        if targetPlayer then
+            SafeSetClipboard(tostring(targetPlayer.UserId))
         else
             SafeSetClipboard("Unknown")
         end
     end)
 
     CreatePill(row1, true, "Copy Profile Link", function(target)
-        if target.player then
-            SafeSetClipboard("https://www.roblox.com/users/" .. tostring(target.player.UserId) .. "/profile")
+        local targetPlayer = target.player or (target.cleanName ~= "" and Players:FindFirstChild(target.cleanName))
+        if targetPlayer then
+            SafeSetClipboard("https://www.roblox.com/users/" .. tostring(targetPlayer.UserId) .. "/profile")
+        else
+            SafeSetClipboard("Unknown")
         end
     end)
 
     CreatePill(row2, false, "Copy Username", function(target)
-        local uName = target.player and target.player.Name or target.cleanName
+        local uName = (target.player and target.player.Name) or (target.cleanName ~= "" and target.cleanName) or "Unknown"
         SafeSetClipboard(uName)
     end)
 
     CreatePill(row2, true, "Copy Display Name", function(target)
-        local dName = target.player and target.player.DisplayName or target.displayName
+        local dName = (target.player and target.player.DisplayName) or target.displayName or "Unknown"
         SafeSetClipboard(dName)
     end)
 
@@ -2217,16 +2299,39 @@ local function Modification1(child)
         end
     end))
 
+    TrackConn(DropDown.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton2 then SafeToggle() end
+    end))
+
+    for _, desc in ipairs(DropDown:GetDescendants()) do
+        if desc:IsA("GuiObject") and desc ~= panel and not desc:IsDescendantOf(panel) then
+            TrackConn(desc.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton2 then SafeToggle() end
+            end))
+        end
+    end
+
+    TrackConn(DropDown.DescendantAdded:Connect(function(desc)
+        if desc:IsA("GuiObject") and desc ~= panel and not desc:IsDescendantOf(panel) then
+            TrackConn(desc.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton2 then SafeToggle() end
+            end))
+        end
+    end))
+
     TrackConn(UserInputService.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton2 then
-            if DropDown and DropDown.Parent and DropDown.Visible and PlayerHeader and PlayerHeader.Visible then
+            if DropDown and DropDown.Parent and DropDown.Visible then
                 local mousePos = UserInputService:GetMouseLocation()
+                local dPos = DropDown.AbsolutePosition
+                local dSize = DropDown.AbsoluteSize
+                local inBoundsRaw = (mousePos.X >= (dPos.X - 5) and mousePos.X <= (dPos.X + dSize.X + 5)
+                    and mousePos.Y >= (dPos.Y - 5) and mousePos.Y <= (dPos.Y + dSize.Y + 5))
                 local inset, _ = GuiService:GetGuiInset()
                 local adjPos = mousePos - inset
-                local hPos = PlayerHeader.AbsolutePosition
-                local hSize = PlayerHeader.AbsoluteSize
-                if adjPos.X >= hPos.X and adjPos.X <= (hPos.X + hSize.X)
-                    and adjPos.Y >= hPos.Y and adjPos.Y <= (hPos.Y + hSize.Y) then
+                local inBoundsAdj = (adjPos.X >= (dPos.X - 5) and adjPos.X <= (dPos.X + dSize.X + 5)
+                    and adjPos.Y >= (dPos.Y - 5) and adjPos.Y <= (dPos.Y + dSize.Y + 5))
+                if inBoundsRaw or inBoundsAdj then
                     SafeToggle()
                 end
             end
@@ -2254,17 +2359,19 @@ local function Modification1(child)
         end
     end))
     
-    TrackConn(PlayerNameLbl:GetPropertyChangedSignal("Text"):Connect(function()
-        UpdateButtonUI()
-        if isExpanded then
-            task.spawn(function() ToggleExpand(false) end)
-        end
-    end))
+    if PlayerNameLbl then
+        TrackConn(PlayerNameLbl:GetPropertyChangedSignal("Text"):Connect(function()
+            UpdateButtonUI()
+            if isExpanded then
+                task.spawn(function() ToggleExpand(false) end)
+            end
+        end))
+    end
     
     TrackConn(ActionListener)
-    TrackConn(HoverLeaveListener)
-    TrackConn(HoverEnterListener)
-    TrackConn(HoldListener)
+    if HoverLeaveListener then TrackConn(HoverLeaveListener) end
+    if HoverEnterListener then TrackConn(HoverEnterListener) end
+    if HoldListener then TrackConn(HoldListener) end
 
     local function DisconnectDD()
         for _, c in ipairs(ddConns) do
@@ -2287,10 +2394,17 @@ local function Modification1(child)
     Own(DisconnectDD)
 end
 
+local function CheckAndHookDropDown(candidate)
+    if not candidate or not candidate:IsA("GuiObject") then return end
+    if candidate.Name ~= "PlayerDropDown" then return end
+    if candidate:GetAttribute("LocatorHooked") then return end
+    task.spawn(Modification1, candidate)
+end
+
 local function Modification2()
     local ActualList = GetActualList()
     if not ActualList and PlayerList then
-        local found = PlayerList:WaitForChild("OffsetUndoFrame", 3)
+        local found = PlayerList:FindFirstChild("OffsetUndoFrame", true)
         ActualList = found or GetActualList()
     end
     if not ActualList then return end
@@ -2328,17 +2442,6 @@ local function Modification2()
         end
     end))
     
-    Own(PlayerList.DescendantAdded:Connect(function(child)
-        if child.Name == "PlayerDropDown" then
-            task.spawn(Modification1, child)
-        end
-    end))
-    
-    local existingDD = PlayerList:FindFirstChild("PlayerDropDown", true)
-    if existingDD then
-        task.spawn(Modification1, existingDD)
-    end
-    
     local ListenForNewTeams = ActualList.ChildAdded:Connect(function(child)
         if child:IsA("Frame") and string.find(child.Name, "TeamList_", 1, true) then
             HookTeamHeader(child)
@@ -2347,43 +2450,64 @@ local function Modification2()
     Own(ListenForNewTeams)
 end
 
-local function RunStartup()
-    if not PlayerList then return end
-    local children = PlayerList:FindFirstChild("Children")
-    if not children then return end
-    task.spawn(Modification2)
-end
-
 local function HookPlayerList(pl)
     if not pl then return end
     PlayerList = pl
-    Own(PlayerList.ChildAdded:Connect(function(child)
-        if child.Name == "Children" then RunStartup() end
-    end))
-    if PlayerList:FindFirstChild("Children") then
-        RunStartup()
+
+    for _, d in ipairs(PlayerList:GetDescendants()) do
+        CheckAndHookDropDown(d)
     end
+
+    Own(PlayerList.DescendantAdded:Connect(function(child)
+        CheckAndHookDropDown(child)
+        if child.Name == "OffsetUndoFrame" or child.Name == "Children" then
+            task.spawn(Modification2)
+        end
+    end))
+
+    task.spawn(Modification2)
 end
 
 if PlayerList then
     HookPlayerList(PlayerList)
 else
-    task.spawn(function()
-        local pl = CoreGui:WaitForChild("PlayerList", 5)
-        if pl then
-            HookPlayerList(pl)
-        else
-            local conn
-            conn = CoreGui.ChildAdded:Connect(function(child)
-                if child.Name == "PlayerList" then
-                    conn:Disconnect()
-                    HookPlayerList(child)
-                end
-            end)
-            Own(conn)
-        end
-    end)
+    local existingPl = CoreGui:FindFirstChild("PlayerList")
+    if existingPl then
+        HookPlayerList(existingPl)
+    end
 end
+
+Own(CoreGui.ChildAdded:Connect(function(child)
+    if child.Name == "PlayerList" then
+        HookPlayerList(child)
+    elseif child.Name == "PlayerDropDown" then
+        CheckAndHookDropDown(child)
+    end
+end))
+
+Own(CoreGui.DescendantAdded:Connect(function(desc)
+    CheckAndHookDropDown(desc)
+end))
+
+for _, d in ipairs(CoreGui:GetDescendants()) do
+    CheckAndHookDropDown(d)
+end
+
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if not PlayerList or not PlayerList.Parent then
+            local pl = CoreGui:FindFirstChild("PlayerList")
+            if pl then
+                HookPlayerList(pl)
+            end
+        end
+        local dd = CoreGui:FindFirstChild("PlayerDropDown", true)
+        if dd and dd:IsA("GuiObject") and not dd:GetAttribute("LocatorHooked") then
+            CheckAndHookDropDown(dd)
+        end
+    end
+end)
 
 -- ============================================================================
 -- Section 9.5: Crowd Optimizer Engine
