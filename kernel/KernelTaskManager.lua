@@ -2872,6 +2872,7 @@ local function buildLoopProfile()
                 iterations = loop.iterations,
                 frequencyHz = loop.frequencyHz,
                 targetHz = loop.targetHz,
+                targetRatio = loop.targetRatio,
                 minDelay = loop.minDelay,
                 lastDurationUs = loop.lastDurationUs,
                 lastTimeMs = loop.lastTimeMs,
@@ -2961,6 +2962,7 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
         local initialPri = math.max(10, 100 - (#loopOrder * 5))
         local savedSortOrder = nil
         local savedTargetHz = nil
+        local savedTargetRatio = nil
         local savedMinDelay = nil
         local savedLocked = false
         local savedPaused = (loopsPausedAll and isExec)
@@ -2971,6 +2973,9 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
             end
             if savedOverride.sortOrder ~= nil then
                 savedSortOrder = tonumber(savedOverride.sortOrder)
+            end
+            if savedOverride.targetRatio ~= nil then
+                savedTargetRatio = tonumber(savedOverride.targetRatio)
             end
             if savedOverride.targetHz ~= nil then
                 local thz = tonumber(savedOverride.targetHz)
@@ -3011,6 +3016,7 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
             peakTimeMs = 0,
             frequencyHz = 0,
             targetHz = savedTargetHz,
+            targetRatio = savedTargetRatio,
             minDelay = savedMinDelay,
             paused = savedPaused,
             locked = savedLocked,
@@ -3034,6 +3040,9 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
                     end
                     if savedOverride.sortOrder ~= nil then
                         loop.sortOrder = tonumber(savedOverride.sortOrder)
+                    end
+                    if savedOverride.targetRatio ~= nil then
+                        loop.targetRatio = tonumber(savedOverride.targetRatio)
                     end
                     if savedOverride.targetHz ~= nil then
                         local thz = tonumber(savedOverride.targetHz)
@@ -3077,10 +3086,12 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
         if loop.isExecutor and not loop.locked and loop.avgTimeMs > 2.5 and (loop.frequencyHz or 0) >= 15 and not loop.autoThrottled then
             loop.autoThrottled = true
             loop.targetHz = 15
+            loop.targetRatio = 15 / math.max(60, measuredFps or 60)
             loop.minDelay = 1 / 15
         elseif loop.autoThrottled and loop.avgTimeMs < 0.8 and not loop.locked then
             loop.autoThrottled = false
             loop.targetHz = nil
+            loop.targetRatio = nil
             loop.minDelay = nil
         end
 
@@ -3221,14 +3232,19 @@ local function SetLoopPaused(loopIdOrThread, isPaused)
     return false
 end
 
-local function SetLoopFrequency(loopIdOrThread, targetHz)
+local function SetLoopFrequency(loopIdOrThread, targetHz, targetRatio)
     for thread, loop in pairs(loopRegistry) do
         if loop.id == loopIdOrThread or thread == loopIdOrThread or loop.name == loopIdOrThread or loop.caller == loopIdOrThread then
-            if targetHz and targetHz > 0 then
-                loop.targetHz = targetHz
-                loop.minDelay = 1 / targetHz
+            if (targetRatio and targetRatio < 0.95) or (targetHz and targetHz > 0) then
+                local maxHz = math.max(60, measuredFps or 60)
+                local ratio = targetRatio or math.clamp((targetHz or maxHz) / maxHz, 0.01, 1.0)
+                local hz = targetHz or math.clamp(math.round(ratio * maxHz), 1, maxHz)
+                loop.targetHz = hz
+                loop.targetRatio = ratio
+                loop.minDelay = 1 / hz
             else
                 loop.targetHz = nil
+                loop.targetRatio = nil
                 loop.minDelay = nil
             end
             emitProfile()
@@ -3600,11 +3616,12 @@ SchedulerPersistence.save = function(immediate)
             local loopKey = (loop.caller and loop.caller ~= "UnknownScript:0" and loop.caller) or loop.name
             if loopKey and loopKey ~= "" and not isSelfOrKernel(loopKey) and not isSelfOrKernel(loop.file or "") then
                 -- Only persist verified recurring loops (iterations >= 2) or explicitly configured overrides
-                if (loop.iterations and loop.iterations >= 2) or loop.locked or loop.targetHz or loop.sortOrder then
+                if (loop.iterations and loop.iterations >= 2) or loop.locked or loop.targetHz or loop.targetRatio or loop.sortOrder then
                     placeData.loops[loopKey] = {
                         priority = loop.priority,
                         sortOrder = loop.sortOrder,
                         targetHz = loop.targetHz,
+                        targetRatio = loop.targetRatio,
                         locked = loop.locked,
                         paused = loop.paused,
                     }
@@ -4351,12 +4368,10 @@ local function sortLoopList(loops, colId, ascending)
                 if ascending then return iA < iB else return iA > iB end
             end
         elseif colId == "Hz" then
-            local hzA = tonumber(a.targetHz) or 60
-            local hzB = tonumber(b.targetHz) or 60
-            if hzA == 0 then hzA = 9999 end
-            if hzB == 0 then hzB = 9999 end
-            if hzA ~= hzB then
-                if ascending then return hzA < hzB else return hzA > hzB end
+            local rA = tonumber(a.targetRatio) or (tonumber(a.targetHz) and tonumber(a.targetHz) > 0 and (tonumber(a.targetHz) / 60)) or 1.0
+            local rB = tonumber(b.targetRatio) or (tonumber(b.targetHz) and tonumber(b.targetHz) > 0 and (tonumber(b.targetHz) / 60)) or 1.0
+            if rA ~= rB then
+                if ascending then return rA < rB else return rA > rB end
             end
         elseif colId == "Lock" then
             local lA = (a.locked == true)
@@ -10165,7 +10180,7 @@ local function renderLoopRow(loopObj, idx)
         sliderLbl.Font = Enum.Font.GothamBold
         sliderLbl.TextSize = 10
         sliderLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-        sliderLbl.Text = "60Hz"
+        sliderLbl.Text = "100%"
         sliderLbl.ZIndex = 3
         sliderLbl.Parent = hzBtn
 
@@ -10243,26 +10258,29 @@ local function renderLoopRow(loopObj, idx)
             local barW = math.max(1, hzBtn.AbsoluteSize.X)
             local rel = math.clamp((posX - barX) / barW, 0.01, 1.0)
             local maxHz = math.max(60, measuredFps or 60)
-            local targetHz
+            local targetHz, targetRatio
             if rel >= 0.95 then
-                targetHz = 0 -- 0 indicates Max / Uncapped
+                targetHz = 0 -- 0 indicates Max / Uncapped (100%)
+                targetRatio = 1.0
             else
+                targetRatio = math.clamp(rel, 0.01, 1.0)
                 targetHz = math.clamp(math.round(rel * maxHz), 1, maxHz)
             end
+
+            local pct = math.clamp(math.round(targetRatio * 100), 1, 100)
 
             local sliderFill = hzBtn:FindFirstChild("SliderFill")
             local sliderLbl = hzBtn:FindFirstChild("SliderLbl")
             if sliderFill then
-                sliderFill.Size = UDim2.new(rel, 0, 1, 0)
-                sliderFill.BackgroundColor3 = if targetHz == 0 then Color3.fromRGB(50, 130, 240) else getHzColor(targetHz, maxHz)
+                sliderFill.Size = UDim2.new(targetRatio, 0, 1, 0)
+                sliderFill.BackgroundColor3 = if pct >= 95 then Color3.fromRGB(50, 130, 240) else getHzColor(targetHz, maxHz)
             end
             if sliderLbl then
-                local text = (targetHz == 0 or not targetHz or targetHz >= maxHz) and string.format("%dHz", maxHz) or string.format("%dHz", targetHz)
-                sliderLbl.Text = text
+                sliderLbl.Text = string.format("%d%%", pct)
             end
 
             if getgenv().SetLoopFrequency then
-                getgenv().SetLoopFrequency(loopObj.id, targetHz)
+                getgenv().SetLoopFrequency(loopObj.id, targetHz, targetRatio)
             end
         end
 
@@ -10382,23 +10400,22 @@ local function renderLoopRow(loopObj, idx)
             local sliderFill = hzBtn:FindFirstChild("SliderFill")
             local targetHz = loopObj.targetHz
             local maxHz = math.max(60, measuredFps or 60)
+            local targetRatio = loopObj.targetRatio
+            local fillRatio, pct
+            if not targetHz or targetHz == 0 or (targetRatio and targetRatio >= 0.95) then
+                fillRatio = 1.0
+                pct = 100
+            else
+                fillRatio = targetRatio or math.clamp(targetHz / maxHz, 0.01, 1.0)
+                pct = math.clamp(math.round(fillRatio * 100), 1, 100)
+            end
+
             if sliderLbl then
-                if targetHz and targetHz > 0 and targetHz < maxHz then
-                    sliderLbl.Text = string.format("%dHz", targetHz)
-                else
-                    sliderLbl.Text = string.format("%dHz", maxHz)
-                end
+                sliderLbl.Text = string.format("%d%%", pct)
             end
             if sliderFill then
-                local fillRatio
-                if not targetHz or targetHz == 0 or targetHz >= maxHz then
-                    fillRatio = 1.0
-                    sliderFill.BackgroundColor3 = Color3.fromRGB(50, 130, 240)
-                else
-                    fillRatio = math.clamp(targetHz / maxHz, 0.08, 1.0)
-                    sliderFill.BackgroundColor3 = getHzColor(targetHz, maxHz)
-                end
                 sliderFill.Size = UDim2.new(fillRatio, 0, 1, 0)
+                sliderFill.BackgroundColor3 = if pct >= 95 then Color3.fromRGB(50, 130, 240) else getHzColor(math.round(fillRatio * maxHz), maxHz)
             end
         end
     end
