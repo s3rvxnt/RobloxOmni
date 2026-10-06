@@ -510,7 +510,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
         local ok, res = pcall(function()
             if type(request) == "function" then
                 local resp = request({
-                    Url = "https://api.github.com/repos/s3rvxnt/RobloxOmni/commits/release",
+                    Url = "https://api.github.com/repos/s3rvxnt/RobloxOmni/commits/main",
                     Method = "GET",
                     Headers = { ["User-Agent"] = "OmniUpdater" }
                 })
@@ -523,7 +523,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
         if ok and res and type(res) == "string" and #res > 10 then
             return res
         end
-        return "release"
+        return "main"
     end
 
     -- Ledger Management
@@ -2173,20 +2173,31 @@ local function registerScript(filePath, defaultStage)
     local parentDir = filePath:match("^(.*)[/\\][^/\\]+$") or ""
     local rawName = meta.name:gsub("%.%w+$", ""):lower()
     local dedupKey = parentDir:lower() .. "/" .. rawName
-    if registeredBasenames[dedupKey] then
-        -- Prefer .lua over .txt if both exist
-        if meta.file:lower():match("%.lua$") or meta.file:lower():match("%.luau$") then
-            for idx, existing in ipairs(Queues[meta.stage]) do
-                local existingRaw = existing.name:gsub("%.%w+$", ""):lower()
-                if existingRaw == rawName then
-                    Queues[meta.stage][idx] = meta
-                    break
+    local existing = registeredBasenames[dedupKey]
+    if existing then
+        -- Prefer .lua / .luau over .txt if both exist in the same directory
+        local isNewLua = meta.file:lower():match("%.lua[u]?$")
+        local isOldTxt = existing.file:lower():match("%.txt$")
+        if isNewLua and isOldTxt then
+            -- Remove old .txt entry from its registered queue (even if in a different stage)
+            local oldQueue = Queues[existing.stage]
+            if oldQueue then
+                for idx, item in ipairs(oldQueue) do
+                    if item == existing then
+                        table.remove(oldQueue, idx)
+                        Telemetry.stages[existing.stage] = math.max(0, (Telemetry.stages[existing.stage] or 1) - 1)
+                        break
+                    end
                 end
             end
+            -- Insert the superior .lua/.luau file into its designated queue
+            table.insert(Queues[meta.stage], meta)
+            Telemetry.stages[meta.stage] = (Telemetry.stages[meta.stage] or 0) + 1
+            registeredBasenames[dedupKey] = meta
         end
         return
     end
-    registeredBasenames[dedupKey] = true
+    registeredBasenames[dedupKey] = meta
 
     table.insert(Queues[meta.stage], meta)
     Telemetry.discovered = Telemetry.discovered + 1
@@ -2232,16 +2243,21 @@ local function executeScript(meta)
     local scriptName = meta.name
     local compileStart = os.clock()
     local compiledFn, syntaxErr = nil, nil
+    local content = ""
     
     if type(readfile) == "function" and isfile(file) then
-        local ok, content = pcall(readfile, file)
-        if ok and content then
+        local ok, fileData = pcall(readfile, file)
+        if ok and fileData then
+            content = fileData
             compiledFn, syntaxErr = loadstring(content, "@" .. scriptName)
         else
             syntaxErr = "Failed to read file from disk."
         end
     elseif type(loadfile) == "function" then
         compiledFn, syntaxErr = loadfile(file)
+        if type(readfile) == "function" and isfile(file) then
+            pcall(function() content = readfile(file) end)
+        end
     end
     
     local compileMs = (os.clock() - compileStart) * 1000
@@ -2368,233 +2384,245 @@ end
 -- RING 0: KERNEL (Tier 1 - System Hooks, Scheduler & Loop Governor)
 -- ==============================================================================
 -- Frame 0, NO yields, NO task.wait(), purely environment & hooks.
-bootStart = os.clock()
-getgenv()._OmniRingsStarted = true
-pcall(function()
-    if isfile and isfile("Bootloader_Handoff.lock") then
-        pcall(delfile, "Bootloader_Handoff.lock")
+local syncOk, syncErr = pcall(function()
+    bootStart = os.clock()
+    getgenv()._OmniRingsStarted = true
+
+    if not SafeMode and not getgenv()._KernelTaskManagerLoaded then
+        if isfolder("autoexec/kernel") then
+            scanDirectory("autoexec/kernel", "Kernel")
+        end
+        if isfolder("autoexec/root") then
+            scanDirectory("autoexec/root", "Kernel")
+        end
+
+        sortQueue(Queues.Kernel)
+
+        for _, meta in ipairs(Queues.Kernel) do
+            executeScript(meta)
+        end
+    elseif SafeMode then
+        print("[Bootloader]: Safe Mode Active — Bypassing Ring 0 (Kernel).")
     end
+    emitTelemetry()
+
+    -- ==============================================================================
+    -- RING 1: DATAMODEL LEVEL (game ~= nil) - PreInit & Non-Account Discovery
+    -- ==============================================================================
+    -- Frame 0, DataModel is valid. game.PlaceId and game.GameId are accessible.
+
+    if not SafeMode then
+        for _, item in ipairs(listfiles("autoexec")) do
+            if isfolder(item) then
+                local folderName = item:match("[^/\\]+$")
+                if not isIgnoredFolder(folderName) then
+                    local lowerFolder = folderName:lower()
+                    if lowerFolder == "kernel" or lowerFolder == "root" then
+                        -- Handled in Ring 0
+                    elseif lowerFolder == "preinit" or lowerFolder == "nodelay" then
+                        -- Universal Frame-0 PreInit (RemoteExecute, utilities, etc.)
+                        scanDirectory(item, "PreInit")
+                    elseif lowerFolder == "universal" or lowerFolder == "common" or lowerFolder == "shared" then
+                        -- Universal folder
+                        scanDirectory(item, "GameLoaded")
+                    elseif lowerFolder == "gameloaded" or lowerFolder == "game_loaded" then
+                        -- Stage: GameLoaded folder
+                        scanDirectory(item, "GameLoaded")
+                    elseif lowerFolder == "characterready" or lowerFolder == "characterloaded" or lowerFolder == "character_ready" or lowerFolder == "character_loaded" then
+                        -- Stage: CharacterReady folder
+                        scanDirectory(item, "CharacterReady")
+                    elseif lowerFolder == "deferred" or lowerFolder == "deffered" then
+                        -- Stage: Deferred folder
+                        scanDirectory(item, "Deferred")
+                    elseif folderName == PlaceIdStr 
+                        or startsWith(folderName, PlaceIdStr .. " - ")
+                        or startsWith(folderName, PlaceIdStr .. "_")
+                        or lowerFolder == "place_" .. PlaceIdStr 
+                        or startsWith(lowerFolder, "place_" .. PlaceIdStr .. " - ")
+                        or startsWith(lowerFolder, "place_" .. PlaceIdStr .. "_")
+                        or lowerFolder == "place" .. PlaceIdStr then
+                        -- Place-specific folder (scans nodelay/ as PreInit, others as GameLoaded)
+                        scanDirectory(item, "GameLoaded")
+                    elseif (GameIdStr ~= "0" and (folderName == GameIdStr 
+                        or startsWith(folderName, GameIdStr .. " - ")
+                        or startsWith(folderName, GameIdStr .. "_")
+                        or lowerFolder == "universe_" .. GameIdStr 
+                        or startsWith(lowerFolder, "universe_" .. GameIdStr .. " - ")
+                        or lowerFolder == "game_" .. GameIdStr
+                        or startsWith(lowerFolder, "game_" .. GameIdStr .. " - "))) then
+                        -- Universe-specific folder
+                        scanDirectory(item, "GameLoaded")
+                    end
+                end
+            else
+                registerScript(item, "GameLoaded")
+            end
+        end
+
+        sortQueue(Queues.PreInit)
+        sortQueue(Queues.GameLoaded)
+        sortQueue(Queues.CharacterReady)
+        sortQueue(Queues.Deferred)
+
+        -- Execute PreInit concurrently at Frame 0 (nodelay, e.g. RemoteExecute)
+        for _, meta in ipairs(Queues.PreInit) do
+            task.spawn(executeScript, meta)
+        end
+
+        -- Critical init phase complete: disarm crash sentinel so disconnects/rejoins don't trigger Safe Mode!
+        pcall(delfile, RUNNING_LOCK)
+    else
+        print("[Bootloader]: Safe Mode Active — Bypassing Ring 1 (PreInit).")
+    end
+    emitTelemetry()
 end)
 
-if not SafeMode and not getgenv()._KernelTaskManagerLoaded then
-    if isfolder("autoexec/kernel") then
-        scanDirectory("autoexec/kernel", "Kernel")
-    end
-    if isfolder("autoexec/root") then
-        scanDirectory("autoexec/root", "Kernel")
-    end
-
-    sortQueue(Queues.Kernel)
-
-    for _, meta in ipairs(Queues.Kernel) do
-        executeScript(meta)
-    end
-elseif SafeMode then
-    print("[Bootloader]: Safe Mode Active — Bypassing Ring 0 (Kernel).")
+if not syncOk then
+    warn("[Bootloader]: ⚠️ Critical init phase error (Ring 0/1): " .. tostring(syncErr))
+    pcall(delfile, RUNNING_LOCK)
+    getgenv()._OmniBootloaderRunning = false
+    return
 end
-emitTelemetry()
-
--- ==============================================================================
--- RING 1: DATAMODEL LEVEL (game ~= nil) - PreInit & Non-Account Discovery
--- ==============================================================================
--- Frame 0, DataModel is valid. game.PlaceId and game.GameId are accessible.
-
-if not SafeMode then
-    for _, item in ipairs(listfiles("autoexec")) do
-        if isfolder(item) then
-            local folderName = item:match("[^/\\]+$")
-            if not isIgnoredFolder(folderName) then
-                local lowerFolder = folderName:lower()
-                if lowerFolder == "kernel" or lowerFolder == "root" then
-                    -- Handled in Ring 0
-                elseif lowerFolder == "preinit" or lowerFolder == "nodelay" then
-                    -- Universal Frame-0 PreInit (RemoteExecute, utilities, etc.)
-                    scanDirectory(item, "PreInit")
-                elseif lowerFolder == "universal" or lowerFolder == "common" or lowerFolder == "shared" then
-                    -- Universal folder
-                    scanDirectory(item, "GameLoaded")
-                elseif lowerFolder == "gameloaded" or lowerFolder == "game_loaded" then
-                    -- Stage: GameLoaded folder
-                    scanDirectory(item, "GameLoaded")
-                elseif lowerFolder == "characterready" or lowerFolder == "characterloaded" or lowerFolder == "character_ready" or lowerFolder == "character_loaded" then
-                    -- Stage: CharacterReady folder
-                    scanDirectory(item, "CharacterReady")
-                elseif lowerFolder == "deferred" or lowerFolder == "deffered" then
-                    -- Stage: Deferred folder
-                    scanDirectory(item, "Deferred")
-                elseif folderName == PlaceIdStr 
-                    or startsWith(folderName, PlaceIdStr .. " - ")
-                    or startsWith(folderName, PlaceIdStr .. "_")
-                    or lowerFolder == "place_" .. PlaceIdStr 
-                    or startsWith(lowerFolder, "place_" .. PlaceIdStr .. " - ")
-                    or startsWith(lowerFolder, "place_" .. PlaceIdStr .. "_")
-                    or lowerFolder == "place" .. PlaceIdStr then
-                    -- Place-specific folder (scans nodelay/ as PreInit, others as GameLoaded)
-                    scanDirectory(item, "GameLoaded")
-                elseif (GameIdStr ~= "0" and (folderName == GameIdStr 
-                    or startsWith(folderName, GameIdStr .. " - ")
-                    or startsWith(folderName, GameIdStr .. "_")
-                    or lowerFolder == "universe_" .. GameIdStr 
-                    or startsWith(lowerFolder, "universe_" .. GameIdStr .. " - ")
-                    or lowerFolder == "game_" .. GameIdStr
-                    or startsWith(lowerFolder, "game_" .. GameIdStr .. " - "))) then
-                    -- Universe-specific folder
-                    scanDirectory(item, "GameLoaded")
-                end
-            end
-        else
-            registerScript(item, "GameLoaded")
-        end
-    end
-
-    sortQueue(Queues.PreInit)
-    sortQueue(Queues.GameLoaded)
-    sortQueue(Queues.CharacterReady)
-    sortQueue(Queues.Deferred)
-
-    -- Execute PreInit concurrently at Frame 0 (nodelay, e.g. RemoteExecute)
-    for _, meta in ipairs(Queues.PreInit) do
-        task.spawn(executeScript, meta)
-    end
-else
-    print("[Bootloader]: Safe Mode Active — Bypassing Ring 1 (PreInit).")
-end
-emitTelemetry()
 
 -- ==============================================================================
 -- RINGS 2 & 3: NETWORK CLIENT & USERSPACE LIFECYCLE (Async)
 -- ==============================================================================
 
 task.spawn(function()
-    if SafeMode then
-        print("[Bootloader]: Safe Mode Active — Bypassing Ring 2 (GameLoaded), Ring 3 (CharacterReady), and Ring 4 (Deferred).")
-        local totalBootMs = (os.clock() - bootStart) * 1000
-        Telemetry.totalDurationMs = math.floor(totalBootMs * 100) / 100
-        emitTelemetry()
-        return
-    end
-
-    -- RING 2: NETWORK CLIENT LEVEL (game:GetService("Players") ~= nil & game:IsLoaded())
-    if not game:IsLoaded() then
-        local loadedOk = waitFor(function() return game:IsLoaded() end, 8.0)
-        if not loadedOk then
-            warn("[Bootloader]: game:IsLoaded() timed out after 8s — proceeding with GameLoaded stage.")
+    local asyncOk, asyncErr = pcall(function()
+        if SafeMode then
+            print("[Bootloader]: Safe Mode Active — Bypassing Ring 2 (GameLoaded), Ring 3 (CharacterReady), and Ring 4 (Deferred).")
+            local totalBootMs = (os.clock() - bootStart) * 1000
+            Telemetry.totalDurationMs = math.floor(totalBootMs * 100) / 100
+            emitTelemetry()
+            return
         end
-    end
-    
-    local Players = game:GetService("Players")
-    if not Players then
-        waitFor(function() Players = game:GetService("Players"); return Players ~= nil end, 5.0)
-    end
 
-    -- Settle render frames after join
-    RunService.RenderStepped:Wait()
+        -- RING 2: NETWORK CLIENT LEVEL (game:GetService("Players") ~= nil & game:IsLoaded())
+        if not game:IsLoaded() then
+            local loadedOk = waitFor(function() return game:IsLoaded() end, 8.0)
+            if not loadedOk then
+                warn("[Bootloader]: game:IsLoaded() timed out after 8s — proceeding with GameLoaded stage.")
+            end
+        end
+        
+        local Players = game:GetService("Players")
+        if not Players then
+            waitFor(function() Players = game:GetService("Players"); return Players ~= nil end, 5.0)
+        end
 
-    -- Execute initial GameLoaded queue with 6ms adaptive budget
-    runStageWithBudget("GameLoaded", Queues.GameLoaded)
-    emitTelemetry()
+        -- Settle render frames after join
+        RunService.RenderStepped:Wait()
 
-    -- RING 3: USERSPACE LEVEL (game.Players.LocalPlayer ~= nil)
-    local playerOk = waitFor(function() return Players and Players.LocalPlayer ~= nil end, 10.0)
-    if not playerOk then
-        warn("[Bootloader]: Players.LocalPlayer timed out after 10s — skipping userspace account stage.")
-    else
-        local LocalPlayer = Players.LocalPlayer
-        local AccountName = LocalPlayer.Name
-        Telemetry.account = AccountName
+        -- Execute initial GameLoaded queue with 6ms adaptive budget
+        runStageWithBudget("GameLoaded", Queues.GameLoaded)
+        emitTelemetry()
 
-        -- Discover and register Account-scoped directory
-        local initialDiscovered = Telemetry.discovered
-        for _, item in ipairs(listfiles("autoexec")) do
-            if isfolder(item) then
-                local folderName = item:match("[^/\\]+$")
-                if not isIgnoredFolder(folderName) then
-                    local lowerFolder = folderName:lower()
-                    if lowerFolder == "account_" .. AccountName:lower() 
-                        or lowerFolder == AccountName:lower() 
-                        or lowerFolder == "user_" .. AccountName:lower()
-                        or startsWith(lowerFolder, "account_" .. AccountName:lower() .. " - ")
-                        or startsWith(lowerFolder, "account_" .. AccountName:lower() .. "_")
-                        or startsWith(lowerFolder, "user_" .. AccountName:lower() .. " - ")
-                        or startsWith(lowerFolder, "user_" .. AccountName:lower() .. "_") then
-                        
-                        scanDirectory(item, "GameLoaded")
+        -- RING 3: USERSPACE LEVEL (game.Players.LocalPlayer ~= nil)
+        local playerOk = waitFor(function() return Players and Players.LocalPlayer ~= nil end, 10.0)
+        if not playerOk then
+            warn("[Bootloader]: Players.LocalPlayer timed out after 10s — skipping userspace account stage.")
+        else
+            local LocalPlayer = Players.LocalPlayer
+            local AccountName = LocalPlayer.Name
+            Telemetry.account = AccountName
+
+            -- Discover and register Account-scoped directory
+            local initialDiscovered = Telemetry.discovered
+            for _, item in ipairs(listfiles("autoexec")) do
+                if isfolder(item) then
+                    local folderName = item:match("[^/\\]+$")
+                    if not isIgnoredFolder(folderName) then
+                        local lowerFolder = folderName:lower()
+                        if lowerFolder == "account_" .. AccountName:lower() 
+                            or lowerFolder == AccountName:lower() 
+                            or lowerFolder == "user_" .. AccountName:lower()
+                            or startsWith(lowerFolder, "account_" .. AccountName:lower() .. " - ")
+                            or startsWith(lowerFolder, "account_" .. AccountName:lower() .. "_")
+                            or startsWith(lowerFolder, "user_" .. AccountName:lower() .. " - ")
+                            or startsWith(lowerFolder, "user_" .. AccountName:lower() .. "_") then
+                            
+                            scanDirectory(item, "GameLoaded")
+                        end
                     end
                 end
             end
-        end
 
-        if Telemetry.discovered > initialDiscovered then
-            sortQueue(Queues.GameLoaded)
-            sortQueue(Queues.CharacterReady)
-            sortQueue(Queues.Deferred)
-            -- Run any newly added GameLoaded scripts from the account folder
-            runStageWithBudget("GameLoaded", Queues.GameLoaded)
+            if Telemetry.discovered > initialDiscovered then
+                sortQueue(Queues.GameLoaded)
+                sortQueue(Queues.CharacterReady)
+                sortQueue(Queues.Deferred)
+                -- Run any newly added GameLoaded scripts from the account folder
+                runStageWithBudget("GameLoaded", Queues.GameLoaded)
+                emitTelemetry()
+            end
+
+            -- STAGE 3: CharacterReady (Waits for character spawn with 12s timeout)
+            if #Queues.CharacterReady > 0 then
+                if not LocalPlayer.Character or not LocalPlayer.Character.Parent then
+                    local charOk = waitFor(function() return LocalPlayer.Character and LocalPlayer.Character.Parent ~= nil end, 12.0)
+                    if not charOk then
+                        warn("[Bootloader]: Character spawn timed out after 12s — executing CharacterReady queue with timeout guard.")
+                    end
+                end
+                RunService.Heartbeat:Wait()
+                runStageWithBudget("CharacterReady", Queues.CharacterReady)
+            end
             emitTelemetry()
         end
 
-        -- STAGE 3: CharacterReady (Waits for character spawn with 12s timeout)
-        if #Queues.CharacterReady > 0 then
-            if not LocalPlayer.Character or not LocalPlayer.Character.Parent then
-                local charOk = waitFor(function() return LocalPlayer.Character and LocalPlayer.Character.Parent ~= nil end, 12.0)
-                if not charOk then
-                    warn("[Bootloader]: Character spawn timed out after 12s — executing CharacterReady queue with timeout guard.")
+        -- STAGE 4: Deferred (Background / Telemetry)
+        if #Queues.Deferred > 0 then
+            task.wait(0.5)
+            for _, meta in ipairs(Queues.Deferred) do
+                if not executedFiles[meta.file] then
+                    executeScript(meta)
+                    RunService.Heartbeat:Wait()
                 end
             end
-            RunService.Heartbeat:Wait()
-            runStageWithBudget("CharacterReady", Queues.CharacterReady)
         end
-        emitTelemetry()
-    end
 
-    -- STAGE 4: Deferred (Background / Telemetry)
-    if #Queues.Deferred > 0 then
-        task.wait(0.5)
-        for _, meta in ipairs(Queues.Deferred) do
-            if not executedFiles[meta.file] then
-                executeScript(meta)
-                RunService.Heartbeat:Wait()
+        local totalBootMs = (os.clock() - bootStart) * 1000
+        Telemetry.totalDurationMs = math.floor(totalBootMs * 100) / 100
+        emitTelemetry()
+
+        print(string.format("[Bootloader]: Boot completed in %.1fms | Discovered: %d | Executed: %d | Success: %d | Errors: %d",
+            totalBootMs, Telemetry.discovered, Telemetry.executed, Telemetry.success, Telemetry.errors))
+
+        -- Keep Omni alive across teleports only if not already installed in autoexec
+        local hasLocal = (type(isfile) == "function") and (isfile("autoexec/Bootloader.lua") or isfile("workspace/autoexec/Bootloader.lua") or isfile("autoexec/CustomAutoExec.lua") or isfile("Omni_Installed.marker"))
+        if not hasLocal then
+            local queueOnTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or queueonteleport or (fluxus and fluxus.queue_on_teleport)
+            if type(queueOnTeleport) == "function" then
+                pcall(function()
+                    queueOnTeleport([[
+                        task.spawn(function()
+                            local waited = 0
+                            while waited < 5.0 and not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning do
+                                task.wait(0.2)
+                                waited = waited + 0.2
+                            end
+                            if not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning then
+                                local isLocal = (type(isfile) == "function") and (isfile("autoexec/Bootloader.lua") or isfile("workspace/autoexec/Bootloader.lua") or isfile("autoexec/CustomAutoExec.lua") or isfile("Omni_Installed.marker"))
+                                if not isLocal then
+                                    pcall(function()
+                                        loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()
+                                    end)
+                                end
+                            end
+                        end)
+                    ]])
+                end)
             end
         end
-    end
+    end)
 
-    local totalBootMs = (os.clock() - bootStart) * 1000
-    Telemetry.totalDurationMs = math.floor(totalBootMs * 100) / 100
-    emitTelemetry()
-
-    -- Full boot pipeline successfully completed: clear running crash sentinel lockfile
+    -- In all outcomes, ensure lock is gone and running flag is cleared
     pcall(delfile, RUNNING_LOCK)
-
     getgenv()._OmniBootloaderRunning = false
     getgenv()._OmniBootloaderLoaded = true
 
-    print(string.format("[Bootloader]: Boot completed in %.1fms | Discovered: %d | Executed: %d | Success: %d | Errors: %d",
-        totalBootMs, Telemetry.discovered, Telemetry.executed, Telemetry.success, Telemetry.errors))
-
-    -- Keep Omni alive across teleports only if not already installed in autoexec
-    local hasLocal = (type(isfile) == "function") and (isfile("autoexec/Bootloader.lua") or isfile("workspace/autoexec/Bootloader.lua") or isfile("autoexec/CustomAutoExec.lua") or isfile("Omni_Installed.marker"))
-    if not hasLocal then
-        local queueOnTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or queueonteleport or (fluxus and fluxus.queue_on_teleport)
-        if type(queueOnTeleport) == "function" then
-            pcall(function()
-                queueOnTeleport([[
-                    task.spawn(function()
-                        local waited = 0
-                        while waited < 5.0 and not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning do
-                            task.wait(0.2)
-                            waited = waited + 0.2
-                        end
-                        if not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning then
-                            local isLocal = (type(isfile) == "function") and (isfile("autoexec/Bootloader.lua") or isfile("workspace/autoexec/Bootloader.lua") or isfile("autoexec/CustomAutoExec.lua") or isfile("Omni_Installed.marker"))
-                            if not isLocal then
-                                pcall(function()
-                                    loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()
-                                end)
-                            end
-                        end
-                    end)
-                ]])
-            end)
-        end
+    if not asyncOk then
+        warn("[Bootloader]: ⚠️ Error in async lifecycle: " .. tostring(asyncErr))
     end
 end)

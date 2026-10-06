@@ -128,7 +128,7 @@ foreach ($root in $detectedRoots) {
         New-Item -ItemType Directory -Path $targetGameloaded -Force | Out-Null
     }
 
-    # Safe migration: move loose third-party scripts from autoexec into workspace/autoexec/preinit/
+    # Safe migration: backup and move loose third-party scripts from autoexec into workspace/autoexec/preinit/
     # PreInit ensures they execute immediately at Frame 0 just like native autoexec
     $legacyFiles = Get-ChildItem -Path $autoexecDir -File -ErrorAction SilentlyContinue | Where-Object {
         $excludeList -notcontains $_.Name -and ($_.Extension -in @(".lua", ".luau", ".txt"))
@@ -137,10 +137,17 @@ foreach ($root in $detectedRoots) {
     $migratedCount = 0
     $skippedCount = 0
     if ($legacyFiles) {
+        $backupTimestamp = (Get-Date -Format 'yyyyMMdd_HHmmss')
+        $backupDir = Join-Path $autoexecDir ("_legacy_backup_" + $backupTimestamp)
+        if (-not (Test-Path $backupDir)) {
+            New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+        }
+        Write-Host "     [i] Backing up $($legacyFiles.Count) legacy script(s) to $(Split-Path -Leaf $backupDir)..." -ForegroundColor Cyan
         foreach ($file in $legacyFiles) {
+            Copy-Item -Path $file.FullName -Destination (Join-Path $backupDir $file.Name) -Force
             $dest = Join-Path $targetPreinit $file.Name
             if (Test-Path $dest) {
-                Write-Host "     [!] Collision: '$($file.Name)' already exists in preinit/ -- kept original" -ForegroundColor Yellow
+                Write-Host "     [!] Collision: '$($file.Name)' already exists in preinit/ -- preserved original, kept in backup" -ForegroundColor Yellow
                 $skippedCount++
             } else {
                 Move-Item -Path $file.FullName -Destination $dest
