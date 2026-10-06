@@ -4210,7 +4210,7 @@ local ColumnConfig = {
     Loops = {
         cols = {
             { id = "Priority", name = "PRIORITY",                 align = Enum.TextXAlignment.Center, width = 0.10, minWidth = 0.10, maxWidth = 0.18, defaultWidth = 0.10 },
-            { id = "Name",     name = "LOOP CALLER & LOCATION",   align = Enum.TextXAlignment.Center, width = 0.34, minWidth = 0.22, maxWidth = 0.65, defaultWidth = 0.34 },
+            { id = "Name",     name = "LOCATION",                 align = Enum.TextXAlignment.Center, width = 0.34, minWidth = 0.22, maxWidth = 0.65, defaultWidth = 0.34 },
             { id = "Iters",    name = "ITERS",                    align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.15 },
             { id = "Hz",       name = "SPEED",                    align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.08, maxWidth = 0.20, defaultWidth = 0.11 },
             { id = "Lock",     name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.05, maxWidth = 0.12, defaultWidth = 0.06 },
@@ -4220,8 +4220,8 @@ local ColumnConfig = {
     },
     Startup = {
         cols = {
-            { id = "Priority", name = "PRIORITY",                          align = Enum.TextXAlignment.Center, width = 0.12, minWidth = 0.12, maxWidth = 0.18, defaultWidth = 0.12 },
-            { id = "Name",     name = "SCRIPT IDENTIFIER & RELATIVE PATH", align = Enum.TextXAlignment.Center, width = 0.41, minWidth = 0.28, maxWidth = 0.70, defaultWidth = 0.41 },
+            { id = "Priority", name = "PRIORITY",           align = Enum.TextXAlignment.Center, width = 0.12, minWidth = 0.12, maxWidth = 0.18, defaultWidth = 0.12 },
+            { id = "Name",     name = "SCRIPT NAME & PATH", align = Enum.TextXAlignment.Center, width = 0.41, minWidth = 0.28, maxWidth = 0.70, defaultWidth = 0.41 },
             { id = "Stage",    name = "BOOT STAGE",                        align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.14, maxWidth = 0.28, defaultWidth = 0.17 },
             { id = "Time",     name = "EXEC TIME",                         align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.11, maxWidth = 0.22, defaultWidth = 0.13 },
             { id = "Toggle",   name = "STATE / TOGGLE",                    align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.14, maxWidth = 0.28, defaultWidth = 0.17 },
