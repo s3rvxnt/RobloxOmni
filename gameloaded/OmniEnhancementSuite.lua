@@ -1634,7 +1634,8 @@ local RenderConnection = RunService.RenderStepped:Connect(function(dt)
                         tracerLine.Position = UDim2.new(0, midPoint.X, 0, midPoint.Y)
                         tracerLine.Rotation = angle
 
-                        local targetTransparency = (isOffScreen or isObstructed) and 0 or math.clamp(1.3 - (camDist / 100), 0, 1)
+                        local fadeDist = math.clamp((camDist - 6) / 34, 0, 1)
+                        local targetTransparency = (isOffScreen or isObstructed) and 0 or (1 - fadeDist)
                         local curTrans = entry.CurrentTracerTrans or targetTransparency
                         curTrans = curTrans + (targetTransparency - curTrans) * tracerAlpha
                         entry.CurrentTracerTrans = curTrans
@@ -1962,17 +1963,27 @@ local function Modification1(child)
         local player = nil
         local pName = ""
         
-        -- 1. Resolve directly by UserId from AvatarImage thumbnail URL
-        local avatarImg = PlayerHeader:FindFirstChild("AvatarImage", true)
-        if avatarImg and avatarImg:IsA("ImageLabel") and avatarImg.Image ~= "" then
-            local uidStr = avatarImg.Image:match("id=(%d+)")
-            local uid = uidStr and tonumber(uidStr)
-            if uid then
-                player = Players:GetPlayerByUserId(uid)
+        -- 1. Extract target username directly from PlayerHeader text
+        local rawUser = ""
+        if PlayerNameLbl and PlayerNameLbl:IsA("TextLabel") and PlayerNameLbl.Text ~= "" then
+            rawUser = PlayerNameLbl.Text
+        else
+            for _, d in ipairs(PlayerHeader:GetDescendants()) do
+                if d:IsA("TextLabel") and d.Text:sub(1, 1) == "@" then
+                    rawUser = d.Text
+                    break
+                end
             end
         end
 
-        -- 2. Resolve via OriginalTexts (un-redacted text from StreamerMode)
+        local cleanUser = (rawUser:sub(1, 1) == "@") and rawUser:sub(2) or rawUser
+
+        -- 2. Direct lookup in Players by username
+        if cleanUser ~= "" then
+            player = Players:FindFirstChild(cleanUser)
+        end
+
+        -- 3. Resolve via OriginalTexts (un-redacted text from StreamerMode)
         if not player and PlayerNameLbl and PlayerNameLbl:IsA("TextLabel") then
             local origText = OriginalTexts and OriginalTexts[PlayerNameLbl]
             if origText and origText ~= "" then
@@ -1981,35 +1992,43 @@ local function Modification1(child)
             end
         end
 
-        -- 3. Resolve via StreamerMode anonymization map (e.g. "Player 8")
-        if not player and PlayerNameLbl and PlayerNameLbl:IsA("TextLabel") then
-            local rawText = PlayerNameLbl.Text
-            local clean = rawText:sub(1, 1) == "@" and rawText:sub(2) or rawText
+        -- 4. Resolve via StreamerMode anonymization map (e.g. "Player 8")
+        if not player and cleanUser ~= "" then
             for _, p in ipairs(Players:GetPlayers()) do
-                if GetAnonPlayerName and GetAnonPlayerName(p) == clean then
+                if GetAnonPlayerName and GetAnonPlayerName(p) == cleanUser then
                     player = p
                     break
                 end
             end
         end
 
-        -- 4. Fallback: match by Name or DisplayName
-        if not player and PlayerNameLbl and PlayerNameLbl:IsA("TextLabel") then
-            local rawText = PlayerNameLbl.Text
-            local clean = rawText:sub(1, 1) == "@" and rawText:sub(2) or rawText
+        -- 5. Fallback: match by DisplayName
+        if not player and DisplayNameLbl and DisplayNameLbl:IsA("TextLabel") and DisplayNameLbl.Text ~= "" then
+            local dText = DisplayNameLbl.Text
             for _, p in ipairs(Players:GetPlayers()) do
-                if p.Name == clean or p.DisplayName == clean or p.DisplayName == rawText then
+                if p.DisplayName == dText or p.Name == dText then
                     player = p
                     break
+                end
+            end
+        end
+
+        -- 6. Fallback: Resolve by UserId from AvatarImage thumbnail URL
+        if not player then
+            local avatarImg = PlayerHeader:FindFirstChild("AvatarImage", true)
+            if avatarImg and avatarImg:IsA("ImageLabel") and avatarImg.Image ~= "" then
+                local uidStr = avatarImg.Image:match("id=(%d+)")
+                local uid = uidStr and tonumber(uidStr)
+                if uid then
+                    player = Players:GetPlayerByUserId(uid)
                 end
             end
         end
 
         if player then
             pName = player.Name
-        elseif PlayerNameLbl and PlayerNameLbl:IsA("TextLabel") then
-            local rawText = PlayerNameLbl.Text
-            pName = rawText:sub(1, 1) == "@" and rawText:sub(2) or rawText
+        elseif cleanUser ~= "" then
+            pName = cleanUser
         end
 
         return player, pName
@@ -2346,7 +2365,9 @@ local function Modification1(child)
     end))
 
     TrackConn(DropDown:GetPropertyChangedSignal("Visible"):Connect(function()
-        if not DropDown.Visible then
+        if DropDown.Visible then
+            task.defer(UpdateButtonUI)
+        else
             isExpanded = false
             isAnimating = false
             panel.Size = UDim2.new(1, 0, 0, 0)
@@ -2357,13 +2378,21 @@ local function Modification1(child)
         end
     end))
     
-    if PlayerNameLbl then
-        TrackConn(PlayerNameLbl:GetPropertyChangedSignal("Text"):Connect(function()
-            UpdateButtonUI()
-            if isExpanded then
-                task.spawn(function() ToggleExpand(false) end)
-            end
-        end))
+    TrackConn(DropDown:GetPropertyChangedSignal("Position"):Connect(function()
+        if DropDown.Visible then
+            task.defer(UpdateButtonUI)
+        end
+    end))
+    
+    for _, desc in ipairs(PlayerHeader:GetDescendants()) do
+        if desc:IsA("TextLabel") then
+            TrackConn(desc:GetPropertyChangedSignal("Text"):Connect(function()
+                task.defer(UpdateButtonUI)
+                if isExpanded then
+                    task.spawn(function() ToggleExpand(false) end)
+                end
+            end))
+        end
     end
     
     TrackConn(ActionListener)
