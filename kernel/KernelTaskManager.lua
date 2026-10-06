@@ -4611,19 +4611,19 @@ applyRowColumnLayout = function(row, tabKey)
         local isPriSort = TableSortState.Startup and TableSortState.Startup.colId == "Priority"
         local gripLbl = row:FindFirstChild("GripLbl")
         if gripLbl then
-            gripLbl.Position = UDim2.new(pPri + wPri / 2, -26, 0.5, -8)
+            gripLbl.Position = UDim2.new(pPri + wPri / 2, -26, 0, 8)
             gripLbl.Size = UDim2.new(0, 12, 0, 16)
             gripLbl.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
         end
         local dot = row:FindFirstChild("Dot")
         if dot then
-            dot.Position = UDim2.new(pPri + wPri / 2, -10, 0.5, -4)
+            dot.Position = UDim2.new(pPri + wPri / 2, -10, 0, 12)
             dot.Size = UDim2.new(0, 8, 0, 8)
         end
         local priLbl = row:FindFirstChild("PriLbl")
         if priLbl then
-            priLbl.Position = UDim2.new(pPri + wPri / 2, 2, 0.5, -9)
-            priLbl.Size = UDim2.new(0, 32, 0, 18)
+            priLbl.Position = UDim2.new(pPri + wPri / 2, 2, 0, 7)
+            priLbl.Size = UDim2.new(0, 34, 0, 18)
             priLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
         local nameLbl = row:FindFirstChild("NameLbl")
@@ -4644,13 +4644,21 @@ applyRowColumnLayout = function(row, tabKey)
         local timeLbl = row:FindFirstChild("TimeLbl")
         if timeLbl then
             timeLbl.Position = UDim2.new(pTime, H_PAD, 0, 0)
-            timeLbl.Size = UDim2.new(wTime, -H_PAD * 2, 1, 0)
+            timeLbl.Size = UDim2.new(wTime, -H_PAD * 2, 0, 32)
             timeLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
         local toggleBtn = row:FindFirstChild("ToggleBtn")
         if toggleBtn then
             toggleBtn.Size = UDim2.new(0, 64, 0, 20)
             toggleBtn.Position = UDim2.new(pToggle + wToggle / 2, -36, 0, 6)
+        end
+        local accordion = row:FindFirstChild("AccordionPanel")
+        if accordion then
+            local btnContainer = accordion:FindFirstChild("BtnContainer")
+            if btnContainer then
+                btnContainer.Position = UDim2.new(pName, H_PAD, 0, 5)
+                btnContainer.Size = UDim2.new(1 - pName, -H_PAD * 2, 1, -8)
+            end
         end
 
     elseif tabKey == "Tasks" then
@@ -9237,7 +9245,7 @@ local function renderStartupRow(scriptObj, idx)
         local gripLbl = Instance.new("TextLabel")
         gripLbl.Name = "GripLbl"
         gripLbl.Size = UDim2.new(0, 12, 0, 16)
-        gripLbl.Position = UDim2.new(0, 4, 0.5, -8)
+        gripLbl.Position = UDim2.new(0, 4, 0, 8)
         gripLbl.BackgroundTransparency = 1
         gripLbl.Font = Enum.Font.GothamBold
         gripLbl.TextSize = 12
@@ -9258,8 +9266,8 @@ local function renderStartupRow(scriptObj, idx)
 
         local priLbl = Instance.new("TextButton")
         priLbl.Name = "PriLbl"
-        priLbl.Size = UDim2.new(0, 32, 0, 18)
-        priLbl.Position = UDim2.new(0.02, 22, 0.5, -9)
+        priLbl.Size = UDim2.new(0, 34, 0, 18)
+        priLbl.Position = UDim2.new(0.02, 22, 0, 7)
         priLbl.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
         priLbl.BorderSizePixel = 0
         priLbl.AutoButtonColor = false
