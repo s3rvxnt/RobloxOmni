@@ -42,7 +42,7 @@ if ($Path -and (Test-Path $Path)) {
         Get-ChildItem -Path $searchRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
             $subWs = Test-Path (Join-Path $_.FullName 'workspace')
             $subAe = Test-Path (Join-Path $_.FullName 'autoexec')
-            if ($subWs -and ($subAe -or (Get-ChildItem -Path $_.FullName -Filter '*.exe' -File -ErrorAction SilentlyContinue))) {
+            if ($subWs -and $subAe) {
                 if (-not $detectedRoots.Contains($_.FullName)) {
                     $detectedRoots.Add($_.FullName)
                 }
