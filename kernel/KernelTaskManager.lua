@@ -2907,6 +2907,9 @@ local function buildLoopProfile()
     end
 
     table.sort(list, function(a, b)
+        local lA = (a.locked == true)
+        local lB = (b.locked == true)
+        if lA ~= lB then return lA and not lB end
         local pa = tonumber(a.priority) or 50
         local pb = tonumber(b.priority) or 50
         if pa ~= pb then return pa > pb end
@@ -3442,6 +3445,9 @@ local function buildProfile()
     end
 
     table.sort(allTasks, function(a, b)
+        local lA = (a.locked == true)
+        local lB = (b.locked == true)
+        if lA ~= lB then return lA and not lB end
         local pa = getNumericTaskPriority(a)
         local pb = getNumericTaskPriority(b)
         if pa ~= pb then return pa > pb end
@@ -4170,8 +4176,8 @@ local ColumnConfig = {
         cols = {
             { id = "Priority", name = "PRIORITY",                 align = Enum.TextXAlignment.Center, width = 0.10, minWidth = 0.10, maxWidth = 0.18, defaultWidth = 0.10 },
             { id = "Name",     name = "LOOP CALLER & LOCATION",   align = Enum.TextXAlignment.Center, width = 0.34, minWidth = 0.22, maxWidth = 0.65, defaultWidth = 0.34 },
-            { id = "Iters",    name = "ITERS",                    align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.15 },
-            { id = "Hz",       name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.11, maxWidth = 0.20, defaultWidth = 0.11 },
+            { id = "Iters",    name = "ITERS",                    align = Enum.TextXAlignment.Center, width = 0.14, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.14 },
+            { id = "Hz",       name = "THROTTLE RATE",            align = Enum.TextXAlignment.Center, width = 0.12, minWidth = 0.11, maxWidth = 0.22, defaultWidth = 0.12 },
             { id = "Lock",     name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.05, maxWidth = 0.12, defaultWidth = 0.06 },
             { id = "Cpu",      name = "CPU TIME",                 align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.09, maxWidth = 0.20, defaultWidth = 0.11 },
             { id = "Actions",  name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.12, maxWidth = 0.22, defaultWidth = 0.13 },
@@ -4258,6 +4264,11 @@ local STARTUP_STAGE_RANKS = {
 local function sortTaskList(tasks, colId, ascending)
     table.sort(tasks, function(a, b)
         if colId == "Priority" then
+            local lA = (a.locked == true)
+            local lB = (b.locked == true)
+            if lA ~= lB then
+                if ascending then return not lA and lB else return lA and not lB end
+            end
             local priA = getNumericTaskPriority(a)
             local priB = getNumericTaskPriority(b)
             if priA ~= priB then
@@ -4303,6 +4314,10 @@ local function sortTaskList(tasks, colId, ascending)
             end
         end
 
+        local lA = (a.locked == true)
+        local lB = (b.locked == true)
+        if lA ~= lB then return lA and not lB end
+
         local pA = getNumericTaskPriority(a)
         local pB = getNumericTaskPriority(b)
         if pA ~= pB then return pA > pB end
@@ -4313,6 +4328,11 @@ end
 local function sortLoopList(loops, colId, ascending)
     table.sort(loops, function(a, b)
         if colId == "Priority" then
+            local lA = (a.locked == true)
+            local lB = (b.locked == true)
+            if lA ~= lB then
+                if ascending then return not lA and lB else return lA and not lB end
+            end
             local priA = tonumber(a.priority) or 50
             local priB = tonumber(b.priority) or 50
             if priA ~= priB then
@@ -4357,6 +4377,10 @@ local function sortLoopList(loops, colId, ascending)
                 if ascending then return not pA and pB else return pA and not pB end
             end
         end
+
+        local lA = (a.locked == true)
+        local lB = (b.locked == true)
+        if lA ~= lB then return lA and not lB end
 
         local pA = tonumber(a.priority) or 50
         local pB = tonumber(b.priority) or 50
