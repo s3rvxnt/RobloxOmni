@@ -3926,8 +3926,11 @@ end
 -- Background 2-second profiling loop
 local profilingActive = true
 task.spawn(function()
+    local myThread = coroutine.running()
+    if ignoredThreads then ignoredThreads[myThread] = true end
+    local waitFn = rawTaskWait or origTaskWait or (task and task.wait)
     while profilingActive do
-        task.wait(2.0)
+        waitFn(2.0)
         if profilingActive then
             pcall(ScanGameTasks)
             pcall(emitProfile)
@@ -4047,11 +4050,14 @@ getgenv().UnloadAllTasks = UnloadAllTasks
 
 -- Active SuperStep Guard: Ensure SuperStep is never overwritten by rogue third-party or legacy scripts
 task.spawn(function()
+    local myThread = coroutine.running()
+    if ignoredThreads then ignoredThreads[myThread] = true end
+    local waitFn = rawTaskWait or origTaskWait or (task and task.wait)
     while profilingActive do
         if getgenv().SuperStep ~= RegisterSuperStep then
             getgenv().SuperStep = RegisterSuperStep
         end
-        task.wait(1)
+        waitFn(1)
     end
 end)
 getgenv().GetSchedulerProfile = buildProfile
@@ -10571,8 +10577,11 @@ local lastGameScanTime = 0
 local running = true
 
 task.spawn(function()
+    local myThread = coroutine.running()
+    if ignoredThreads then ignoredThreads[myThread] = true end
+    local waitFn = rawTaskWait or origTaskWait or (task and task.wait)
     while running do
-        task.wait(0.1)
+        waitFn(0.1)
 
         if ScreenGui.Enabled then
             pcall(function()
