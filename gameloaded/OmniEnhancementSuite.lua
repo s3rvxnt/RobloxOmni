@@ -76,10 +76,6 @@ local LEGACY_CONFIG_FILE = "roblox_enhancement_config.json"
 local config = {
     streamer_mode = true,
     personal_space_bubble = 0,
-    crowd_optimizer = false,
-    crowd_shadows = true,
-    crowd_anim_lod = true,
-    crowd_face_controls = true,
     chat_timestamps = true,
     mention_chimes = true,
     anti_afk = true,
@@ -2510,274 +2506,6 @@ task.spawn(function()
 end)
 
 -- ============================================================================
--- Section 9.5: Crowd Optimizer Engine
--- High-Performance Crowd Rendering Optimization Suite
--- Eliminates dynamic shadow passes, blendshape morph solvers, and distant animation stepping.
--- ============================================================================
-local CrowdOptimizer = {}
-local isCrowdActive = false
-local crowdConns = {}
-local storedFaceControls = setmetatable({}, { __mode = "k" })      -- [FaceControls] = parentHead
-local pausedAnimators = setmetatable({}, { __mode = "k" })         -- [Animator] = true
-
-local function TrackCrowdConn(c)
-    table.insert(crowdConns, c)
-    return c
-end
-
--- 1. Avatar Shadow Culling
-local function ApplyShadowsToChar(char, enableCulling)
-    if not char then return end
-    for _, desc in ipairs(char:GetDescendants()) do
-        if desc:IsA("BasePart") then
-            desc.CastShadow = not enableCulling
-        end
-    end
-end
-
--- 2. Facial Morph Culling (FaceControls)
-local function ApplyFaceControlsToChar(char, enableCulling)
-    if not char then return end
-    for _, desc in ipairs(char:GetDescendants()) do
-        if desc:IsA("FaceControls") then
-            if enableCulling then
-                if desc.Parent then
-                    storedFaceControls[desc] = desc.Parent
-                    desc.Parent = nil
-                end
-            else
-                local head = storedFaceControls[desc]
-                if head and head:IsDescendantOf(game) then
-                    pcall(function() desc.Parent = head end)
-                end
-                storedFaceControls[desc] = nil
-            end
-        end
-    end
-end
-
--- 3. Animation Distance LOD & Stationary Pose Optimizer
-local function ResumeAnimator(anim)
-    if not anim then return end
-    pausedAnimators[anim] = nil
-    pcall(function()
-        for _, track in ipairs(anim:GetPlayingAnimationTracks()) do
-            track:AdjustSpeed(1)
-        end
-    end)
-end
-
-local function ResumeAllAnimators()
-    for anim, _ in pairs(pausedAnimators) do
-        if anim:IsDescendantOf(game) then
-            pcall(function()
-                for _, track in ipairs(anim:GetPlayingAnimationTracks()) do
-                    track:AdjustSpeed(1)
-                end
-            end)
-        end
-    end
-    table.clear(pausedAnimators)
-end
-
-local function StepAnimationLOD()
-    if not isCrowdActive or not config.crowd_anim_lod then
-        if next(pausedAnimators) ~= nil then
-            ResumeAllAnimators()
-        end
-        return
-    end
-
-    local cam = Workspace.CurrentCamera
-    local camPos = cam and cam.CFrame.Position
-    if not camPos then return end
-
-    local localChar = LocalPlayer.Character
-    local localPos = (localChar and localChar.PrimaryPart and localChar.PrimaryPart.Position) or camPos
-
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then
-            local char = p.Character
-            local root = char.PrimaryPart or char:FindFirstChild("HumanoidRootPart")
-            if root then
-                local dist = (root.Position - localPos).Magnitude
-                local vel = root.AssemblyLinearVelocity.Magnitude
-                local anim = char:FindFirstChildWhichIsA("Animator", true)
-                if anim then
-                    local shouldPause = (dist > 50) and (vel < 0.5)
-                    local isPaused = pausedAnimators[anim]
-
-                    if shouldPause and not isPaused then
-                        pausedAnimators[anim] = true
-                        pcall(function()
-                            for _, track in ipairs(anim:GetPlayingAnimationTracks()) do
-                                track:AdjustSpeed(0)
-                            end
-                        end)
-                    elseif not shouldPause and isPaused then
-                        ResumeAnimator(anim)
-                    end
-                end
-            end
-        end
-    end
-end
-
--- Hook Player & Character Lifecycle
-local function HookCrowdCharacter(player, char)
-    if not char or player == LocalPlayer then return end
-
-    local cullShadows = isCrowdActive and config.crowd_shadows
-    local cullFace = isCrowdActive and config.crowd_face_controls
-
-    if cullShadows then
-        ApplyShadowsToChar(char, true)
-    end
-    if cullFace then
-        ApplyFaceControlsToChar(char, true)
-    end
-
-    TrackCrowdConn(char.DescendantAdded:Connect(function(desc)
-        if not isCrowdActive then return end
-        if config.crowd_shadows and desc:IsA("BasePart") then
-            desc.CastShadow = false
-        elseif config.crowd_face_controls and desc:IsA("FaceControls") and desc.Parent then
-            storedFaceControls[desc] = desc.Parent
-            desc.Parent = nil
-        end
-    end))
-
-    local anim = char:FindFirstChildWhichIsA("Animator", true)
-    if anim then
-        TrackCrowdConn(anim.AnimationPlayed:Connect(function(track)
-            if pausedAnimators[anim] then
-                ResumeAnimator(anim)
-            end
-        end))
-    end
-end
-
-local function HookCrowdPlayer(player)
-    if player == LocalPlayer then return end
-    if player.Character then
-        HookCrowdCharacter(player, player.Character)
-    end
-    TrackCrowdConn(player.CharacterAdded:Connect(function(char)
-        HookCrowdCharacter(player, char)
-    end))
-end
-
-local animLodThread = nil
-
-local function DisconnectCrowdConn(c)
-    if not c then return end
-    if typeof(c) == "RBXScriptConnection" then
-        pcall(function() c:Disconnect() end)
-    elseif type(c) == "table" and type(c.Disconnect) == "function" then
-        pcall(function() c:Disconnect() end)
-    end
-end
-
-local function ClearCrowdConns()
-    if animLodThread then
-        pcall(task.cancel, animLodThread)
-        animLodThread = nil
-    end
-    for _, c in ipairs(crowdConns) do
-        DisconnectCrowdConn(c)
-    end
-    table.clear(crowdConns)
-end
-
-local function EnsureAnimLodThread()
-    if isCrowdActive and config.crowd_anim_lod then
-        if not animLodThread then
-            animLodThread = task.spawn(function()
-                while isCrowdActive and config.crowd_anim_lod do
-                    task.wait(0.25)
-                    if not isCrowdActive or not config.crowd_anim_lod then break end
-                    StepAnimationLOD()
-                end
-                animLodThread = nil
-            end)
-        end
-    else
-        if animLodThread then
-            pcall(task.cancel, animLodThread)
-            animLodThread = nil
-        end
-    end
-end
-
-function CrowdOptimizer.Update()
-    if not isCrowdActive then return end
-
-    local cullShadows = config.crowd_shadows
-    local cullFace = config.crowd_face_controls
-    local cullAnim = config.crowd_anim_lod
-
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then
-            ApplyShadowsToChar(p.Character, cullShadows)
-            ApplyFaceControlsToChar(p.Character, cullFace)
-            if not cullAnim then
-                local anim = p.Character:FindFirstChildWhichIsA("Animator", true)
-                if anim and pausedAnimators[anim] then
-                    ResumeAnimator(anim)
-                end
-            end
-        end
-    end
-
-    EnsureAnimLodThread()
-end
-
-function CrowdOptimizer.Enable()
-    if isCrowdActive then
-        CrowdOptimizer.Update()
-        return
-    end
-    isCrowdActive = true
-
-    ClearCrowdConns()
-
-    for _, p in ipairs(Players:GetPlayers()) do
-        HookCrowdPlayer(p)
-    end
-    TrackCrowdConn(Players.PlayerAdded:Connect(HookCrowdPlayer))
-
-    EnsureAnimLodThread()
-    CrowdOptimizer.Update()
-end
-
-function CrowdOptimizer.Disable()
-    if not isCrowdActive then return end
-    isCrowdActive = false
-
-    ClearCrowdConns()
-
-    -- 1. Restore shadows
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then
-            ApplyShadowsToChar(p.Character, false)
-        end
-    end
-
-    -- 2. Restore FaceControls
-    for fc, head in pairs(storedFaceControls) do
-        if typeof(fc) == "Instance" and typeof(head) == "Instance" and head:IsDescendantOf(game) then
-            pcall(function() fc.Parent = head end)
-        end
-    end
-    table.clear(storedFaceControls)
-
-    -- 3. Resume Animators
-    ResumeAllAnimators()
-end
-
-Own(CrowdOptimizer.Disable)
-
--- ============================================================================
 -- Section 10: In-Game ESC Menu Settings Injection
 -- ============================================================================
 local function FindTargetPage()
@@ -3374,68 +3102,6 @@ local function InjectEnhancementSettings(page)
         if val > 0 then PersonalSpaceBubble.Enable() else PersonalSpaceBubble.Disable() end
     end, -89)
 
-    local subRows = {}
-    local function SetAccordionExpanded(expanded, animate)
-        for _, subRow in ipairs(subRows) do
-            if animate then
-                if expanded then
-                    subRow.Visible = true
-                    subRow.Size = UDim2.new(1, 0, 0, 0)
-                    TweenService:Create(subRow, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                        Size = UDim2.new(1, 0, 0, 50)
-                    }):Play()
-                else
-                    local tween = TweenService:Create(subRow, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                        Size = UDim2.new(1, 0, 0, 0)
-                    })
-                    tween:Play()
-                    task.delay(0.15, function()
-                        if not config.crowd_optimizer then
-                            subRow.Visible = false
-                        end
-                    end)
-                end
-            else
-                subRow.Visible = expanded
-                subRow.Size = expanded and UDim2.new(1, 0, 0, 50) or UDim2.new(1, 0, 0, 0)
-            end
-        end
-    end
-
-    CreateToggleRow("CrowdOptimizer", "Crowd Optimizer", config.crowd_optimizer, function(val)
-        config.crowd_optimizer = val
-        SaveConfig()
-        SetAccordionExpanded(val, true)
-        if val then
-            CrowdOptimizer.Enable()
-        else
-            CrowdOptimizer.Disable()
-        end
-    end, -88)
-
-    local subRowShadows = CreateToggleRow("CrowdShadows", "  ↳ Avatar Shadow Culling", config.crowd_shadows, function(val)
-        config.crowd_shadows = val
-        SaveConfig()
-        CrowdOptimizer.Update()
-    end, -87, true)
-    table.insert(subRows, subRowShadows)
-
-    local subRowAnimLod = CreateToggleRow("CrowdAnimLod", "  ↳ Animation Distance LOD", config.crowd_anim_lod, function(val)
-        config.crowd_anim_lod = val
-        SaveConfig()
-        CrowdOptimizer.Update()
-    end, -86, true)
-    table.insert(subRows, subRowAnimLod)
-
-    local subRowFaceControls = CreateToggleRow("CrowdFaceControls", "  ↳ Facial Morph Culling", config.crowd_face_controls, function(val)
-        config.crowd_face_controls = val
-        SaveConfig()
-        CrowdOptimizer.Update()
-    end, -85, true)
-    table.insert(subRows, subRowFaceControls)
-
-    SetAccordionExpanded(config.crowd_optimizer, false)
-
     CreateToggleRow("LocatorTracers", "Locator Tracers", config.locator_tracers, function(val)
         config.locator_tracers = val
         SaveConfig()
@@ -3608,12 +3274,6 @@ local function SyncWithSystems()
     else
         AntiAFK.Disable()
     end
-
-    if config.crowd_optimizer then
-        CrowdOptimizer.Enable()
-    else
-        CrowdOptimizer.Disable()
-    end
 end
 
 SyncWithSystems()
@@ -3638,11 +3298,6 @@ local function FullSuiteCleanup()
     -- 3. Anti-AFK Cleanup
     if AntiAFK and AntiAFK.Disable then
         pcall(AntiAFK.Disable)
-    end
-
-    -- 4. Crowd Optimizer Cleanup
-    if CrowdOptimizer and CrowdOptimizer.Disable then
-        pcall(CrowdOptimizer.Disable)
     end
 
     -- 5. Locator Cleanup
@@ -3725,7 +3380,6 @@ if genv then
         PersonalSpaceBubble = PersonalSpaceBubble,
         Locator = Locator,
         AntiAFK = AntiAFK,
-        CrowdOptimizer = CrowdOptimizer,
         Config = config,
         Cleanup = FullSuiteCleanup,
     }
@@ -3739,7 +3393,6 @@ return {
     PersonalSpaceBubble = PersonalSpaceBubble,
     Locator = Locator,
     AntiAFK = AntiAFK,
-    CrowdOptimizer = CrowdOptimizer,
     Config = config,
     Cleanup = FullSuiteCleanup,
 }
