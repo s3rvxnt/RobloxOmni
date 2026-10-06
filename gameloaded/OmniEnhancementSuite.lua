@@ -1605,7 +1605,9 @@ local RenderConnection = RunService.RenderStepped:Connect(function(dt)
                                                 break
                                             end
                                             local hitPart = rayHit.Instance
-                                            if hitPart.Transparency > 0.75 and not hitPart.CanCollide then
+                                            local hitChar = hitPart:FindFirstAncestorOfClass("Model")
+                                            local isOtherPlayer = hitChar and hitChar:FindFirstChildOfClass("Humanoid") and hitChar ~= myChar and hitChar ~= character
+                                            if (hitPart.Transparency > 0.75 and not hitPart.CanCollide) or isOtherPlayer then
                                                 curOrigin = rayHit.Position + curDir.Unit * 0.2
                                                 if (headPos - curOrigin):Dot(rayDir) <= 0 then
                                                     break
@@ -1632,7 +1634,7 @@ local RenderConnection = RunService.RenderStepped:Connect(function(dt)
                         tracerLine.Position = UDim2.new(0, midPoint.X, 0, midPoint.Y)
                         tracerLine.Rotation = angle
 
-                        local targetTransparency = 0
+                        local targetTransparency = (isOffScreen or isObstructed) and 0 or math.clamp(1.3 - (camDist / 100), 0, 1)
                         local curTrans = entry.CurrentTracerTrans or targetTransparency
                         curTrans = curTrans + (targetTransparency - curTrans) * tracerAlpha
                         entry.CurrentTracerTrans = curTrans
