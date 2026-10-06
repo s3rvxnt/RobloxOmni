@@ -4145,52 +4145,52 @@ local ICONS = {
 local ColumnConfig = {
     Tasks = {
         cols = {
-            { id = "Priority", name = "PRIORITY",                 align = Enum.TextXAlignment.Center, width = 0.10, minWidth = 0.06, maxWidth = 0.18, defaultWidth = 0.10 },
-            { id = "Name",     name = "TASK IDENTIFIER & SOURCE", align = Enum.TextXAlignment.Center, width = 0.34, minWidth = 0.18, maxWidth = 0.65, defaultWidth = 0.34 },
-            { id = "Event",    name = "EVENT",                    align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.10, maxWidth = 0.25, defaultWidth = 0.15 },
-            { id = "Hz",       name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.085, maxWidth = 0.20, defaultWidth = 0.11 },
-            { id = "Lock",     name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
-            { id = "Cpu",      name = "CPU TIME",                 align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.075, maxWidth = 0.20, defaultWidth = 0.11 },
-            { id = "Actions",  name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.085, maxWidth = 0.22, defaultWidth = 0.13 },
+            { id = "Priority", name = "PRIORITY",                 align = Enum.TextXAlignment.Center, width = 0.10, minWidth = 0.10, maxWidth = 0.18, defaultWidth = 0.10 },
+            { id = "Name",     name = "TASK IDENTIFIER & SOURCE", align = Enum.TextXAlignment.Center, width = 0.34, minWidth = 0.22, maxWidth = 0.65, defaultWidth = 0.34 },
+            { id = "Event",    name = "EVENT",                    align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.15 },
+            { id = "Hz",       name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.11, maxWidth = 0.20, defaultWidth = 0.11 },
+            { id = "Lock",     name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.05, maxWidth = 0.12, defaultWidth = 0.06 },
+            { id = "Cpu",      name = "CPU TIME",                 align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.09, maxWidth = 0.20, defaultWidth = 0.11 },
+            { id = "Actions",  name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.12, maxWidth = 0.22, defaultWidth = 0.13 },
         }
     },
     Loops = {
         cols = {
-            { id = "Priority", name = "PRIORITY",                 align = Enum.TextXAlignment.Center, width = 0.10, minWidth = 0.06, maxWidth = 0.18, defaultWidth = 0.10 },
-            { id = "Name",     name = "LOOP CALLER & LOCATION",   align = Enum.TextXAlignment.Center, width = 0.34, minWidth = 0.18, maxWidth = 0.65, defaultWidth = 0.34 },
-            { id = "Iters",    name = "ITERS",                    align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.10, maxWidth = 0.25, defaultWidth = 0.15 },
-            { id = "Hz",       name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.085, maxWidth = 0.20, defaultWidth = 0.11 },
-            { id = "Lock",     name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
-            { id = "Cpu",      name = "CPU TIME",                 align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.075, maxWidth = 0.20, defaultWidth = 0.11 },
-            { id = "Actions",  name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.085, maxWidth = 0.22, defaultWidth = 0.13 },
+            { id = "Priority", name = "PRIORITY",                 align = Enum.TextXAlignment.Center, width = 0.10, minWidth = 0.10, maxWidth = 0.18, defaultWidth = 0.10 },
+            { id = "Name",     name = "LOOP CALLER & LOCATION",   align = Enum.TextXAlignment.Center, width = 0.34, minWidth = 0.22, maxWidth = 0.65, defaultWidth = 0.34 },
+            { id = "Iters",    name = "ITERS",                    align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.15 },
+            { id = "Hz",       name = "TARGET HZ",                align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.11, maxWidth = 0.20, defaultWidth = 0.11 },
+            { id = "Lock",     name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.05, maxWidth = 0.12, defaultWidth = 0.06 },
+            { id = "Cpu",      name = "CPU TIME",                 align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.09, maxWidth = 0.20, defaultWidth = 0.11 },
+            { id = "Actions",  name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.12, maxWidth = 0.22, defaultWidth = 0.13 },
         }
     },
     Startup = {
         cols = {
-            { id = "Priority", name = "PRIORITY",                          align = Enum.TextXAlignment.Center, width = 0.12, minWidth = 0.08, maxWidth = 0.18, defaultWidth = 0.12 },
-            { id = "Name",     name = "SCRIPT IDENTIFIER & RELATIVE PATH", align = Enum.TextXAlignment.Center, width = 0.41, minWidth = 0.20, maxWidth = 0.70, defaultWidth = 0.41 },
-            { id = "Stage",    name = "BOOT STAGE",                        align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.11, maxWidth = 0.28, defaultWidth = 0.17 },
-            { id = "Time",     name = "EXEC TIME",                         align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.085, maxWidth = 0.22, defaultWidth = 0.13 },
-            { id = "Toggle",   name = "STATE / TOGGLE",                    align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.12, maxWidth = 0.28, defaultWidth = 0.17 },
+            { id = "Priority", name = "PRIORITY",                          align = Enum.TextXAlignment.Center, width = 0.12, minWidth = 0.12, maxWidth = 0.18, defaultWidth = 0.12 },
+            { id = "Name",     name = "SCRIPT IDENTIFIER & RELATIVE PATH", align = Enum.TextXAlignment.Center, width = 0.41, minWidth = 0.28, maxWidth = 0.70, defaultWidth = 0.41 },
+            { id = "Stage",    name = "BOOT STAGE",                        align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.14, maxWidth = 0.28, defaultWidth = 0.17 },
+            { id = "Time",     name = "EXEC TIME",                         align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.11, maxWidth = 0.22, defaultWidth = 0.13 },
+            { id = "Toggle",   name = "STATE / TOGGLE",                    align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.14, maxWidth = 0.28, defaultWidth = 0.17 },
         }
     },
     Game = {
         cols = {
-            { id = "Stat",    name = "STAT",               align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.045, maxWidth = 0.12, defaultWidth = 0.06 },
-            { id = "Name",    name = "GAME SCRIPT & LINE", align = Enum.TextXAlignment.Center, width = 0.44, minWidth = 0.22, maxWidth = 0.70, defaultWidth = 0.44 },
-            { id = "Event",   name = "EVENT",              align = Enum.TextXAlignment.Center, width = 0.18, minWidth = 0.11, maxWidth = 0.30, defaultWidth = 0.18 },
-            { id = "Status",  name = "ENGINE STATUS",      align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.11, maxWidth = 0.28, defaultWidth = 0.17 },
-            { id = "Action",  name = "ACTION",             align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.09, maxWidth = 0.25, defaultWidth = 0.15 },
+            { id = "Stat",    name = "STAT",               align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.05, maxWidth = 0.12, defaultWidth = 0.06 },
+            { id = "Name",    name = "GAME SCRIPT & LINE", align = Enum.TextXAlignment.Center, width = 0.44, minWidth = 0.24, maxWidth = 0.70, defaultWidth = 0.44 },
+            { id = "Event",   name = "EVENT",              align = Enum.TextXAlignment.Center, width = 0.18, minWidth = 0.10, maxWidth = 0.30, defaultWidth = 0.18 },
+            { id = "Status",  name = "ENGINE STATUS",      align = Enum.TextXAlignment.Center, width = 0.17, minWidth = 0.14, maxWidth = 0.28, defaultWidth = 0.17 },
+            { id = "Action",  name = "ACTION",             align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.12, maxWidth = 0.25, defaultWidth = 0.15 },
         }
     },
 }
 
 -- Backward compatibility reference
 local ColumnWidths = {
-    Tasks = { name = 0.34, minName = 0.18, maxName = 0.65, defaultName = 0.34 },
-    Loops = { name = 0.34, minName = 0.18, maxName = 0.65, defaultName = 0.34 },
-    Startup = { name = 0.41, minName = 0.20, maxName = 0.70, defaultName = 0.41 },
-    Game = { name = 0.44, minName = 0.22, maxName = 0.70, defaultName = 0.44 },
+    Tasks = { name = 0.34, minName = 0.22, maxName = 0.65, defaultName = 0.34 },
+    Loops = { name = 0.34, minName = 0.22, maxName = 0.65, defaultName = 0.34 },
+    Startup = { name = 0.41, minName = 0.28, maxName = 0.70, defaultName = 0.41 },
+    Game = { name = 0.44, minName = 0.24, maxName = 0.70, defaultName = 0.44 },
 }
 
 local TableHeaders = {}
@@ -4609,20 +4609,23 @@ applyRowColumnLayout = function(row, tabKey)
         local pToggle, wToggle = positions[5], widths[5]
 
         local isPriSort = TableSortState.Startup and TableSortState.Startup.colId == "Priority"
+        local rowWidth = (row.AbsoluteSize.X > 50) and row.AbsoluteSize.X or 736
+        local leftPad = math.max(11, math.floor(wPri * rowWidth / 2 - 33))
+
         local gripLbl = row:FindFirstChild("GripLbl")
         if gripLbl then
-            gripLbl.Position = UDim2.new(pPri + wPri / 2, -33, 0, 8)
+            gripLbl.Position = UDim2.new(pPri, leftPad, 0, 8)
             gripLbl.Size = UDim2.new(0, 12, 0, 16)
             gripLbl.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
         end
         local dot = row:FindFirstChild("Dot")
         if dot then
-            dot.Position = UDim2.new(pPri + wPri / 2, -15, 0, 12)
+            dot.Position = UDim2.new(pPri, leftPad + 18, 0, 12)
             dot.Size = UDim2.new(0, 8, 0, 8)
         end
         local priLbl = row:FindFirstChild("PriLbl")
         if priLbl then
-            priLbl.Position = UDim2.new(pPri + wPri / 2, -1, 0, 7)
+            priLbl.Position = UDim2.new(pPri, leftPad + 32, 0, 7)
             priLbl.Size = UDim2.new(0, 34, 0, 18)
             priLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
@@ -4630,11 +4633,15 @@ applyRowColumnLayout = function(row, tabKey)
         if nameLbl then
             nameLbl.Position = UDim2.new(pName, H_PAD, 0, 2)
             nameLbl.Size = UDim2.new(wName, -H_PAD * 2, 0, 15)
+            nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            nameLbl.ClipsDescendants = true
         end
         local pathLbl = row:FindFirstChild("PathLbl")
         if pathLbl then
             pathLbl.Position = UDim2.new(pName, H_PAD, 0, 17)
             pathLbl.Size = UDim2.new(wName, -H_PAD * 2, 0, 12)
+            pathLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            pathLbl.ClipsDescendants = true
         end
         local stageBadge = row:FindFirstChild("StageBadge")
         if stageBadge then
@@ -4646,6 +4653,8 @@ applyRowColumnLayout = function(row, tabKey)
             timeLbl.Position = UDim2.new(pTime, H_PAD, 0, 0)
             timeLbl.Size = UDim2.new(wTime, -H_PAD * 2, 0, 32)
             timeLbl.TextXAlignment = Enum.TextXAlignment.Center
+            timeLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            timeLbl.ClipsDescendants = true
         end
         local toggleBtn = row:FindFirstChild("ToggleBtn")
         if toggleBtn then
@@ -4671,20 +4680,23 @@ applyRowColumnLayout = function(row, tabKey)
         local pAct, wAct = positions[7], widths[7]
 
         local isPriSort = TableSortState.Tasks and TableSortState.Tasks.colId == "Priority"
+        local rowWidth = (row.AbsoluteSize.X > 50) and row.AbsoluteSize.X or 736
+        local leftPad = math.max(8, math.floor(wPri * rowWidth / 2 - 29))
+
         local gripLbl = row:FindFirstChild("GripLbl")
         if gripLbl then
-            gripLbl.Position = UDim2.new(pPri + wPri / 2, -29, 0.5, -8)
+            gripLbl.Position = UDim2.new(pPri, leftPad, 0.5, -8)
             gripLbl.Size = UDim2.new(0, 12, 0, 16)
             gripLbl.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
         end
         local dot = row:FindFirstChild("Dot")
         if dot then
-            dot.Position = UDim2.new(pPri + wPri / 2, -12, 0.5, -4)
+            dot.Position = UDim2.new(pPri, leftPad + 17, 0.5, -4)
             dot.Size = UDim2.new(0, 8, 0, 8)
         end
         local priLbl = row:FindFirstChild("PriLbl")
         if priLbl then
-            priLbl.Position = UDim2.new(pPri + wPri / 2, 1, 0.5, -9)
+            priLbl.Position = UDim2.new(pPri, leftPad + 30, 0.5, -9)
             priLbl.Size = UDim2.new(0, 28, 0, 18)
             priLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
@@ -4692,12 +4704,16 @@ applyRowColumnLayout = function(row, tabKey)
         if nameLbl then
             nameLbl.Position = UDim2.new(pName, H_PAD, 0, 0)
             nameLbl.Size = UDim2.new(wName, -H_PAD * 2, 1, 0)
+            nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            nameLbl.ClipsDescendants = true
         end
         local eventLbl = row:FindFirstChild("EventLbl")
         if eventLbl then
             eventLbl.Position = UDim2.new(pEvt, H_PAD, 0, 0)
             eventLbl.Size = UDim2.new(wEvt, -H_PAD * 2, 1, 0)
             eventLbl.TextXAlignment = Enum.TextXAlignment.Center
+            eventLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            eventLbl.ClipsDescendants = true
         end
         local priBtn = row:FindFirstChild("PriBtn")
         if priBtn then
@@ -4712,6 +4728,8 @@ applyRowColumnLayout = function(row, tabKey)
             cpuLbl.Position = UDim2.new(pCpu, H_PAD, 0, 0)
             cpuLbl.Size = UDim2.new(wCpu, -H_PAD * 2, 1, 0)
             cpuLbl.TextXAlignment = Enum.TextXAlignment.Center
+            cpuLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            cpuLbl.ClipsDescendants = true
         end
         local actions = row:FindFirstChild("Actions")
         if actions then
@@ -4729,20 +4747,23 @@ applyRowColumnLayout = function(row, tabKey)
         local pAct, wAct = positions[7], widths[7]
 
         local isPriSort = TableSortState.Loops and TableSortState.Loops.colId == "Priority"
+        local rowWidth = (row.AbsoluteSize.X > 50) and row.AbsoluteSize.X or 736
+        local leftPad = math.max(8, math.floor(wPri * rowWidth / 2 - 29))
+
         local gripLbl = row:FindFirstChild("GripLbl")
         if gripLbl then
-            gripLbl.Position = UDim2.new(pPri + wPri / 2, -29, 0.5, -8)
+            gripLbl.Position = UDim2.new(pPri, leftPad, 0.5, -8)
             gripLbl.Size = UDim2.new(0, 12, 0, 16)
             gripLbl.TextColor3 = isPriSort and Color3.fromRGB(120, 160, 215) or Color3.fromRGB(55, 68, 88)
         end
         local dot = row:FindFirstChild("Dot")
         if dot then
-            dot.Position = UDim2.new(pPri + wPri / 2, -12, 0.5, -4)
+            dot.Position = UDim2.new(pPri, leftPad + 17, 0.5, -4)
             dot.Size = UDim2.new(0, 8, 0, 8)
         end
         local priLbl = row:FindFirstChild("PriLbl")
         if priLbl then
-            priLbl.Position = UDim2.new(pPri + wPri / 2, 1, 0.5, -9)
+            priLbl.Position = UDim2.new(pPri, leftPad + 30, 0.5, -9)
             priLbl.Size = UDim2.new(0, 28, 0, 18)
             priLbl.TextXAlignment = Enum.TextXAlignment.Center
         end
@@ -4750,12 +4771,16 @@ applyRowColumnLayout = function(row, tabKey)
         if nameLbl then
             nameLbl.Position = UDim2.new(pName, H_PAD, 0, 0)
             nameLbl.Size = UDim2.new(wName, -H_PAD * 2, 1, 0)
+            nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            nameLbl.ClipsDescendants = true
         end
         local itersLbl = row:FindFirstChild("ItersLbl")
         if itersLbl then
             itersLbl.Position = UDim2.new(pItr, H_PAD, 0, 0)
             itersLbl.Size = UDim2.new(wItr, -H_PAD * 2, 1, 0)
             itersLbl.TextXAlignment = Enum.TextXAlignment.Center
+            itersLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            itersLbl.ClipsDescendants = true
         end
         local hzBtn = row:FindFirstChild("HzBtn")
         if hzBtn then
@@ -4770,6 +4795,8 @@ applyRowColumnLayout = function(row, tabKey)
             cpuLbl.Position = UDim2.new(pCpu, H_PAD, 0, 0)
             cpuLbl.Size = UDim2.new(wCpu, -H_PAD * 2, 1, 0)
             cpuLbl.TextXAlignment = Enum.TextXAlignment.Center
+            cpuLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            cpuLbl.ClipsDescendants = true
         end
         local actions = row:FindFirstChild("Actions")
         if actions then
@@ -4792,18 +4819,24 @@ applyRowColumnLayout = function(row, tabKey)
         if nameLbl then
             nameLbl.Position = UDim2.new(pName, H_PAD, 0, 0)
             nameLbl.Size = UDim2.new(wName, -H_PAD * 2, 1, 0)
+            nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            nameLbl.ClipsDescendants = true
         end
         local eventLbl = row:FindFirstChild("EventLbl")
         if eventLbl then
             eventLbl.Position = UDim2.new(pEvt, H_PAD, 0, 0)
             eventLbl.Size = UDim2.new(wEvt, -H_PAD * 2, 1, 0)
             eventLbl.TextXAlignment = Enum.TextXAlignment.Center
+            eventLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            eventLbl.ClipsDescendants = true
         end
         local statusLbl = row:FindFirstChild("StatusLbl")
         if statusLbl then
             statusLbl.Position = UDim2.new(pSts, H_PAD, 0, 0)
             statusLbl.Size = UDim2.new(wSts, -H_PAD * 2, 1, 0)
             statusLbl.TextXAlignment = Enum.TextXAlignment.Center
+            statusLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            statusLbl.ClipsDescendants = true
         end
         local disconnectBtn = row:FindFirstChild("DisconnectBtn")
         if disconnectBtn then
@@ -4830,6 +4863,8 @@ updateTableColumnLayout = function(tabKey)
                 colLabel.Position = UDim2.new(positions[i], H_PAD, 0, 0)
                 colLabel.Size = UDim2.new(widths[i], -H_PAD * 2, 1, 0)
                 colLabel.TextXAlignment = col.align or Enum.TextXAlignment.Center
+                colLabel.TextTruncate = Enum.TextTruncate.AtEnd
+                colLabel.ClipsDescendants = true
             end
         end
 
@@ -5652,6 +5687,8 @@ local function addHeaderColumn(parent, text, sizeX, posX, align, tabKey, colId)
     btn.TextColor3 = Color3.fromRGB(140, 155, 180)
     btn.TextXAlignment = align or Enum.TextXAlignment.Center
     btn.Text = text
+    btn.TextTruncate = Enum.TextTruncate.AtEnd
+    btn.ClipsDescendants = true
     btn.AutoButtonColor = false
     btn.ZIndex = 12
     btn.Parent = parent
@@ -6501,6 +6538,7 @@ local function renderTaskRow(taskObj, idx)
         row.BorderSizePixel = 0
         row.LayoutOrder = idx * 10
         row.Active = true
+        row.ClipsDescendants = true
         row.Parent = ScrollListTasks
 
         local rCorner = Instance.new("UICorner")
@@ -9972,6 +10010,7 @@ local function renderLoopRow(loopObj, idx)
         row.BorderSizePixel = 0
         row.LayoutOrder = idx * 10
         row.Active = true
+        row.ClipsDescendants = true
         row.Parent = ScrollListLoops
 
         local rCorner = Instance.new("UICorner")
@@ -10371,6 +10410,8 @@ local function renderGameTaskRow(entry, idx)
         row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
         row.BorderSizePixel = 0
         row.LayoutOrder = idx
+        row.Active = true
+        row.ClipsDescendants = true
         row.Parent = ScrollListGame
 
         local rCorner = Instance.new("UICorner")
