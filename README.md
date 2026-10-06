@@ -91,6 +91,7 @@ YourExecutor/
 | :--- | :--- | :--- |
 | **`Shift + F7`** | **Security & Update Gate** | Release changelog, line-by-line git diff viewer, static security & obfuscation audit |
 | **`Shift + F8`** | **Kernel Task Manager HUD** | Live CPU metrics, loop governor, thread throttling, interactive process controls |
+| **`Hold Shift at Launch`** | **Safe Mode Recovery** | Instant 0ms recovery: bypasses all third-party autoexec scripts if one crashes the game |
 
 ---
 
