@@ -4193,8 +4193,8 @@ local ColumnConfig = {
         cols = {
             { id = "Priority", name = "PRIORITY",                 align = Enum.TextXAlignment.Center, width = 0.10, minWidth = 0.10, maxWidth = 0.18, defaultWidth = 0.10 },
             { id = "Name",     name = "LOOP CALLER & LOCATION",   align = Enum.TextXAlignment.Center, width = 0.34, minWidth = 0.22, maxWidth = 0.65, defaultWidth = 0.34 },
-            { id = "Iters",    name = "ITERS",                    align = Enum.TextXAlignment.Center, width = 0.14, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.14 },
-            { id = "Hz",       name = "THROTTLE RATE",            align = Enum.TextXAlignment.Center, width = 0.12, minWidth = 0.11, maxWidth = 0.22, defaultWidth = 0.12 },
+            { id = "Iters",    name = "ITERS",                    align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.15 },
+            { id = "Hz",       name = "SPEED",                    align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.08, maxWidth = 0.20, defaultWidth = 0.11 },
             { id = "Lock",     name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.05, maxWidth = 0.12, defaultWidth = 0.06 },
             { id = "Cpu",      name = "CPU TIME",                 align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.09, maxWidth = 0.20, defaultWidth = 0.11 },
             { id = "Actions",  name = "ACTIONS",                  align = Enum.TextXAlignment.Center, width = 0.13, minWidth = 0.12, maxWidth = 0.22, defaultWidth = 0.13 },
