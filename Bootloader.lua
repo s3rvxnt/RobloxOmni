@@ -16,6 +16,11 @@
 
 local bootStart = os.clock()
 
+local rawGame = (workspace and workspace.Parent) or game
+if not getgenv()._KernelOrigGame then
+    getgenv()._KernelOrigGame = rawGame
+end
+
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
@@ -67,6 +72,7 @@ local function isObfuscatedCode(src, chunkname)
         or head:find("lh = {", 1, true) ~= nil
         or head:find(",lh={},", 1, true) ~= nil
         or head:find("luaauth", 1, true) ~= nil
+        or head:find("la_script_id", 1, true) ~= nil
         or head:find("moonsec", 1, true) ~= nil
         or head:find("ironbrew", 1, true) ~= nil
         or head:find("prometheus", 1, true) ~= nil
@@ -137,29 +143,55 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 exempt["plasmii"] = true
             end
 
+            if isObf then
+                -- Dynamic Virgin Handoff: restore virgin engine DataModel and builtins to getgenv()
+                -- Obfuscators (Luraph v14, LuaAuth) verify getfenv(1) == getgenv() and inspect metatables.
+                local rawGame = (workspace and workspace.Parent) or getgenv()._KernelOrigGame or game
+                getgenv().game = rawGame
+                if getgenv()._KernelOrigTypeof then
+                    getgenv().typeof = getgenv()._KernelOrigTypeof
+                end
+                if getgenv()._KernelOrigGetrawmetatable then
+                    getgenv().getrawmetatable = getgenv()._KernelOrigGetrawmetatable
+                end
+                if getgenv()._KernelOrigCloneref then
+                    getgenv().cloneref = getgenv()._KernelOrigCloneref
+                end
+
+                -- NEVER call setfenv on obfuscated code: it breaks Luau VM fastpaths, traps loader variables
+                -- (like LuaAuth la_script_id), and trips Luraph integrity checks.
+                return origLoadstring(src, chunkname)
+            end
+
             local fn, compileErr = origLoadstring(src, chunkname)
             if fn and type(src) == "string" then
-                if not isObf then
-                    local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
-                    if gameProxy then
-                        local origCloneref = getgenv().cloneref or cloneref
-                        local function safeCloneref(obj, ...)
-                            if not obj or obj == gameProxy or obj == getgenv()._VirtualSchedulerProxiedRunService or typeof(obj) ~= "Instance" then
-                                return obj
-                            end
-                            return origCloneref(obj, ...)
-                        end
-                        local scriptEnv = setmetatable({
-                            game = gameProxy,
-                            RunService = getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService,
-                            cloneref = (type(origCloneref) == "function" and safeCloneref) or nil,
-                        }, { __index = getfenv(fn) })
-                        pcall(setfenv, fn, scriptEnv)
+                local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
+                if gameProxy then
+                    -- Re-assert gameProxy on getgenv().game if previously reset by an obfuscator
+                    getgenv().game = gameProxy
+                    if getgenv()._KernelWrappedTypeof then
+                        getgenv().typeof = getgenv()._KernelWrappedTypeof
                     end
-                else
-                    local rawGame = (workspace and workspace.Parent) or game
-                    local obfEnv = setmetatable({ game = rawGame }, { __index = getfenv(fn) })
-                    pcall(setfenv, fn, obfEnv)
+                    if getgenv()._KernelWrappedGetrawmetatable then
+                        getgenv().getrawmetatable = getgenv()._KernelWrappedGetrawmetatable
+                    end
+                    if getgenv()._KernelWrappedCloneref then
+                        getgenv().cloneref = getgenv()._KernelWrappedCloneref
+                    end
+
+                    local origCloneref = getgenv().cloneref or cloneref
+                    local function safeCloneref(obj, ...)
+                        if not obj or obj == gameProxy or obj == getgenv()._VirtualSchedulerProxiedRunService or typeof(obj) ~= "Instance" then
+                            return obj
+                        end
+                        return origCloneref(obj, ...)
+                    end
+                    local scriptEnv = setmetatable({
+                        game = gameProxy,
+                        RunService = getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService,
+                        cloneref = (type(origCloneref) == "function" and safeCloneref) or nil,
+                    }, { __index = getfenv(fn) })
+                    pcall(setfenv, fn, scriptEnv)
                 end
             end
 
@@ -2255,13 +2287,6 @@ local function executeScript(meta)
                     }, { __index = fnEnv })
                     pcall(setfenv, compiledFn, scriptEnv)
                 end
-            end
-        else
-            local rawGame = (workspace and workspace.Parent) or game
-            local fnEnv = getfenv(compiledFn)
-            if fnEnv and fnEnv.game ~= rawGame then
-                local obfEnv = setmetatable({ game = rawGame }, { __index = fnEnv })
-                pcall(setfenv, compiledFn, obfEnv)
             end
         end
 
