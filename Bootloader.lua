@@ -382,13 +382,16 @@ end
 local function waitFor(predicate, timeoutSec, pollInterval)
     local start = os.clock()
     pollInterval = pollInterval or 0.1
-    while not predicate() do
+    while true do
+        local ok, res = pcall(predicate)
+        if ok and res then
+            return true
+        end
         if (os.clock() - start) >= timeoutSec then
             return false
         end
         task.wait(pollInterval)
     end
-    return true
 end
 
 -- Ensure baseline stage directories exist
@@ -419,11 +422,15 @@ local function fetchGithubScript(url)
             return httpget(url)
         elseif type(request) == "function" then
             local res = request({ Url = url, Method = "GET" })
+            if res and res.StatusCode and res.StatusCode ~= 200 then
+                return nil
+            end
             return res and res.Body
         end
     end)
-    if ok and content and type(content) == "string" and #content > 50 then
-        if #content < 150 and (content:find("404: Not Found") or content:find("400: Invalid Request")) then
+    if ok and content and type(content) == "string" then
+        local trimmed = content:match("^%s*(.-)%s*$")
+        if trimmed == "404: Not Found" or trimmed:find("404: Not Found", 1, true) or trimmed:find("400: Invalid Request", 1, true) then
             return nil
         end
         return content
@@ -456,6 +463,10 @@ end
 -- ROOT OF TRUST: OMNI SECURITY & TRANSPARENCY GATE
 -- ==============================================================================
 local function getGuiParent()
+    if type(gethui) == "function" then
+        local ok, hui = pcall(gethui)
+        if ok and hui then return hui end
+    end
     local okCG, CoreGui = pcall(function() return game:GetService("CoreGui") end)
     if okCG and CoreGui then
         local okP = pcall(function()
@@ -464,10 +475,6 @@ local function getGuiParent()
             test:Destroy()
         end)
         if okP then return CoreGui end
-    end
-    if type(gethui) == "function" then
-        local ok, hui = pcall(gethui)
-        if ok and hui then return hui end
     end
     local Players = game:GetService("Players")
     local start = os.clock()
@@ -484,27 +491,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
     local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
     local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
     local LEDGER_PATH = "Omni_Ledger.json"
-
-    local function fetchGithubScript(url)
-        local ok, content = pcall(function()
-            if type(game.HttpGet) == "function" then
-                return game:HttpGet(url)
-            elseif type(httpget) == "function" then
-                return httpget(url)
-            elseif type(request) == "function" then
-                local res = request({ Url = url, Method = "GET" })
-                return res and res.Body
-            end
-        end)
-        if ok and content and type(content) == "string" and #content > 50 then
-            -- Only check for 404/400 error message if content is suspiciously short (< 150 chars)
-            if #content < 150 and (content:find("404: Not Found") or content:find("400: Invalid Request")) then
-                return nil
-            end
-            return content
-        end
-        return nil
-    end
 
     local function getLatestCommitSha()
         local ok, res = pcall(function()
