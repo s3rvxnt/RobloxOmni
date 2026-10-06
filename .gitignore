@@ -1,3 +1,6 @@
 scratch/
 *.tmp
 *.log
+.env
+*config*.json
+*.key
