@@ -4209,9 +4209,9 @@ local ColumnConfig = {
     },
     Loops = {
         cols = {
-            { id = "Priority", name = "PRIORITY",                 align = Enum.TextXAlignment.Center, width = 0.10, minWidth = 0.10, maxWidth = 0.18, defaultWidth = 0.10 },
-            { id = "Name",     name = "LOCATION",                 align = Enum.TextXAlignment.Center, width = 0.34, minWidth = 0.22, maxWidth = 0.65, defaultWidth = 0.34 },
-            { id = "Iters",    name = "ITERS",                    align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.15 },
+            { id = "Priority", name = "PRIORITY", align = Enum.TextXAlignment.Center, width = 0.10, minWidth = 0.10, maxWidth = 0.18, defaultWidth = 0.10 },
+            { id = "Name",     name = "LOCATION", align = Enum.TextXAlignment.Center, width = 0.34, minWidth = 0.22, maxWidth = 0.65, defaultWidth = 0.34 },
+            { id = "Iters",    name = "CYCLES",   align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.08, maxWidth = 0.25, defaultWidth = 0.15 },
             { id = "Hz",       name = "SPEED",                    align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.08, maxWidth = 0.20, defaultWidth = 0.11 },
             { id = "Lock",     name = "LOCK",                     align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.05, maxWidth = 0.12, defaultWidth = 0.06 },
             { id = "Cpu",      name = "CPU TIME",                 align = Enum.TextXAlignment.Center, width = 0.11, minWidth = 0.09, maxWidth = 0.20, defaultWidth = 0.11 },
@@ -10408,7 +10408,14 @@ local function renderLoopRow(loopObj, idx)
 
     local itersLbl = row:FindFirstChild("ItersLbl")
     if itersLbl then
-        itersLbl.Text = string.format("%d iters", loopObj.iterations or 0)
+        local count = loopObj.iterations or 0
+        local s = tostring(math.floor(count))
+        local k
+        while true do
+            s, k = string.gsub(s, "^(-?%d+)(%d%d%d)", "%1,%2")
+            if k == 0 then break end
+        end
+        itersLbl.Text = s .. " cycles"
     end
 
     if not loopRowDragging[loopObj.id] then
