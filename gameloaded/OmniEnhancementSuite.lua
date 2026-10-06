@@ -78,6 +78,7 @@ local config = {
     personal_space_bubble = 0,
     chat_timestamps = true,
     mention_chimes = true,
+    force_bubble_chat = true,
     anti_afk = true,
     locator_esp = true,
     locator_tracers = true,
@@ -815,6 +816,71 @@ pcall(function()
         TextChatService.OnIncomingMessage = ProcessIncomingTextMessage
     end
 end)
+
+-- ============================================================================
+-- Section 6.1: Bubble Chat Override Engine
+-- Enforces chat bubbles even if the game developer explicitly disabled them
+-- ============================================================================
+local BubbleChatManager = {}
+local bubbleConns = {}
+
+function BubbleChatManager.Apply()
+    if not config.force_bubble_chat then
+        BubbleChatManager.Disable()
+        return
+    end
+
+    -- Modern TextChatService
+    pcall(function()
+        local TextChatService = game:GetService("TextChatService")
+        local function EnableBBC(bbc)
+            if not bbc then return end
+            pcall(function() bbc.Enabled = true end)
+            if not bubbleConns[bbc] then
+                local conn = bbc:GetPropertyChangedSignal("Enabled"):Connect(function()
+                    if config.force_bubble_chat and not bbc.Enabled then
+                        task.defer(function()
+                            if bbc and config.force_bubble_chat then
+                                pcall(function() bbc.Enabled = true end)
+                            end
+                        end)
+                    end
+                end)
+                bubbleConns[bbc] = conn
+                table.insert(Janitor, conn)
+            end
+        end
+
+        local bbc = TextChatService:FindFirstChildOfClass("BubbleChatConfiguration")
+        if bbc then
+            EnableBBC(bbc)
+        end
+        local childConn = TextChatService.ChildAdded:Connect(function(child)
+            if child:IsA("BubbleChatConfiguration") then
+                EnableBBC(child)
+            end
+        end)
+        table.insert(Janitor, childConn)
+    end)
+
+    -- Legacy Chat Service
+    pcall(function()
+        local Chat = game:GetService("Chat")
+        if Chat then
+            pcall(function() Chat.BubbleChatEnabled = true end)
+        end
+    end)
+end
+
+function BubbleChatManager.Disable()
+    for obj, conn in pairs(bubbleConns) do
+        pcall(function() conn:Disconnect() end)
+    end
+    table.clear(bubbleConns)
+end
+
+-- Initialize Bubble Chat Override
+BubbleChatManager.Apply()
 
 -- Hook Legacy Chat (Older Games)
 task.spawn(function()
@@ -3153,6 +3219,14 @@ local function InjectEnhancementSettings(page)
         SaveConfig()
     end, -81)
 
+    CreateToggleRow("ForceBubbleChat", "Force Chat Bubbles", config.force_bubble_chat, function(val)
+        config.force_bubble_chat = val
+        SaveConfig()
+        if BubbleChatManager and BubbleChatManager.Apply then
+            BubbleChatManager.Apply()
+        end
+    end, -80.5)
+
     CreateToggleRow("AntiAFK", "Anti-AFK", config.anti_afk, function(val)
         config.anti_afk = val
         SaveConfig()
@@ -3395,6 +3469,11 @@ local function FullSuiteCleanup()
         end
     end)
 
+    -- 9. Bubble Chat Manager Cleanup
+    if BubbleChatManager and BubbleChatManager.Disable then
+        pcall(BubbleChatManager.Disable)
+    end
+
     if genv then
         genv.__OmniEnhancementCleanup = nil
         genv.__EnhancementCleanup = nil
@@ -3411,6 +3490,7 @@ if genv then
         PersonalSpaceBubble = PersonalSpaceBubble,
         Locator = Locator,
         AntiAFK = AntiAFK,
+        BubbleChat = BubbleChatManager,
         Config = config,
         Cleanup = FullSuiteCleanup,
     }
@@ -3424,6 +3504,7 @@ return {
     PersonalSpaceBubble = PersonalSpaceBubble,
     Locator = Locator,
     AntiAFK = AntiAFK,
+    BubbleChat = BubbleChatManager,
     Config = config,
     Cleanup = FullSuiteCleanup,
 }
