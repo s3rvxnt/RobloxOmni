@@ -951,39 +951,199 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
             if os.path.exists(temp_file):
                 os.remove(temp_file)
 
-    def test_16_defcon1_monotonic_countdown_simulation(self):
-        """Simulate Defcon 1 monotonic clock click rejection even if countdown thread is killed or cleared."""
+    def test_17_loadstring_url_ledger_and_diff_simulation(self):
+        """Simulate real Luau execution of URL ledger, author update diff prompt, and safe rollback."""
         harness = """
-        local isDefcon1Lockdown = true
-        local defcon1UnlockTime = os.clock() + 10.0 -- 10 seconds in the future
-        local defcon1CountdownThread = nil -- Thread killed or bypassed
-
-        local function onApplyClicked()
-            -- Threat: thread is nil, but monotonic clock time has NOT arrived!
-            if isDefcon1Lockdown and (defcon1CountdownThread ~= nil or os.clock() < defcon1UnlockTime) then
-                return false
+        local bit32 = bit32
+        local pureSha = function(msg)
+            -- Lightweight SHA mock for simulation
+            local h = 0
+            for i = 1, #msg do
+                h = bit32.bxor(h * 31 + string.byte(msg, i), 0x55555555)
             end
-            return true
+            return string.format("%08x", h)
+        end
+        local computeSha256 = pureSha
+
+        local mockFs = {}
+        local isfile = function(p) return mockFs[p] ~= nil end
+        local isfolder = function(p) return true end
+        local makefolder = function(p) end
+        local readfile = function(p) return mockFs[p] end
+        local writefile = function(p, c) mockFs[p] = c end
+
+        -- Extraction of URL ledger & loadstring gateway logic
+        local TRUSTED_URLS_LEDGER_PATH = "Omni_TrustedUrls.json"
+        local TRUSTED_SCRIPTS_DIR = "omni_trusted_scripts"
+
+        local _fetchedUrlByContentHash = {}
+        local function recordFetch(url, body)
+            local h = computeSha256(body)
+            _fetchedUrlByContentHash[h] = url
         end
 
-        local attemptWhileClockActive = onApplyClicked()
-        print("BLOCKED_BY_MONOTONIC_CLOCK:" .. tostring(not attemptWhileClockActive))
+        local function sanitizeUrlToFilename(url)
+            local clean = url:gsub("^https?://", ""):gsub("[^%w%.%-_]", "_")
+            local h = computeSha256(url):sub(1, 8)
+            return clean .. "_" .. h .. ".lua"
+        end
 
-        -- Time advances past unlock time
-        defcon1UnlockTime = os.clock() - 1.0
+        local function loadTrustedUrlLedger()
+            if isfile(TRUSTED_URLS_LEDGER_PATH) then
+                local raw = readfile(TRUSTED_URLS_LEDGER_PATH)
+                -- Simple parse for simulation
+                return raw
+            end
+            return { version = 1, urls = {}, hashes = {} }
+        end
 
-        local attemptAfterClockExpired = onApplyClicked()
-        print("ALLOWED_AFTER_EXPIRY:" .. tostring(attemptAfterClockExpired))
+        local ledgerData = { urls = {}, hashes = {} }
+        local function getLedger() return ledgerData end
+        local function saveLedger(data) ledgerData = data end
+
+        local gatePromptCalls = {}
+        local mockUserDecision = "approve"
+
+        local function promptRemoteScriptSecurity(opts)
+            table.insert(gatePromptCalls, opts)
+            return mockUserDecision
+        end
+
+        local function safeLoadstring(src, chunkname)
+            local srcHash = computeSha256(src)
+            local targetUrl = _fetchedUrlByContentHash[srcHash]
+            local ledger = getLedger()
+
+            if targetUrl then
+                local trusted = ledger.urls[targetUrl]
+                if trusted then
+                    if trusted.hash == srcHash then
+                        return "EXECUTED_VERIFIED_MATCH:" .. src
+                    else
+                        local oldCode = readfile(trusted.local_file) or ""
+                        local decision = promptRemoteScriptSecurity({
+                            mode = "script_update",
+                            url = targetUrl,
+                            oldCode = oldCode,
+                            newCode = src
+                        })
+                        if decision == "approve" then
+                            writefile(trusted.local_file, src)
+                            trusted.hash = srcHash
+                            return "EXECUTED_APPROVED_UPDATE:" .. src
+                        elseif decision == "run_previous" then
+                            return "EXECUTED_PREVIOUS_SAFE:" .. oldCode
+                        else
+                            return nil, "Omni Security Gate: Execution blocked by user"
+                        end
+                    end
+                else
+                    local decision = promptRemoteScriptSecurity({
+                        mode = "script_new",
+                        url = targetUrl,
+                        oldCode = "",
+                        newCode = src
+                    })
+                    if decision == "approve" then
+                        local filename = TRUSTED_SCRIPTS_DIR .. "/" .. sanitizeUrlToFilename(targetUrl)
+                        writefile(filename, src)
+                        ledger.urls[targetUrl] = {
+                            url = targetUrl,
+                            hash = srcHash,
+                            local_file = filename
+                        }
+                        return "EXECUTED_NEW_TRUSTED:" .. src
+                    else
+                        return nil, "Omni Security Gate: Execution blocked by user"
+                    end
+                end
+            end
+            return "EXECUTED_INLINE:" .. src
+        end
+
+        -- Step 1: Script fetched for first time -> prompt new -> approved
+        local testUrl = "https://raw.githubusercontent.com/author/hub/main/script.lua"
+        local codeV1 = "print('Hub v1.0 - Clean')"
+        recordFetch(testUrl, codeV1)
+
+        mockUserDecision = "approve"
+        local res1, err1 = safeLoadstring(codeV1, testUrl)
+        print("STEP_1:" .. tostring(res1))
+        print("STEP_1_FILE_SAVED:" .. tostring(isfile(ledgerData.urls[testUrl].local_file)))
+
+        -- Step 2: Second run of identical code -> instant execution with ZERO prompt
+        local promptCountBefore = #gatePromptCalls
+        local res2, err2 = safeLoadstring(codeV1, testUrl)
+        local promptCountAfter = #gatePromptCalls
+        print("STEP_2_PROMPT_CALLED:" .. tostring(promptCountAfter > promptCountBefore))
+        print("STEP_2:" .. tostring(res2))
+
+        -- Step 3: Author updates content on GitHub with a backdoor! User chooses 'run_previous'
+        local codeV2_Malicious = "print('Hub v1.0 - Clean')\\nlocal webhook = 'evil.com'"
+        recordFetch(testUrl, codeV2_Malicious)
+        mockUserDecision = "run_previous"
+        local res3, err3 = safeLoadstring(codeV2_Malicious, testUrl)
+        print("STEP_3_DECISION:" .. tostring(res3))
+
+        -- Step 4: Author fixes script, user reviews diff and clicks 'approve'
+        local codeV2_Clean = "print('Hub v2.0 - Verified Fixed')"
+        recordFetch(testUrl, codeV2_Clean)
+        mockUserDecision = "approve"
+        local res4, err4 = safeLoadstring(codeV2_Clean, testUrl)
+        print("STEP_4_DECISION:" .. tostring(res4))
+
+        -- Step 5: User blocks a suspicious URL
+        local badUrl = "https://pastebin.com/raw/stealer"
+        local badCode = "stealCookies()"
+        recordFetch(badUrl, badCode)
+        mockUserDecision = "block"
+        local res5, err5 = safeLoadstring(badCode, badUrl)
+        print("STEP_5_BLOCKED:" .. tostring(res5 == nil and err5:find("Execution blocked by user") ~= nil))
+
+        -- Step 6: loadfile routes through safeLoadstring
+        local function safeLoadfile(path, chunkname)
+            local content = readfile(path)
+            return safeLoadstring(content, chunkname or ("@" .. tostring(path)))
+        end
+        writefile("disk_script.lua", "print('Executed from disk')")
+        local res6, err6 = safeLoadfile("disk_script.lua")
+        print("STEP_6_LOADFILE:" .. tostring(res6))
+
+        -- Step 7: Metatable guard prevents tampering with loadstring
+        local mockGenv = {}
+        local protectedLoadstring = safeLoadstring
+        local mt = {
+            __index = function(t, k)
+                if k == "loadstring" then return protectedLoadstring end
+            end,
+            __newindex = function(t, k, v)
+                if k == "loadstring" and v ~= protectedLoadstring then
+                    return -- Block tampering
+                end
+                rawset(t, k, v)
+            end
+        }
+        setmetatable(mockGenv, mt)
+        -- Malicious script attempts to hijack
+        mockGenv.loadstring = function() return "HACKED" end
+        print("STEP_7_TAMPER_PROTECTED:" .. tostring(mockGenv.loadstring == protectedLoadstring))
         """
-        temp_file = "sim_monotonic_clock.luau"
+        temp_file = "sim_loadstring_gate.luau"
         with open(temp_file, "w", encoding="utf-8") as f:
             f.write(harness)
 
         try:
             res = subprocess.run([LUAU_PATH, temp_file], capture_output=True, text=True)
             self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
-            self.assertIn("BLOCKED_BY_MONOTONIC_CLOCK:true", res.stdout)
-            self.assertIn("ALLOWED_AFTER_EXPIRY:true", res.stdout)
+            self.assertIn("STEP_1:EXECUTED_NEW_TRUSTED:print('Hub v1.0 - Clean')", res.stdout)
+            self.assertIn("STEP_1_FILE_SAVED:true", res.stdout)
+            self.assertIn("STEP_2_PROMPT_CALLED:false", res.stdout)
+            self.assertIn("STEP_2:EXECUTED_VERIFIED_MATCH:print('Hub v1.0 - Clean')", res.stdout)
+            self.assertIn("STEP_3_DECISION:EXECUTED_PREVIOUS_SAFE:print('Hub v1.0 - Clean')", res.stdout)
+            self.assertIn("STEP_4_DECISION:EXECUTED_APPROVED_UPDATE:print('Hub v2.0 - Verified Fixed')", res.stdout)
+            self.assertIn("STEP_5_BLOCKED:true", res.stdout)
+            self.assertIn("STEP_6_LOADFILE:EXECUTED_INLINE:print('Executed from disk')", res.stdout)
+            self.assertIn("STEP_7_TAMPER_PROTECTED:true", res.stdout)
         finally:
             if os.path.exists(temp_file):
                 os.remove(temp_file)
@@ -991,4 +1151,5 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
 

@@ -134,7 +134,10 @@ local _delfile     = _capturePrimitive(delfile, "delfile")
 local _listfiles   = _capturePrimitive(listfiles, "listfiles")
 local _loadstring  = _capturePrimitive(loadstring, "loadstring")
 local _clonedLoadstring = _loadstring
+local _loadfile    = _capturePrimitive(loadfile, "loadfile")
+local _dofile      = _capturePrimitive(dofile, "dofile")
 local _request     = _capturePrimitive(request or http_request or (syn and syn.request) or (http and http.request), "request")
+local _hookfunction = _capturePrimitive(hookfunction, "hookfunction")
 local _isGameHttpGet = (game and type(game.HttpGet) == "function")
 local _rawHttpGet  = (_isGameHttpGet and game.HttpGet) or (type(httpget) == "function" and httpget)
 local _clonedHttpGet = _capturePrimitive(_rawHttpGet, "HttpGet")
@@ -411,14 +414,507 @@ local function isObfuscatedCode(src, chunkname)
         or head:find("protected by", 1, true) ~= nil
 end
 
--- Safe loadstring shim with Adaptive Execution Gateway
+-- ==============================================================================
+-- ROOT OF TRUST: REMOTE SCRIPT URL LEDGER & ZERO-TRUST LOADSTRING GATEWAY
+-- ==============================================================================
+local TRUSTED_URLS_LEDGER_PATH = "Omni_TrustedUrls.json"
+local TRUSTED_SCRIPTS_DIR = "omni_trusted_scripts"
+
+if not isfolder(TRUSTED_SCRIPTS_DIR) then
+    pcall(makefolder, TRUSTED_SCRIPTS_DIR)
+end
+
+-- GUI Root Finder
+local function getGuiParent()
+    if type(gethui) == "function" then
+        local ok, hui = pcall(gethui)
+        if ok and hui then return hui end
+    end
+    local okCG, CoreGui = pcall(function() return game:GetService("CoreGui") end)
+    if okCG and CoreGui then
+        local okP = pcall(function()
+            local test = Instance.new("Folder")
+            test.Parent = CoreGui
+            test:Destroy()
+        end)
+        if okP then return CoreGui end
+    end
+    local Players = game:GetService("Players")
+    if Players and Players.LocalPlayer then
+        local pg = Players.LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then return pg end
+    end
+    return nil
+end
+
+-- Forward declarations for dynamic security gate controller
+local promptRemoteScriptSecurity = nil
+local ensureUpdateGateController = nil
+local updateGateController = nil
+local initUpdateGate = nil
+local isScriptReviewActive = false
+local isScriptReviewPending = false
+local scriptReviewCallback = nil
+
+-- Network Monitor & URL Capture Cache
+local _fetchedUrlByContentHash = {}
+local _recentFetchesByUrl = {}
+local _sessionApprovedHashes = {}
+
+local function recordFetch(url, body)
+    if type(url) ~= "string" or type(body) ~= "string" then return end
+    local h = computeSha256(body)
+    if h then
+        _fetchedUrlByContentHash[h] = url
+        local normH = computeSha256(body:gsub("\r\n", "\n"))
+        if normH then
+            _fetchedUrlByContentHash[normH] = url
+        end
+        _recentFetchesByUrl[url] = { hash = h, body = body, time = os.clock() }
+    end
+end
+
+-- Network Interception: Transparently record all remote script downloads
+if _rawHttpGet then
+    local function interceptedHttpGet(self, url, ...)
+        local targetSelf = self
+        local targetUrl = url
+        if type(targetSelf) == "string" and targetUrl == nil then
+            targetUrl = targetSelf
+            targetSelf = game
+        end
+        local body = nil
+        if _clonedHttpGet then
+            if _isGameHttpGet then
+                body = _clonedHttpGet(targetSelf or game, targetUrl, ...)
+            else
+                body = _clonedHttpGet(targetUrl, ...)
+            end
+        end
+        if type(body) == "string" and type(targetUrl) == "string" then
+            recordFetch(targetUrl, body)
+        end
+        return body
+    end
+
+    if hookfunction and type(hookfunction) == "function" then
+        pcall(hookfunction, _rawHttpGet, interceptedHttpGet)
+    end
+end
+
+pcall(function()
+    if hookmetamethod and type(hookmetamethod) == "function" and game then
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            local method = getnamecallmethod()
+            if method == "HttpGet" or method == "httpget" or method == "HttpGetAsync" then
+                local url = ...
+                local body = nil
+                if _clonedHttpGet then
+                    if _isGameHttpGet then
+                        body = _clonedHttpGet(self, url)
+                    else
+                        body = _clonedHttpGet(url)
+                    end
+                end
+                if type(body) == "string" and type(url) == "string" then
+                    recordFetch(url, body)
+                end
+                return body
+            end
+            return oldNamecall(self, ...)
+        end)
+    end
+end)
+
+if type(_request) == "function" then
+    local function interceptedRequest(options, ...)
+        local res = _request(options, ...)
+        if type(options) == "table" and type(options.Url) == "string" and type(res) == "table" and type(res.Body) == "string" then
+            local method = options.Method and string.upper(tostring(options.Method)) or "GET"
+            if method == "GET" then
+                recordFetch(options.Url, res.Body)
+            end
+        end
+        return res
+    end
+    if hookfunction then
+        pcall(hookfunction, _request, interceptedRequest)
+    end
+    getgenv().request = interceptedRequest
+    getgenv().http_request = interceptedRequest
+    if syn and type(syn) == "table" then
+        syn.request = interceptedRequest
+    end
+end
+
+-- Windows-Safe Filename Sanitizer for Cached Trusted Scripts
+local function sanitizeUrlToFilename(url)
+    if not url or type(url) ~= "string" then return "unknown_script.lua" end
+    local clean = url:gsub("^https?://", "")
+    clean = clean:gsub("%?.*$", "")
+    clean = clean:gsub("[^%w%.%-_]", "_")
+    clean = clean:gsub("_+", "_")
+    if #clean > 60 then
+        clean = clean:sub(1, 60)
+    end
+    local urlHash = computeSha256(url)
+    local shortHash = (urlHash and urlHash:sub(1, 10)) or "hash"
+    return clean .. "_" .. shortHash .. ".lua"
+end
+
+-- Persistent Ledger Management
+local function loadTrustedUrlLedger()
+    if isfile(TRUSTED_URLS_LEDGER_PATH) then
+        local ok, raw = pcall(readfile, TRUSTED_URLS_LEDGER_PATH)
+        if ok and raw and #raw > 0 then
+            local decOk, data = pcall(function() return HttpService:JSONDecode(raw) end)
+            if decOk and type(data) == "table" then
+                data.urls = data.urls or {}
+                data.hashes = data.hashes or {}
+                return data
+            end
+        end
+    end
+    return { version = 1, urls = {}, hashes = {} }
+end
+
+local function saveTrustedUrlLedger(ledger)
+    if not ledger or type(ledger) ~= "table" then return false end
+    local okEnc, json = pcall(function() return HttpService:JSONEncode(ledger) end)
+    if okEnc and json then
+        local okW = pcall(writefile, TRUSTED_URLS_LEDGER_PATH, json)
+        return okW
+    end
+    return false
+end
+
+-- Security Heuristics Audit
+local function auditScriptContent(code)
+    local badges = {}
+    if not code or #code == 0 then return badges end
+
+    -- Obfuscation Detection
+    local isObfuscated = false
+
+    -- 1. Precompiled Bytecode Signature (Raw binary header)
+    if code:sub(1, 4) == "\27Lua" then
+        isObfuscated = true
+    end
+
+    -- 2. Barcode variable names (e.g. IlIIlllIIllI)
+    if not isObfuscated then
+        local barcodeCount = 0
+        for _ in code:gmatch("[Il1][Il1][Il1][Il1][Il1][Il1][Il1][Il1]+") do
+            barcodeCount = barcodeCount + 1
+            if barcodeCount >= 5 then
+                isObfuscated = true
+                break
+            end
+        end
+    end
+
+    -- 3. Hex variable identifiers (e.g. _0x4f1a2b)
+    if not isObfuscated then
+        local hexVarCount = 0
+        for _ in code:gmatch("_0x%x%x%x%x+") do
+            hexVarCount = hexVarCount + 1
+            if hexVarCount >= 8 then
+                isObfuscated = true
+                break
+            end
+        end
+    end
+
+    -- 4. Packed Decimal Byte Streams (\123\145\167...)
+    if not isObfuscated then
+        local escapedByteCount = 0
+        for _ in code:gmatch("\\[0-9][0-9][0-9]") do
+            escapedByteCount = escapedByteCount + 1
+            if escapedByteCount > 80 then
+                isObfuscated = true
+                break
+            end
+        end
+    end
+
+    -- 5. Packed Hex Byte Streams (\x41\x42\x43...)
+    if not isObfuscated then
+        local hexEscapeCount = 0
+        for _ in code:gmatch("\\x%x%x") do
+            hexEscapeCount = hexEscapeCount + 1
+            if hexEscapeCount > 80 then
+                isObfuscated = true
+                break
+            end
+        end
+    end
+
+    -- 6. Giant dense single-line VM wrapper (> 2500 chars with string decoding)
+    if not isObfuscated then
+        for line in code:gmatch("[^\r\n]+") do
+            if #line > 2500 and not line:match("^%s*%-%-") then
+                if line:find("string%.char") or line:find("bit32") or line:find("getfenv") or line:find("unpack") or line:find("table%.concat") then
+                    isObfuscated = true
+                    break
+                end
+            end
+        end
+    end
+
+    -- 7. Excessive dynamic string.char calls
+    if not isObfuscated then
+        local strCharCount = 0
+        for _ in code:gmatch("string%.char%s*%(") do
+            strCharCount = strCharCount + 1
+            if strCharCount >= 15 then
+                isObfuscated = true
+                break
+            end
+        end
+    end
+
+    -- 8. Known Obfuscator Signatures
+    if not isObfuscated then
+        local head = code:sub(1, 4000):lower()
+        if isObfuscatedCode(head, "") then
+            isObfuscated = true
+        else
+            local lower = code:lower()
+            local obfKeywords = {
+                "luarmor", "luraph", "ironbrew", "moonsec", "prometheus", "psu obfuscator",
+                "aztup", "boron", "wearedevs obfuscator", "synapse xen",
+                "obfuscated with", "this file was obfuscated", "protected by",
+                "lph-", "lph_", "lph_obfuscated", "lph_jit", "lph_enc"
+            }
+            for _, sig in ipairs(obfKeywords) do
+                if lower:find(sig, 1, true) then
+                    isObfuscated = true
+                    break
+                end
+            end
+        end
+    end
+
+    -- 9. Zero-Width Unicode Smuggling & Trojan Source BiDi Overrides (CVE-2021-42574)
+    local hasZeroWidth = false
+    local hasBidiTrojan = false
+    local hasHomoglyphs = false
+
+    -- Check Zero-Width / Invisible Space sequences
+    if code:find("\226\128\139") or code:find("\226\128\140") or code:find("\226\128\141")
+        or code:find("\239\187\191") or code:find("\226\128\142") or code:find("\226\128\143")
+        or code:find("\226\128[\128-\138]") or code:find("\226\129\160") or code:find("\194\173") then
+        hasZeroWidth = true
+    end
+
+    -- Check Trojan Source BiDi Overrides / Isolates (U+202A-U+202E and U+2066-U+2069)
+    if code:find("\226\128[\170-\174]") or code:find("\226\129[\166-\169]") then
+        hasBidiTrojan = true
+    end
+
+    -- Check Cyrillic/Greek Homoglyphs disguised in identifiers (strip comments & string literals first)
+    for line in code:gmatch("[^\r\n]+") do
+        if not line:match("^%s*%-%-") then -- Skip pure comments
+            local strippedLine = line:gsub('"[^"]*"', '""'):gsub("'[^']*'", "''")
+            if strippedLine:find("[\208-\209][\128-\191]") or strippedLine:find("[\206-\207][\128-\191]") then
+                hasHomoglyphs = true
+                break
+            end
+        end
+    end
+
+    if hasBidiTrojan then
+        isObfuscated = true
+        table.insert(badges, { label = "🛑 Trojan Source (BiDi)", color = Color3.fromRGB(255, 35, 35) })
+    elseif hasZeroWidth or hasHomoglyphs then
+        isObfuscated = true
+        table.insert(badges, { label = "🚨 Unicode Smuggling", color = Color3.fromRGB(255, 45, 45) })
+    end
+
+    if isObfuscated then
+        table.insert(badges, { label = "🛑 Obfuscated", color = Color3.fromRGB(255, 65, 65) })
+    end
+
+    if code:find("discord%.com/api/webhooks") or code:find("discordapp%.com/api/webhooks") then
+        table.insert(badges, { label = "🚨 Webhook", color = Color3.fromRGB(240, 70, 70) })
+    end
+    if code:find("loadstring%s*%(") then
+        table.insert(badges, { label = "⚠️ loadstring()", color = Color3.fromRGB(250, 160, 40) })
+    end
+    if code:find("HttpGet%s*%(") or code:find("request%s*%(") or code:find("http_request%s*%(") then
+        table.insert(badges, { label = "🌐 Web Traffic", color = Color3.fromRGB(60, 180, 250) })
+    end
+    if code:find("writefile%s*%(") or code:find("delfile%s*%(") then
+        table.insert(badges, { label = "💾 File IO", color = Color3.fromRGB(170, 130, 240) })
+    end
+    if #badges == 0 then
+        table.insert(badges, { label = "🛡️ Clean Audit", color = Color3.fromRGB(70, 210, 130) })
+    end
+    return badges
+end
+
+-- Anti-Trojan Source & Homoglyph Diff Sanitizer (CVE-2021-42574)
+local function sanitizeDiffText(text)
+    if not text or type(text) ~= "string" then return "" end
+    local s = text
+    -- Reveal Zero-Width characters and invisible controls
+    s = s:gsub("\239\187\191", "[BOM]")
+    s = s:gsub("\226\128\139", "[ZWSP]")
+    s = s:gsub("\226\128\140", "[ZWNJ]")
+    s = s:gsub("\226\128\141", "[ZWJ]")
+    s = s:gsub("\226\128\142", "[LRM]")
+    s = s:gsub("\226\128\143", "[RLM]")
+    s = s:gsub("\226\128[\128-\138]", "[INV-SP]")
+    s = s:gsub("\226\129\160", "[WJ]")
+    s = s:gsub("\194\173", "[SHY]")
+    -- Reveal BiDi overrides / isolates
+    s = s:gsub("\226\128\170", "[LRE]")
+    s = s:gsub("\226\128\171", "[RLE]")
+    s = s:gsub("\226\128\172", "[PDF]")
+    s = s:gsub("\226\128\173", "[LRO]")
+    s = s:gsub("\226\128\174", "[RLO]")
+    s = s:gsub("\226\129\166", "[LRI]")
+    s = s:gsub("\226\129\167", "[RLI]")
+    s = s:gsub("\226\129\168", "[FSI]")
+    s = s:gsub("\226\129\169", "[PDI]")
+    -- Reveal non-printable ASCII control characters (keep tabs and newlines)
+    s = s:gsub("[\1-\8\11-\12\14-\31\127]", function(c)
+        return string.format("\\x%02X", string.byte(c))
+    end)
+    return s
+end
+
+-- Ultra-Fast Linear Diff Engine
+local function computeLineDiff(oldCode, newCode)
+    local oldLines = {}
+    if oldCode and #oldCode > 0 then
+        for line in (oldCode .. "\n"):gmatch("(.-)\r?\n") do
+            table.insert(oldLines, line)
+        end
+    end
+
+    local newLines = {}
+    if newCode and #newCode > 0 then
+        for line in (newCode .. "\n"):gmatch("(.-)\r?\n") do
+            table.insert(newLines, line)
+        end
+    end
+
+    if #oldLines == 0 then
+        local diff = {}
+        for idx, line in ipairs(newLines) do
+            table.insert(diff, { type = "add", lineNum = idx, text = sanitizeDiffText(line) })
+        end
+        return diff, #newLines, #newLines, 0
+    end
+
+    local adds = 0
+    local removes = 0
+    local oldIdx = 1
+    local newIdx = 1
+    local oldLen = #oldLines
+    local newLen = #newLines
+
+    local rawEntries = {}
+
+    while oldIdx <= oldLen or newIdx <= newLen do
+        if oldIdx <= oldLen and newIdx <= newLen and oldLines[oldIdx] == newLines[newIdx] then
+            table.insert(rawEntries, { type = "same", lineNum = newIdx, text = newLines[newIdx] })
+            oldIdx = oldIdx + 1
+            newIdx = newIdx + 1
+        else
+            local matchOld, matchNew = nil, nil
+            local searchWindow = 40
+            for d = 1, searchWindow do
+                if not matchNew and (newIdx + d) <= newLen and oldIdx <= oldLen and oldLines[oldIdx] == newLines[newIdx + d] then
+                    matchNew = d
+                    break
+                end
+                if not matchOld and (oldIdx + d) <= oldLen and newIdx <= newLen and oldLines[oldIdx + d] == newLines[newIdx] then
+                    matchOld = d
+                    break
+                end
+            end
+
+            if matchNew then
+                for i = 0, matchNew - 1 do
+                    adds = adds + 1
+                    table.insert(rawEntries, { type = "add", lineNum = newIdx + i, text = newLines[newIdx + i] })
+                end
+                newIdx = newIdx + matchNew
+            elseif matchOld then
+                for i = 0, matchOld - 1 do
+                    removes = removes + 1
+                    table.insert(rawEntries, { type = "remove", lineNum = oldIdx + i, text = oldLines[oldIdx + i] })
+                end
+                oldIdx = oldIdx + matchOld
+            else
+                if oldIdx <= oldLen then
+                    removes = removes + 1
+                    table.insert(rawEntries, { type = "remove", lineNum = oldIdx, text = oldLines[oldIdx] })
+                    oldIdx = oldIdx + 1
+                end
+                if newIdx <= newLen then
+                    adds = adds + 1
+                    table.insert(rawEntries, { type = "add", lineNum = newIdx, text = newLines[newIdx] })
+                    newIdx = newIdx + 1
+                end
+            end
+        end
+    end
+
+    local keep = {}
+    for idx, entry in ipairs(rawEntries) do
+        if entry.type == "add" or entry.type == "remove" then
+            for k = math.max(1, idx - 3), math.min(#rawEntries, idx + 3) do
+                keep[k] = true
+            end
+        end
+    end
+
+    local diff = {}
+    local skipped = 0
+    for idx, entry in ipairs(rawEntries) do
+        if keep[idx] then
+            if skipped > 0 then
+                table.insert(diff, { type = "info", lineNum = 0, text = string.format("... [%d unchanged lines] ...", skipped) })
+                skipped = 0
+            end
+            table.insert(diff, {
+                type = entry.type,
+                lineNum = entry.lineNum,
+                text = sanitizeDiffText(entry.text)
+            })
+        else
+            skipped = skipped + 1
+        end
+    end
+
+    return diff, #newLines, adds, removes
+end
+
+ensureUpdateGateController = function()
+    if updateGateController then return updateGateController end
+    local gp = getGuiParent()
+    if gp and type(initUpdateGate) == "function" then
+        local ok, gate = pcall(initUpdateGate, gp)
+        if ok and type(gate) == "table" then
+            updateGateController = gate
+            return gate
+        end
+    end
+    return nil
+end
+
+-- Universal Scheduler Exemption Registry
 if not getgenv()._KernelExemptScripts then
     getgenv()._KernelExemptScripts = {}
 end
 
 if not getgenv()._AdaptiveExecutionGatewayInstalled then
-    local origLoadstring = getgenv()._KernelOrigLoadstring or getgenv().loadstring or loadstring
-    getgenv()._KernelOrigLoadstring = origLoadstring
+    local origLoadstring = _clonedLoadstring or getgenv().loadstring or loadstring
+    getgenv()._KernelOrigLoadstring = nil
     if type(origLoadstring) == "function" then
         local function loadstringShim(src, chunkname)
             if typeof(src) == "Instance" then
@@ -436,93 +932,302 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 end
             end
 
-            -- Stack origin inspection: check if caller itself is an exempt/obfuscated script
-            local isCallerExempt = false
-            if debug and debug.info then
-                for lvl = 2, 7 do
-                    local cSrc = debug.info(lvl, "s")
-                    if cSrc and type(cSrc) == "string" and cSrc ~= "" and cSrc ~= "[C]" then
-                        local clean = cSrc:gsub("^[@%[]", ""):gsub("\"%]$", ""):lower()
-                        if isObfuscatedCode("", clean) or (getgenv()._KernelExemptScripts and getgenv()._KernelExemptScripts[clean]) then
-                            isCallerExempt = true
-                            break
-                        end
-                    end
-                end
-            end
-
-            -- Adaptive Execution Gateway: auto-exempt obfuscated scripts instantly
-            local isObf = isCallerExempt or (type(src) == "string" and isObfuscatedCode(src, chunkname))
-            local exempt = getgenv()._KernelExemptScripts
-            if isObf and exempt then
-                if chunkname and type(chunkname) == "string" and chunkname ~= "" then
-                    exempt[chunkname:lower()] = true
-                    exempt[chunkname:gsub("^[@%[]", ""):lower()] = true
-                end
-                exempt["luraph"] = true
-                exempt["moonsec"] = true
-                exempt["ironbrew"] = true
-                exempt["luaauth"] = true
-                exempt["plasmii"] = true
-            end
-
-            if isObf then
-                -- Dynamic Virgin Handoff: restore virgin engine DataModel and builtins to getgenv()
-                -- Obfuscators (Luraph v14, LuaAuth) verify getfenv(1) == getgenv() and inspect metatables.
-                local rawGame = (workspace and workspace.Parent) or getgenv()._KernelOrigGame or game
-                getgenv().game = rawGame
-                if getgenv()._KernelOrigTypeof then
-                    getgenv().typeof = getgenv()._KernelOrigTypeof
-                end
-                if getgenv()._KernelOrigGetrawmetatable then
-                    getgenv().getrawmetatable = getgenv()._KernelOrigGetrawmetatable
-                end
-                if getgenv()._KernelOrigCloneref then
-                    getgenv().cloneref = getgenv()._KernelOrigCloneref
-                end
-
-                -- NEVER call setfenv on obfuscated code: it breaks Luau VM fastpaths, traps loader variables
-                -- (like LuaAuth la_script_id), and trips Luraph integrity checks.
+            if type(src) ~= "string" or #src == 0 then
                 return origLoadstring(src, chunkname)
             end
 
-            local fn, compileErr = origLoadstring(src, chunkname)
-            if fn and type(src) == "string" then
-                local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
-                if gameProxy then
-                    -- Re-assert gameProxy on getgenv().game if previously reset by an obfuscator
-                    getgenv().game = gameProxy
-                    if getgenv()._KernelWrappedTypeof then
-                        getgenv().typeof = getgenv()._KernelWrappedTypeof
-                    end
-                    if getgenv()._KernelWrappedGetrawmetatable then
-                        getgenv().getrawmetatable = getgenv()._KernelWrappedGetrawmetatable
-                    end
-                    if getgenv()._KernelWrappedCloneref then
-                        getgenv().cloneref = getgenv()._KernelWrappedCloneref
-                    end
+            local srcHash = computeSha256(src)
+            local normSrcHash = computeSha256(src:gsub("\r\n", "\n"))
 
-                    local origCloneref = getgenv().cloneref or cloneref
-                    local function safeCloneref(obj, ...)
-                        if not obj or obj == gameProxy or obj == getgenv()._VirtualSchedulerProxiedRunService or typeof(obj) ~= "Instance" then
-                            return obj
-                        end
-                        return origCloneref(obj, ...)
+            -- Stack origin inspection: check if caller itself is internal or an exempt script
+            local isCallerExempt = false
+            if debug and debug.info then
+                local immSrc = debug.info(2, "s")
+                if immSrc and type(immSrc) == "string" and immSrc ~= "" and immSrc ~= "[C]" then
+                    local cleanImm = immSrc:gsub("^[@%[]", ""):gsub("\"%]$", ""):lower()
+                    if cleanImm:find("remoteexecute") then
+                        isCallerExempt = true
                     end
-                    local scriptEnv = setmetatable({
-                        game = gameProxy,
-                        RunService = getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService,
-                        cloneref = (type(origCloneref) == "function" and safeCloneref) or nil,
-                    }, { __index = getfenv(fn) })
-                    pcall(setfenv, fn, scriptEnv)
+                end
+                if not isCallerExempt then
+                    for lvl = 2, 7 do
+                        local cSrc = debug.info(lvl, "s")
+                        if cSrc and type(cSrc) == "string" and cSrc ~= "" and cSrc ~= "[C]" then
+                            local clean = cSrc:gsub("^[@%[]", ""):gsub("\"%]$", ""):lower()
+                            if clean:find("bootloader") or clean:find("taskmanager") or clean:find("enhancementsuite") or clean:find("taskscheduler") or (getgenv()._KernelExemptScripts and getgenv()._KernelExemptScripts[clean]) then
+                                isCallerExempt = true
+                                break
+                            end
+                        end
+                    end
                 end
             end
 
-            return fn, compileErr
+            -- If internal Omni caller, bypass security gate directly
+            if isCallerExempt then
+                return origLoadstring(src, chunkname)
+            end
+
+            -- 1. Identify URL
+            local targetUrl = _fetchedUrlByContentHash[srcHash] or _fetchedUrlByContentHash[normSrcHash]
+            if not targetUrl and chunkname and type(chunkname) == "string" then
+                targetUrl = chunkname:match("^@?(https?://[%w-_%.%?%.:/%+=&]+)")
+            end
+            if not targetUrl then
+                local head = src:sub(1, 300)
+                targetUrl = head:match("%-%-%!url:%s*(https?://[%w-_%.%?%.:/%+=&]+)")
+                         or head:match("%-%-%s*(https?://raw%.githubusercontent%.com/[%w-_%.%?%.:/%+=&]+)")
+                         or head:match("%-%-%s*(https?://pastebin%.com/raw/[%w-_%.%?%.:/%+=&]+)")
+            end
+
+            local ledger = loadTrustedUrlLedger()
+
+            if targetUrl then
+                local trustedEntry = ledger.urls[targetUrl]
+                if trustedEntry then
+                    -- Known URL! Check if content hash matches local copy
+                    local hashMatches = (trustedEntry.hash == srcHash) or (trustedEntry.hash == normSrcHash)
+                    if not hashMatches and trustedEntry.local_file and isfile(trustedEntry.local_file) then
+                        local localCopy = readfile(trustedEntry.local_file)
+                        if localCopy then
+                            local locHash = computeSha256(localCopy)
+                            local locNorm = computeSha256(localCopy:gsub("\r\n", "\n"))
+                            if locHash == srcHash or locNorm == normSrcHash or locHash == normSrcHash then
+                                hashMatches = true
+                            end
+                        end
+                    end
+
+                    if hashMatches then
+                        -- Content is identical to approved local copy: instant pass-through!
+                        return origLoadstring(src, chunkname or ("@" .. targetUrl))
+                    else
+                        -- Content was updated by the author!
+                        local localCopy = (trustedEntry.local_file and isfile(trustedEntry.local_file) and readfile(trustedEntry.local_file)) or ""
+
+                        if not promptRemoteScriptSecurity and ensureUpdateGateController then
+                            ensureUpdateGateController()
+                        end
+
+                        local decision = "block"
+                        if promptRemoteScriptSecurity then
+                            decision = promptRemoteScriptSecurity({
+                                mode = "script_update",
+                                url = targetUrl,
+                                oldCode = localCopy,
+                                newCode = src,
+                                chunkname = chunkname,
+                                badges = auditScriptContent(src)
+                            })
+                        else
+                            warn("[Omni Security Gate]: GUI unavailable to review update for " .. tostring(targetUrl) .. "; blocking execution for safety.")
+                        end
+
+                        if decision == "approve" then
+                            if trustedEntry.local_file then
+                                pcall(writefile, trustedEntry.local_file, src)
+                            end
+                            trustedEntry.hash = srcHash
+                            trustedEntry.last_updated = os.time()
+                            saveTrustedUrlLedger(ledger)
+                            return origLoadstring(src, chunkname or ("@" .. targetUrl))
+                        elseif decision == "run_previous" then
+                            if localCopy and localCopy ~= "" then
+                                return origLoadstring(localCopy, chunkname or ("@" .. targetUrl))
+                            else
+                                return nil, "Omni Security Gate: No previous safe version found on disk"
+                            end
+                        elseif decision == "block" or not decision then
+                            return nil, "Omni Security Gate: Execution blocked by user"
+                        else
+                            return nil, "Omni Security Gate: Execution blocked by user"
+                        end
+                    end
+                else
+                    -- Brand New Remote Script URL!
+                    if not promptRemoteScriptSecurity and ensureUpdateGateController then
+                        ensureUpdateGateController()
+                    end
+
+                    local decision = "block"
+                    if promptRemoteScriptSecurity then
+                        decision = promptRemoteScriptSecurity({
+                            mode = "script_new",
+                            url = targetUrl,
+                            oldCode = "",
+                            newCode = src,
+                            chunkname = chunkname,
+                            badges = auditScriptContent(src)
+                        })
+                    else
+                        warn("[Omni Security Gate]: GUI unavailable to approve new script for " .. tostring(targetUrl) .. "; blocking execution for safety.")
+                    end
+
+                    if decision == "approve" then
+                        local filename = TRUSTED_SCRIPTS_DIR .. "/" .. sanitizeUrlToFilename(targetUrl)
+                        pcall(writefile, filename, src)
+                        ledger.urls[targetUrl] = {
+                            url = targetUrl,
+                            hash = srcHash,
+                            local_file = filename,
+                            first_trusted = os.time(),
+                            last_updated = os.time()
+                        }
+                        saveTrustedUrlLedger(ledger)
+                        return origLoadstring(src, chunkname or ("@" .. targetUrl))
+                    else
+                        return nil, "Omni Security Gate: Execution blocked by user"
+                    end
+                end
+            else
+                -- Dynamic / Inline loadstring (no URL)
+                if _sessionApprovedHashes[srcHash] or (ledger.hashes and ledger.hashes[srcHash]) then
+                    return origLoadstring(src, chunkname)
+                end
+
+                local badges = auditScriptContent(src)
+                local hasDanger = false
+                for _, b in ipairs(badges) do
+                    if b.label:find("🛑") or b.label:find("🚨") or b.label:find("⚠️") then
+                        hasDanger = true
+                        break
+                    end
+                end
+
+                if hasDanger or #src > 1000 then
+                    if not promptRemoteScriptSecurity and ensureUpdateGateController then
+                        ensureUpdateGateController()
+                    end
+
+                    local decision = "block"
+                    if promptRemoteScriptSecurity then
+                        decision = promptRemoteScriptSecurity({
+                            mode = "script_inline",
+                            url = nil,
+                            chunkname = chunkname or "Dynamic Script",
+                            oldCode = "",
+                            newCode = src,
+                            badges = badges
+                        })
+                    else
+                        warn("[Omni Security Gate]: Dynamic code blocked (GUI unavailable)")
+                    end
+
+                    if decision == "approve" then
+                        _sessionApprovedHashes[srcHash] = true
+                        ledger.hashes[srcHash] = true
+                        saveTrustedUrlLedger(ledger)
+                        return origLoadstring(src, chunkname)
+                    else
+                        return nil, "Omni Security Gate: Execution blocked by user"
+                    end
+                else
+                    _sessionApprovedHashes[srcHash] = true
+                    return origLoadstring(src, chunkname)
+                end
+            end
         end
-        getgenv().loadstring = (newcclosure and newcclosure(loadstringShim)) or loadstringShim
+
+        local wrappedLoadstring = (newcclosure and newcclosure(loadstringShim)) or loadstringShim
+        getgenv().loadstring = wrappedLoadstring
+        getgenv()._KernelOrigLoadstring = nil
         getgenv()._AdaptiveExecutionGatewayInstalled = true
         getgenv()._KernelLoadstringShimInstalled = true
+
+        -- Intercept loadfile and dofile so disk payloads route through the Zero-Trust gate
+        local origLoadfile = _loadfile or getgenv().loadfile
+        if type(origLoadfile) == "function" then
+            local function loadfileShim(path, chunkname)
+                if not path or type(path) ~= "string" then
+                    return nil, "invalid argument #1 to 'loadfile' (string expected, got " .. typeof(path) .. ")"
+                end
+                if not isfile(path) then
+                    return nil, "cannot open " .. tostring(path) .. ": No such file or directory"
+                end
+                local ok, content = pcall(readfile, path)
+                if not ok or type(content) ~= "string" then
+                    return nil, "cannot open " .. tostring(path) .. ": Failed to read file"
+                end
+                return loadstringShim(content, chunkname or ("@" .. tostring(path)))
+            end
+            getgenv().loadfile = (newcclosure and newcclosure(loadfileShim)) or loadfileShim
+        end
+
+        local origDofile = _dofile or getgenv().dofile
+        if type(origDofile) == "function" then
+            local function dofileShim(path, ...)
+                local fn, err = getgenv().loadfile(path)
+                if not fn then
+                    error(err or ("cannot open " .. tostring(path)), 2)
+                end
+                return fn(...)
+            end
+            getgenv().dofile = (newcclosure and newcclosure(dofileShim)) or dofileShim
+        end
+
+        -- Metatable Guard: Prevent third-party scripts from unhooking or overriding loadstring/loadfile/dofile
+        local genvMt = getrawmetatable and getrawmetatable(getgenv())
+        if genvMt and setreadonly and isreadonly then
+            pcall(function()
+                local oldRo = isreadonly(genvMt)
+                setreadonly(genvMt, false)
+                local oldNewIndex = genvMt.__newindex
+                genvMt.__newindex = newcclosure(function(t, k, v)
+                    if k == "loadstring" and v ~= wrappedLoadstring then
+                        warn("[Omni Security Gate]: Blocked attempt to hijack getgenv().loadstring!")
+                        return
+                    end
+                    if k == "loadfile" or k == "dofile" then
+                        warn("[Omni Security Gate]: Blocked attempt to hijack getgenv()." .. tostring(k))
+                        return
+                    end
+                    if k == "_KernelOrigLoadstring" then
+                        warn("[Omni Security Gate]: Blocked attempt to access or set _KernelOrigLoadstring")
+                        return
+                    end
+                    if oldNewIndex then
+                        return oldNewIndex(t, k, v)
+                    else
+                        rawset(t, k, v)
+                    end
+                end)
+                setreadonly(genvMt, oldRo)
+            end)
+        end
+
+        -- Anti-Hook Protection: Prevent third-party scripts from hooking loadstring/loadfile/dofile via hookfunction
+        if _hookfunction then
+            local function safeHookfunction(target, replacement, ...)
+                if target == wrappedLoadstring or target == _clonedLoadstring then
+                    warn("[Omni Security Gate]: Blocked attempt to hook loadstring via hookfunction!")
+                    return target
+                end
+                if (origLoadfile and target == origLoadfile) or (getgenv and target == getgenv().loadfile) then
+                    warn("[Omni Security Gate]: Blocked attempt to hook loadfile via hookfunction!")
+                    return target
+                end
+                if (origDofile and target == origDofile) or (getgenv and target == getgenv().dofile) then
+                    warn("[Omni Security Gate]: Blocked attempt to hook dofile via hookfunction!")
+                    return target
+                end
+                return _hookfunction(target, replacement, ...)
+            end
+            pcall(_hookfunction, hookfunction, safeHookfunction)
+            getgenv().hookfunction = (newcclosure and newcclosure(safeHookfunction)) or safeHookfunction
+        end
+
+        -- Background Watchdog: Re-assert loadstring integrity if tampered with via rawset
+        task.spawn(function()
+            while true do
+                task.wait(2.0)
+                if getgenv().loadstring ~= wrappedLoadstring then
+                    getgenv().loadstring = wrappedLoadstring
+                end
+                if getgenv()._KernelOrigLoadstring ~= nil then
+                    getgenv()._KernelOrigLoadstring = nil
+                end
+            end
+        end)
     end
 end
 
@@ -1054,27 +1759,6 @@ end
 -- ==============================================================================
 -- ROOT OF TRUST: OMNI SECURITY & TRANSPARENCY GATE
 -- ==============================================================================
-local function getGuiParent()
-    if type(gethui) == "function" then
-        local ok, hui = pcall(gethui)
-        if ok and hui then return hui end
-    end
-    local okCG, CoreGui = pcall(function() return game:GetService("CoreGui") end)
-    if okCG and CoreGui then
-        local okP = pcall(function()
-            local test = Instance.new("Folder")
-            test.Parent = CoreGui
-            test:Destroy()
-        end)
-        if okP then return CoreGui end
-    end
-    local Players = game:GetService("Players")
-    if Players and Players.LocalPlayer then
-        local pg = Players.LocalPlayer:FindFirstChild("PlayerGui")
-        if pg then return pg end
-    end
-    return nil
-end
 
 local function initUpdateGate(guiParent, UpdateBadge)
     local function getLatestCommitSha()
@@ -1858,6 +2542,22 @@ local function initUpdateGate(guiParent, UpdateBadge)
     local ApplyCorner = Instance.new("UICorner")
     ApplyCorner.CornerRadius = UDim.new(0, 6)
     ApplyCorner.Parent = ApplyUpdateBtn
+
+    local SecondaryBtn = Instance.new("TextButton")
+    SecondaryBtn.Name = "SecondaryBtn"
+    SecondaryBtn.Size = UDim2.new(0, 200, 1, 0)
+    SecondaryBtn.Position = UDim2.new(0, 116, 0, 0)
+    SecondaryBtn.BackgroundColor3 = Color3.fromRGB(24, 45, 75)
+    SecondaryBtn.Font = Enum.Font.GothamBold
+    SecondaryBtn.TextSize = 11
+    SecondaryBtn.TextColor3 = Color3.fromRGB(120, 195, 255)
+    SecondaryBtn.Text = "🛡️ Run Previous Safe Version"
+    SecondaryBtn.Visible = false
+    SecondaryBtn.Parent = FooterFrame
+
+    local SecondaryCorner = Instance.new("UICorner")
+    SecondaryCorner.CornerRadius = UDim.new(0, 6)
+    SecondaryCorner.Parent = SecondaryBtn
 
     -- Option B: Obfuscation Protection State & UI Controller
     local isObfuscatedUpdateDetected = false
@@ -2658,6 +3358,13 @@ local function initUpdateGate(guiParent, UpdateBadge)
     getgenv().TestOmniUpdateGate = function() openUpdateModal(false) end
 
     closeUpdateModal = function()
+        if isScriptReviewActive and scriptReviewCallback then
+            scriptReviewCallback("block")
+            return
+        end
+        if userConsentCallback then
+            userConsentCallback(false)
+        end
         if defcon1CountdownThread then
             task.cancel(defcon1CountdownThread)
             defcon1CountdownThread = nil
@@ -2673,6 +3380,10 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
     -- Event Wiring
     ModalCloseBtn.MouseButton1Click:Connect(function()
+        if isScriptReviewActive and scriptReviewCallback then
+            scriptReviewCallback("block")
+            return
+        end
         if userConsentCallback then
             userConsentCallback(false)
         end
@@ -2725,6 +3436,10 @@ local function initUpdateGate(guiParent, UpdateBadge)
     end)
 
     DismissBtn.MouseButton1Click:Connect(function()
+        if isScriptReviewActive and scriptReviewCallback then
+            scriptReviewCallback("block")
+            return
+        end
         if userConsentCallback then
             userConsentCallback(false)
         end
@@ -2743,13 +3458,20 @@ local function initUpdateGate(guiParent, UpdateBadge)
         end
     end)
 
+    SecondaryBtn.MouseButton1Click:Connect(function()
+        if isScriptReviewActive and scriptReviewCallback then
+            scriptReviewCallback("run_previous")
+            return
+        end
+    end)
+
     if UpdateBadge then
         UpdateBadge.MouseButton1Click:Connect(function() openUpdateModal(false) end)
     end
 
     -- Keybind: Shift + F7 to toggle Update Gate (Shift + F8 toggles Task Manager HUD)
     local inputConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
+        if UserInputService:GetFocusedTextBox() then return end
         if input.KeyCode == Enum.KeyCode.F7 then
             local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
             if isShift then
@@ -2763,6 +3485,10 @@ local function initUpdateGate(guiParent, UpdateBadge)
     end)
 
     ApplyUpdateBtn.MouseButton1Click:Connect(function()
+        if isScriptReviewActive and scriptReviewCallback then
+            scriptReviewCallback("approve")
+            return
+        end
         if not currentUpdateData then return end
 
         -- Defcon 1 Panic Click Guard: Strictly reject clicks while mandatory inspection countdown is running
@@ -2875,10 +3601,329 @@ local function initUpdateGate(guiParent, UpdateBadge)
         end
     end)
 
+    promptRemoteScriptSecurity = function(opts)
+        while isApprovalPending or isScriptReviewPending do
+            task.wait(0.1)
+        end
+        isScriptReviewPending = true
+        isScriptReviewActive = true
+
+        local decision = nil
+        scriptReviewCallback = function(val)
+            decision = val
+            isScriptReviewActive = false
+            scriptReviewCallback = nil
+            isScriptReviewPending = false
+        end
+
+        local mode = opts.mode -- "script_update" | "script_new" | "script_inline"
+        local url = opts.url
+        local oldCode = opts.oldCode or ""
+        local newCode = opts.newCode or ""
+        local badges = opts.badges or auditScriptContent(newCode)
+
+        -- Adjust StageBar and CodeReview sub-bars for script review
+        StageBar.Visible = false
+        AuditBar.Position = UDim2.new(0, 0, 0, 0)
+        CodeScroll.Position = UDim2.new(0, 0, 0, 26)
+        CodeScroll.Size = UDim2.new(1, 0, 1, -26)
+        TabBtnChangelog.Visible = false
+        TabBtnCode.Size = UDim2.new(1, 0, 1, 0)
+        TabBtnCode.Position = UDim2.new(0, 0, 0, 0)
+
+        if mode == "script_update" then
+            ModalTitle.Text = "⚠️ OMNI SECURITY GATE: SCRIPT UPDATED"
+            ModalTitle.TextColor3 = Color3.fromRGB(255, 175, 45)
+            ModalSubtitle.Text = "Remote author updated code • Review diff before execution"
+            ModalSubtitle.TextColor3 = Color3.fromRGB(220, 225, 235)
+
+            DiffCurrent.Text = "Target:"
+            DiffAvailable.Text = (url and (#url > 40 and (url:sub(1, 40) .. "...") or url)) or "Remote Script"
+            DiffDate.Text = "UPDATED"
+            DiffDate.TextColor3 = Color3.fromRGB(255, 175, 45)
+
+            DismissBtn.Size = UDim2.new(0, 110, 1, 0)
+            DismissBtn.Text = "🛑 Block"
+            DismissBtn.BackgroundColor3 = Color3.fromRGB(48, 22, 26)
+            DismissBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
+
+            SecondaryBtn.Visible = true
+            SecondaryBtn.Position = UDim2.new(0, 116, 0, 0)
+            SecondaryBtn.Size = UDim2.new(0, 200, 1, 0)
+            SecondaryBtn.Text = "🛡️ Run Previous Safe Version"
+            SecondaryBtn.BackgroundColor3 = Color3.fromRGB(24, 45, 75)
+            SecondaryBtn.TextColor3 = Color3.fromRGB(120, 195, 255)
+
+            ApplyUpdateBtn.Position = UDim2.new(0, 322, 0, 0)
+            ApplyUpdateBtn.Size = UDim2.new(1, -322, 1, 0)
+            ApplyUpdateBtn.Text = "✅ Approve Changes & Run"
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(30, 140, 65)
+
+            local diffEntries = computeLineDiff(oldCode, newCode)
+            for _, c in ipairs(AuditBar:GetChildren()) do
+                if not c:IsA("UIListLayout") then c:Destroy() end
+            end
+            for idx, b in ipairs(badges) do
+                local chip = Instance.new("Frame")
+                chip.Size = UDim2.new(0, 0, 1, 0)
+                chip.AutomaticSize = Enum.AutomaticSize.X
+                chip.BackgroundColor3 = Color3.fromRGB(20, 26, 36)
+                chip.BorderSizePixel = 0
+                chip.Parent = AuditBar
+
+                local chipCorner = Instance.new("UICorner")
+                chipCorner.CornerRadius = UDim.new(0, 4)
+                chipCorner.Parent = chip
+
+                local chipStroke = Instance.new("UIStroke")
+                chipStroke.Thickness = 1
+                chipStroke.Color = b.color or Color3.fromRGB(60, 80, 110)
+                chipStroke.Parent = chip
+
+                local chipPad = Instance.new("UIPadding")
+                chipPad.PaddingLeft = UDim.new(0, 6)
+                chipPad.PaddingRight = UDim.new(0, 6)
+                chipPad.Parent = chip
+
+                local chipLbl = Instance.new("TextLabel")
+                chipLbl.Size = UDim2.new(0, 0, 1, 0)
+                chipLbl.AutomaticSize = Enum.AutomaticSize.X
+                chipLbl.BackgroundTransparency = 1
+                chipLbl.Font = Enum.Font.GothamBold
+                chipLbl.TextSize = 10
+                chipLbl.TextColor3 = b.color or Color3.fromRGB(255, 255, 255)
+                chipLbl.Text = b.label
+                chipLbl.Parent = chip
+            end
+
+            for _, c in ipairs(CodeScroll:GetChildren()) do
+                if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end
+            end
+
+            local BATCH_SIZE = 60
+            local totalDiff = #diffEntries
+            local function renderBatch(startIdx, endIdx)
+                for i = startIdx, endIdx do
+                    local item = diffEntries[i]
+                    if not item then break end
+                    local lineRow = Instance.new("Frame")
+                    lineRow.Name = "Line_" .. i
+                    lineRow.Size = UDim2.new(1, 0, 0, 16)
+                    lineRow.BorderSizePixel = 0
+
+                    local bgCol = Color3.fromRGB(10, 12, 16)
+                    local textCol = Color3.fromRGB(180, 195, 215)
+                    local prefix = "  "
+                    if item.type == "add" then
+                        bgCol = Color3.fromRGB(16, 38, 24)
+                        textCol = Color3.fromRGB(100, 230, 130)
+                        prefix = "+ "
+                    elseif item.type == "remove" then
+                        bgCol = Color3.fromRGB(42, 18, 20)
+                        textCol = Color3.fromRGB(250, 110, 110)
+                        prefix = "- "
+                    elseif item.type == "info" then
+                        bgCol = Color3.fromRGB(24, 30, 42)
+                        textCol = Color3.fromRGB(140, 165, 195)
+                        prefix = "  "
+                    end
+                    lineRow.BackgroundColor3 = bgCol
+                    lineRow.Parent = CodeScroll
+
+                    local numLbl = Instance.new("TextLabel")
+                    numLbl.Size = UDim2.new(0, 36, 1, 0)
+                    numLbl.Position = UDim2.new(0, 4, 0, 0)
+                    numLbl.BackgroundTransparency = 1
+                    numLbl.Font = Enum.Font.RobotoMono
+                    numLbl.TextSize = 10
+                    numLbl.TextColor3 = Color3.fromRGB(90, 105, 125)
+                    numLbl.TextXAlignment = Enum.TextXAlignment.Right
+                    numLbl.Text = (item.type == "info") and "..." or tostring(item.lineNum or i)
+                    numLbl.Parent = lineRow
+
+                    local txtLbl = Instance.new("TextLabel")
+                    txtLbl.Size = UDim2.new(1, -48, 1, 0)
+                    txtLbl.Position = UDim2.new(0, 46, 0, 0)
+                    txtLbl.BackgroundTransparency = 1
+                    txtLbl.Font = Enum.Font.RobotoMono
+                    txtLbl.TextSize = 10
+                    txtLbl.TextColor3 = textCol
+                    txtLbl.TextXAlignment = Enum.TextXAlignment.Left
+                    txtLbl.Text = prefix .. (item.text or "")
+                    txtLbl.Parent = lineRow
+                end
+            end
+            local firstEnd = math.min(totalDiff, BATCH_SIZE)
+            renderBatch(1, firstEnd)
+            if firstEnd < totalDiff then
+                task.spawn(function()
+                    local nextStart = firstEnd + 1
+                    while nextStart <= totalDiff do
+                        task.wait()
+                        if not isScriptReviewActive then break end
+                        local nextEnd = math.min(totalDiff, nextStart + BATCH_SIZE - 1)
+                        renderBatch(nextStart, nextEnd)
+                        nextStart = nextEnd + 1
+                    end
+                end)
+            end
+        else
+            -- "script_new" or "script_inline"
+            ModalTitle.Text = (mode == "script_new") and "🛡️ OMNI SECURITY GATE: NEW REMOTE SCRIPT" or "🛡️ OMNI SECURITY GATE: DYNAMIC CODE"
+            ModalTitle.TextColor3 = Color3.fromRGB(64, 196, 255)
+            ModalSubtitle.Text = (mode == "script_new") and "First-time remote execution • Review code before trusting" or "Dynamic execution attempt • Review code before executing"
+            ModalSubtitle.TextColor3 = Color3.fromRGB(180, 195, 215)
+
+            DiffCurrent.Text = "Target:"
+            DiffAvailable.Text = (url and (#url > 40 and (url:sub(1, 40) .. "...") or url)) or (opts.chunkname or "Inline Script")
+            DiffDate.Text = "NEW"
+            DiffDate.TextColor3 = Color3.fromRGB(64, 196, 255)
+
+            DismissBtn.Size = UDim2.new(0, 140, 1, 0)
+            DismissBtn.Text = "🛑 Block Execution"
+            DismissBtn.BackgroundColor3 = Color3.fromRGB(48, 22, 26)
+            DismissBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
+
+            SecondaryBtn.Visible = false
+
+            ApplyUpdateBtn.Position = UDim2.new(0, 148, 0, 0)
+            ApplyUpdateBtn.Size = UDim2.new(1, -148, 1, 0)
+            ApplyUpdateBtn.Text = "🛡️ Trust & Execute"
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+
+            for _, c in ipairs(AuditBar:GetChildren()) do
+                if not c:IsA("UIListLayout") then c:Destroy() end
+            end
+            for idx, b in ipairs(badges) do
+                local chip = Instance.new("Frame")
+                chip.Size = UDim2.new(0, 0, 1, 0)
+                chip.AutomaticSize = Enum.AutomaticSize.X
+                chip.BackgroundColor3 = Color3.fromRGB(20, 26, 36)
+                chip.BorderSizePixel = 0
+                chip.Parent = AuditBar
+
+                local chipCorner = Instance.new("UICorner")
+                chipCorner.CornerRadius = UDim.new(0, 4)
+                chipCorner.Parent = chip
+
+                local chipStroke = Instance.new("UIStroke")
+                chipStroke.Thickness = 1
+                chipStroke.Color = b.color or Color3.fromRGB(60, 80, 110)
+                chipStroke.Parent = chip
+
+                local chipPad = Instance.new("UIPadding")
+                chipPad.PaddingLeft = UDim.new(0, 6)
+                chipPad.PaddingRight = UDim.new(0, 6)
+                chipPad.Parent = chip
+
+                local chipLbl = Instance.new("TextLabel")
+                chipLbl.Size = UDim2.new(0, 0, 1, 0)
+                chipLbl.AutomaticSize = Enum.AutomaticSize.X
+                chipLbl.BackgroundTransparency = 1
+                chipLbl.Font = Enum.Font.GothamBold
+                chipLbl.TextSize = 10
+                chipLbl.TextColor3 = b.color or Color3.fromRGB(255, 255, 255)
+                chipLbl.Text = b.label
+                chipLbl.Parent = chip
+            end
+
+            for _, c in ipairs(CodeScroll:GetChildren()) do
+                if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end
+            end
+
+            local rawLines = {}
+            for line in (newCode .. "\n"):gmatch("(.-)\r?\n") do
+                table.insert(rawLines, line)
+            end
+
+            local BATCH_SIZE = 60
+            local totalLines = #rawLines
+            local function renderRawBatch(startIdx, endIdx)
+                for i = startIdx, endIdx do
+                    local line = rawLines[i]
+                    if not line then break end
+                    local lineRow = Instance.new("Frame")
+                    lineRow.Name = "Line_" .. i
+                    lineRow.Size = UDim2.new(1, 0, 0, 16)
+                    lineRow.BorderSizePixel = 0
+                    lineRow.BackgroundColor3 = Color3.fromRGB(10, 12, 16)
+                    lineRow.Parent = CodeScroll
+
+                    local numLbl = Instance.new("TextLabel")
+                    numLbl.Size = UDim2.new(0, 36, 1, 0)
+                    numLbl.Position = UDim2.new(0, 4, 0, 0)
+                    numLbl.BackgroundTransparency = 1
+                    numLbl.Font = Enum.Font.RobotoMono
+                    numLbl.TextSize = 10
+                    numLbl.TextColor3 = Color3.fromRGB(90, 105, 125)
+                    numLbl.TextXAlignment = Enum.TextXAlignment.Right
+                    numLbl.Text = tostring(i)
+                    numLbl.Parent = lineRow
+
+                    local txtLbl = Instance.new("TextLabel")
+                    txtLbl.Size = UDim2.new(1, -48, 1, 0)
+                    txtLbl.Position = UDim2.new(0, 46, 0, 0)
+                    txtLbl.BackgroundTransparency = 1
+                    txtLbl.Font = Enum.Font.RobotoMono
+                    txtLbl.TextSize = 10
+                    txtLbl.TextColor3 = Color3.fromRGB(180, 195, 215)
+                    txtLbl.TextXAlignment = Enum.TextXAlignment.Left
+                    txtLbl.Text = "  " .. sanitizeDiffText(line)
+                    txtLbl.Parent = lineRow
+                end
+            end
+            local firstEnd = math.min(totalLines, BATCH_SIZE)
+            renderRawBatch(1, firstEnd)
+            if firstEnd < totalLines then
+                task.spawn(function()
+                    local nextStart = firstEnd + 1
+                    while nextStart <= totalLines do
+                        task.wait()
+                        if not isScriptReviewActive then break end
+                        local nextEnd = math.min(totalLines, nextStart + BATCH_SIZE - 1)
+                        renderRawBatch(nextStart, nextEnd)
+                        nextStart = nextEnd + 1
+                    end
+                end)
+            end
+        end
+
+        switchTab("Code")
+        ModalBackdrop.Visible = true
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+
+        while decision == nil do
+            task.wait(0.05)
+        end
+
+        ModalBackdrop.Visible = false
+
+        -- Restore standard layout
+        StageBar.Visible = true
+        AuditBar.Position = UDim2.new(0, 0, 0, 30)
+        CodeScroll.Position = UDim2.new(0, 0, 0, 56)
+        CodeScroll.Size = UDim2.new(1, 0, 1, -56)
+        TabBtnChangelog.Visible = true
+        TabBtnCode.Size = UDim2.new(0, 160, 1, 0)
+        TabBtnCode.Position = UDim2.new(0, 168, 0, 0)
+        SecondaryBtn.Visible = false
+        DismissBtn.Size = UDim2.new(0, 140, 1, 0)
+        DismissBtn.Text = "Dismiss (Skip)"
+        DismissBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 46)
+        DismissBtn.TextColor3 = Color3.fromRGB(180, 195, 215)
+        ApplyUpdateBtn.Position = UDim2.new(0, 148, 0, 0)
+        ApplyUpdateBtn.Size = UDim2.new(1, -148, 1, 0)
+        refreshApplyButtonUI()
+
+        return decision
+    end
+
     local controller = {
         open = function(lockdownFlag, msg) openUpdateModal(lockdownFlag, msg) end,
         close = closeUpdateModal,
         yieldApproval = yieldForUserApproval,
+        promptSecurity = promptRemoteScriptSecurity,
         applyVerified = applyVerifiedUpdateSequence,
         setManifestData = function(data)
             if type(data) == "table" then
@@ -2919,15 +3964,8 @@ end
 -- ==============================================================================
 -- ROOT OF TRUST: UPDATE GATE INSTANTIATION & DEFCON 1 KILL SWITCH
 -- ==============================================================================
-local updateGateController = nil
-local guiParent = getGuiParent()
-if guiParent then
-    local ok, gate = pcall(initUpdateGate, guiParent)
-    if ok and type(gate) == "table" then
-        updateGateController = gate
-    else
-        warn("[Bootloader]: Update Gate initialization notice: " .. tostring(gate))
-    end
+if not updateGateController and ensureUpdateGateController then
+    updateGateController = ensureUpdateGateController()
 end
 
 -- ==============================================================================

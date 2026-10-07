@@ -63,10 +63,13 @@ class TestBootloaderHardening(unittest.TestCase):
         self.assertIn("local request    = _request", self.bootloader_source)
 
     def test_03_step3_toctou_defense_no_loadfile(self):
-        """Verify complete elimination of loadfile from workspace."""
-        # loadfile must not appear anywhere as a call or reference
-        loadfile_matches = re.findall(r"\bloadfile\b", self.bootloader_source)
-        self.assertEqual(len(loadfile_matches), 0, f"loadfile found in Bootloader.lua: {loadfile_matches}")
+        """Verify complete elimination of unvetted loadfile calls and TOCTOU defense."""
+        # Bootloader must never use loadfile to execute scripts directly from workspace
+        self.assertNotIn("loadfile(scriptPath)", self.bootloader_source)
+        self.assertNotIn("loadfile(filePath)", self.bootloader_source)
+        # loadfile is strictly shimmed to prevent external TOCTOU bypasses
+        self.assertIn("local function loadfileShim", self.bootloader_source)
+        self.assertIn("getgenv().loadfile = (newcclosure and newcclosure(loadfileShim)) or loadfileShim", self.bootloader_source)
 
     def test_04_step3_sha256_cryptographic_engine_vectors(self):
         """Verify pure Luau SHA-256 implementation against standard test vectors."""
@@ -238,6 +241,36 @@ class TestBootloaderHardening(unittest.TestCase):
         self.assertIn("os.clock() < defcon1UnlockTime", self.bootloader_source)
         self.assertIn("getgenv()._OmniLockdownActive == true", self.bootloader_source)
 
+    def test_19_url_ledger_and_network_interception_invariants(self):
+        """Verify remote script URL ledger, network capture, and Windows-safe file persistence invariants."""
+        self.assertIn('local TRUSTED_URLS_LEDGER_PATH = "Omni_TrustedUrls.json"', self.bootloader_source)
+        self.assertIn('local TRUSTED_SCRIPTS_DIR = "omni_trusted_scripts"', self.bootloader_source)
+        self.assertIn("local function sanitizeUrlToFilename(url)", self.bootloader_source)
+        self.assertIn("local function loadTrustedUrlLedger()", self.bootloader_source)
+        self.assertIn("local function saveTrustedUrlLedger(ledger)", self.bootloader_source)
+        self.assertIn("local function recordFetch(url, body)", self.bootloader_source)
+        self.assertIn("_fetchedUrlByContentHash", self.bootloader_source)
+        self.assertIn("_recentFetchesByUrl", self.bootloader_source)
+        # Network interception hooks
+        self.assertIn("interceptedHttpGet", self.bootloader_source)
+        self.assertIn("interceptedRequest", self.bootloader_source)
+        self.assertIn('method == "HttpGet"', self.bootloader_source)
+
+    def test_20_loadstring_security_gate_and_diff_viewer_invariants(self):
+        """Verify Zero-Trust loadstring gate, author update diff review, and safe rollback invariants."""
+        self.assertIn("promptRemoteScriptSecurity", self.bootloader_source)
+        self.assertIn('mode = "script_update"', self.bootloader_source)
+        self.assertIn('mode = "script_new"', self.bootloader_source)
+        self.assertIn('mode = "script_inline"', self.bootloader_source)
+        self.assertIn("decision == \"approve\"", self.bootloader_source)
+        self.assertIn("decision == \"run_previous\"", self.bootloader_source)
+        self.assertIn("decision == \"block\"", self.bootloader_source)
+        self.assertIn("🛡️ Run Previous Safe Version", self.bootloader_source)
+        self.assertIn("✅ Approve Changes & Run", self.bootloader_source)
+        self.assertIn("🛑 Block", self.bootloader_source)
+        self.assertIn("Omni Security Gate: Execution blocked by user", self.bootloader_source)
+
 
 if __name__ == "__main__":
     unittest.main()
+
