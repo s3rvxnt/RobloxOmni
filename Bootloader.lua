@@ -14,6 +14,207 @@
     - Telemetry: Emits Bootloader_Status.json with per-script timing and status
 ]]
 
+-- ==============================================================================
+-- STEP 2: ANTI-HOOKING EXECUTOR PRIMITIVE CLONING (Unhookable C-Closures)
+-- ==============================================================================
+-- Must execute before ANY other logic, hooks, or third-party libraries.
+-- Captures unhookable references to executor primitives via clonefunction.
+local _rawClone = (type(clonefunction) == "function" and clonefunction) or nil
+local function _safeClone(fn)
+    if _rawClone and type(fn) == "function" then
+        local ok, cloned = pcall(_rawClone, fn)
+        if ok and type(cloned) == "function" then
+            return cloned
+        end
+    end
+    return fn
+end
+
+-- Capture pristine unhookable C-closures for all critical primitives
+local _writefile   = _safeClone(writefile)
+local _readfile    = _safeClone(readfile)
+local _isfile      = _safeClone(isfile)
+local _isfolder    = _safeClone(isfolder)
+local _makefolder  = _safeClone(makefolder)
+local _delfile     = _safeClone(delfile)
+local _listfiles   = _safeClone(listfiles)
+local _loadstring  = _safeClone(loadstring)
+local _clonedLoadstring = _loadstring
+local _request     = _safeClone(request or http_request or (syn and syn.request) or (http and http.request))
+local _isGameHttpGet = (game and type(game.HttpGet) == "function")
+local _rawHttpGet  = (_isGameHttpGet and game.HttpGet) or (type(httpget) == "function" and httpget)
+local _clonedHttpGet = _safeClone(_rawHttpGet)
+
+-- Provide file-scoped shadow locals so internal operations strictly bind to cloned closures
+local writefile  = _writefile
+local readfile   = _readfile
+local isfile     = _isfile
+local isfolder   = _isfolder
+local makefolder = _makefolder
+local delfile    = _delfile
+local listfiles  = _listfiles
+local loadstring = _loadstring
+local request    = _request
+
+local function safeHttpGet(url)
+    if _clonedHttpGet then
+        local ok, res
+        if _isGameHttpGet then
+            ok, res = pcall(_clonedHttpGet, game, url)
+        else
+            ok, res = pcall(_clonedHttpGet, url)
+        end
+        if ok and res and type(res) == "string" then
+            return res
+        end
+    end
+    if _request then
+        local ok, res = pcall(_request, { Url = url, Method = "GET" })
+        if ok and res and (not res.StatusCode or res.StatusCode == 200) and res.Body then
+            return res.Body
+        end
+    end
+    return nil
+end
+
+-- ==============================================================================
+-- STEP 3: CRYPTOGRAPHIC INTEGRITY & TOCTOU DEFENSE ENGINE (SHA-256)
+-- ==============================================================================
+local _K_SHA256 = {
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+}
+
+local function pureLuauSha256(msg)
+    local band = bit32.band
+    local bnot = bit32.bnot
+    local bxor = bit32.bxor
+    local rrotate = bit32.rrotate
+    local rshift = bit32.rshift
+
+    local h0 = 0x6a09e667
+    local h1 = 0xbb67ae85
+    local h2 = 0x3c6ef372
+    local h3 = 0xa54ff53a
+    local h4 = 0x510e527f
+    local h5 = 0x9b05688c
+    local h6 = 0x1f83d9ab
+    local h7 = 0x5be0cd19
+
+    local len = #msg
+    local bitLen = len * 8
+    local padLen = (55 - (len % 64)) % 64
+    local pad = string.char(0x80) .. string.rep(string.char(0), padLen)
+    local highBits = math.floor(bitLen / 0x100000000)
+    local lowBits = bitLen % 0x100000000
+    local lenBytes = string.char(
+        rshift(highBits, 24) % 256, rshift(highBits, 16) % 256, rshift(highBits, 8) % 256, highBits % 256,
+        rshift(lowBits, 24) % 256, rshift(lowBits, 16) % 256, rshift(lowBits, 8) % 256, lowBits % 256
+    )
+    local full = msg .. pad .. lenBytes
+    local totalBlocks = #full / 64
+
+    local w = table.create(64, 0)
+
+    for b = 0, totalBlocks - 1 do
+        local offset = b * 64
+        for i = 1, 16 do
+            local idx = offset + (i - 1) * 4 + 1
+            local b1, b2, b3, b4 = string.byte(full, idx, idx + 3)
+            w[i] = b1 * 16777216 + b2 * 65536 + b3 * 256 + b4
+        end
+        for i = 17, 64 do
+            local v1 = w[i - 15]
+            local s0 = bxor(rrotate(v1, 7), rrotate(v1, 18), rshift(v1, 3))
+            local v2 = w[i - 2]
+            local s1 = bxor(rrotate(v2, 17), rrotate(v2, 19), rshift(v2, 10))
+            w[i] = (w[i - 16] + s0 + w[i - 7] + s1) % 0x100000000
+        end
+
+        local a, b, c, d, e, f, g, h = h0, h1, h2, h3, h4, h5, h6, h7
+
+        for i = 1, 64 do
+            local S1 = bxor(rrotate(e, 6), rrotate(e, 11), rrotate(e, 25))
+            local ch = bxor(band(e, f), band(bnot(e), g))
+            local temp1 = (h + S1 + ch + _K_SHA256[i] + w[i]) % 0x100000000
+            local S0 = bxor(rrotate(a, 2), rrotate(a, 13), rrotate(a, 22))
+            local maj = bxor(bxor(band(a, b), band(a, c)), band(b, c))
+            local temp2 = (S0 + maj) % 0x100000000
+
+            h = g
+            g = f
+            f = e
+            e = (d + temp1) % 0x100000000
+            d = c
+            c = b
+            b = a
+            a = (temp1 + temp2) % 0x100000000
+        end
+
+        h0 = (h0 + a) % 0x100000000
+        h1 = (h1 + b) % 0x100000000
+        h2 = (h2 + c) % 0x100000000
+        h3 = (h3 + d) % 0x100000000
+        h4 = (h4 + e) % 0x100000000
+        h5 = (h5 + f) % 0x100000000
+        h6 = (h6 + g) % 0x100000000
+        h7 = (h7 + h) % 0x100000000
+    end
+
+    return string.format("%08x%08x%08x%08x%08x%08x%08x%08x", h0, h1, h2, h3, h4, h5, h6, h7)
+end
+
+local function computeSha256(str)
+    if type(str) ~= "string" then return nil end
+    -- Check executor crypto library primitives
+    if type(crypt) == "table" then
+        if type(crypt.hash) == "function" then
+            local ok, h = pcall(crypt.hash, str, "sha256")
+            if ok and type(h) == "string" and #h == 64 then return h:lower() end
+        end
+        if type(crypt.sha256) == "function" then
+            local ok, h = pcall(crypt.sha256, str)
+            if ok and type(h) == "string" and #h == 64 then return h:lower() end
+        end
+    end
+    if type(sha256) == "function" then
+        local ok, h = pcall(sha256, str)
+        if ok and type(h) == "string" and #h == 64 then return h:lower() end
+    end
+    if type(syn) == "table" and type(syn.crypt) == "table" and type(syn.crypt.hash) == "function" then
+        local ok, h = pcall(syn.crypt.hash, str, "sha256")
+        if ok and type(h) == "string" and #h == 64 then return h:lower() end
+    end
+    return pureLuauSha256(str)
+end
+
+local function verifyContentHash(content, expectedHash)
+    if not expectedHash or expectedHash == "" then return true end
+    if not content or type(content) ~= "string" then return false end
+    local exp = expectedHash:lower():match("^%s*(%x+)%s*$")
+    if not exp then return false end
+
+    local h1 = computeSha256(content)
+    if h1 and h1:lower() == exp then
+        return true
+    end
+    local h2 = computeSha256(content:gsub("\r\n", "\n"))
+    if h2 and h2:lower() == exp then
+        return true
+    end
+    local h3 = computeSha256(content:gsub("\r\n", "\n"):gsub("\n", "\r\n"))
+    if h3 and h3:lower() == exp then
+        return true
+    end
+    return false
+end
+
 local bootStart = os.clock()
 
 local rawGame = (workspace and workspace.Parent) or game
@@ -330,7 +531,23 @@ if not getgenv()._OmniBootloaderHandoffActive and not SafeMode then
             end
 
             if isEligible then
-                local updatedFn, compileErr = loadstring(updatedCode, "@Bootloader_Updated")
+                -- Verify SHA-256 integrity of Bootloader_Updated if known in manifest or ledger
+                local handoffStage = lookupManifestStage and (lookupManifestStage("Bootloader_Updated", updatedPath) or lookupManifestStage("Bootloader", updatedPath))
+                local expectedHandoffSha = handoffStage and handoffStage.sha256
+                if not expectedHandoffSha and type(loadLedger) == "function" then
+                    local ledger = loadLedger()
+                    local comp = (ledger and ledger.components and (ledger.components["Bootloader_Updated"] or ledger.components["Bootloader"]))
+                    if comp then expectedHandoffSha = comp.sha256 end
+                end
+                if expectedHandoffSha and not verifyContentHash(updatedCode, expectedHandoffSha) then
+                    warn(string.format("[Bootloader | INTEGRITY BREACH]: Bootloader_Updated SHA-256 hash mismatch! Expected: %s. Aborting untrusted handoff.", tostring(expectedHandoffSha)))
+                    pcall(delfile, updatedPath)
+                    isEligible = false
+                end
+            end
+
+            if isEligible then
+                local updatedFn, compileErr = _clonedLoadstring(updatedCode, "@Bootloader_Updated")
                 if updatedFn then
                     -- Set sentinel lock before calling update to catch early client freezes/crashes
                     pcall(writefile, HANDOFF_LOCK, updatedVersion)
@@ -439,20 +656,8 @@ local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
 
 
 local function fetchGithubScript(url)
-    local ok, content = pcall(function()
-        if type(game.HttpGet) == "function" then
-            return game:HttpGet(url)
-        elseif type(httpget) == "function" then
-            return httpget(url)
-        elseif type(request) == "function" then
-            local res = request({ Url = url, Method = "GET" })
-            if res and res.StatusCode and res.StatusCode ~= 200 then
-                return nil
-            end
-            return res and res.Body
-        end
-    end)
-    if ok and content and type(content) == "string" then
+    local content = safeHttpGet(url)
+    if content and type(content) == "string" then
         local trimmed = content:match("^%s*(.-)%s*$")
         if trimmed == "404: Not Found" or trimmed:find("404: Not Found", 1, true) or trimmed:find("400: Invalid Request", 1, true) then
             return nil
@@ -496,14 +701,100 @@ local BOOTSTRAP_STAGES = {
     {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
-        name = "KernelTaskManager"
+        name = "KernelTaskManager",
+        sha256 = "a15cfe41a10508962ed4b3943ce429f6bbfcfd1cc71549febe6b834448184349"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
         localPath = "autoexec/gameloaded/OmniEnhancementSuite.lua",
-        name = "OmniEnhancementSuite"
+        name = "OmniEnhancementSuite",
+        sha256 = "8a4d8eeb657b8d72bea417f3d943c8787f193604a1003442d95845d6d2ca2a83"
     }
 }
+
+local manifestStagesByName = {}
+
+local function registerManifestStage(st)
+    if type(st) ~= "table" then return end
+    if table.freeze then pcall(table.freeze, st) end
+    local name = st.name
+    if name and type(name) == "string" then
+        manifestStagesByName[name] = st
+        manifestStagesByName[name:lower()] = st
+        local cleanName = name:gsub("%.luau?$", "")
+        manifestStagesByName[cleanName] = st
+        manifestStagesByName[cleanName:lower()] = st
+        manifestStagesByName[cleanName .. ".lua"] = st
+        manifestStagesByName[cleanName .. ".luau"] = st
+    end
+    local lp = st.localPath or st.path
+    if lp and type(lp) == "string" then
+        manifestStagesByName[lp] = st
+        manifestStagesByName[lp:lower()] = st
+        local normFwd = lp:gsub("\\", "/")
+        local normBack = lp:gsub("/", "\\")
+        manifestStagesByName[normFwd] = st
+        manifestStagesByName[normBack] = st
+        manifestStagesByName[normFwd:lower()] = st
+        manifestStagesByName[normBack:lower()] = st
+        local noAuto = normFwd:gsub("^autoexec/", "")
+        manifestStagesByName[noAuto] = st
+        manifestStagesByName[noAuto:lower()] = st
+        local base = normFwd:match("[^/]+$")
+        if base then
+            manifestStagesByName[base] = st
+            manifestStagesByName[base:lower()] = st
+            local baseNoExt = base:gsub("%.luau?$", "")
+            manifestStagesByName[baseNoExt] = st
+            manifestStagesByName[baseNoExt:lower()] = st
+            manifestStagesByName[baseNoExt .. ".lua"] = st
+            manifestStagesByName[baseNoExt .. ".luau"] = st
+        end
+    end
+end
+
+local function lookupManifestStage(name, filePath)
+    if not manifestStagesByName then return nil end
+    local candidates = {}
+    if name and type(name) == "string" then
+        table.insert(candidates, name)
+        table.insert(candidates, name:lower())
+        local clean = name:gsub("%.luau?$", "")
+        table.insert(candidates, clean)
+        table.insert(candidates, clean:lower())
+        table.insert(candidates, clean .. ".lua")
+        table.insert(candidates, clean .. ".luau")
+    end
+    if filePath and type(filePath) == "string" then
+        table.insert(candidates, filePath)
+        table.insert(candidates, filePath:lower())
+        local normFwd = filePath:gsub("\\", "/")
+        local normBack = filePath:gsub("/", "\\")
+        table.insert(candidates, normFwd)
+        table.insert(candidates, normBack)
+        table.insert(candidates, (normFwd:gsub("^autoexec/", "")))
+        table.insert(candidates, (normFwd:gsub("^autoexec/", "")):lower())
+        local base = normFwd:match("[^/]+$")
+        if base then
+            table.insert(candidates, base)
+            table.insert(candidates, base:lower())
+            local baseNoExt = base:gsub("%.luau?$", "")
+            table.insert(candidates, baseNoExt)
+            table.insert(candidates, baseNoExt:lower())
+            table.insert(candidates, baseNoExt .. ".lua")
+            table.insert(candidates, baseNoExt .. ".luau")
+        end
+    end
+    for _, c in ipairs(candidates) do
+        local st = manifestStagesByName[c]
+        if st then return st end
+    end
+    return nil
+end
+
+for _, bStage in ipairs(BOOTSTRAP_STAGES) do
+    registerManifestStage(bStage)
+end
 
 local function isStageDisabled(localPath)
     if not isfile then return false end
@@ -538,6 +829,14 @@ if not SafeMode and not isInitialized then
             local url = GITHUB_REPO_RAW .. bStage.repoPath .. "?v=" .. tostring(os.time())
             local content = fetchGithubScript(url)
             if content and #content > 100 then
+                -- Strict SHA-256 integrity verification (TOCTOU defense)
+                if bStage.sha256 then
+                    local isValid = verifyContentHash(content, bStage.sha256)
+                    if not isValid then
+                        warn(string.format("[Bootloader | INTEGRITY BREACH]: Bootstrap hash mismatch for %s! Aborting bootstrap.", bStage.name))
+                        continue
+                    end
+                end
                 local parentDir = bStage.localPath:match("^(.*)[/\\][^/\\]+$")
                 if parentDir and isfolder and not isfolder(parentDir) then pcall(makefolder, parentDir) end
                 local ok, err = pcall(writefile, bStage.localPath, content)
@@ -547,7 +846,8 @@ if not SafeMode and not isInitialized then
                         installed = true,
                         lastSeenVersion = CURRENT_OMNI_VERSION,
                         path = bStage.localPath,
-                        updatedAt = os.time()
+                        updatedAt = os.time(),
+                        sha256 = bStage.sha256
                     }
                     print(string.format("[Bootloader]: Initialized core %s -> %s", bStage.name, bStage.localPath))
                 else
@@ -591,12 +891,9 @@ local function getGuiParent()
         if okP then return CoreGui end
     end
     local Players = game:GetService("Players")
-    local start = os.clock()
-    while not Players.LocalPlayer and (os.clock() - start) < 15 do
-        task.wait(0.1)
-    end
-    if Players.LocalPlayer then
-        return Players.LocalPlayer:WaitForChild("PlayerGui", 10)
+    if Players and Players.LocalPlayer then
+        local pg = Players.LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then return pg end
     end
     return nil
 end
@@ -1415,11 +1712,14 @@ local function initUpdateGate(guiParent, UpdateBadge)
                     if p and type(p) == "string" and p ~= "" then
                         stage.localPath = p
                         stage.name = stage.name or p:match("[^/\\]+$") or "Component"
+                        stage.sha256 = stage.sha256 or stage.hash or nil
+                        if table.freeze then pcall(table.freeze, stage) end
                         table.insert(valid, stage)
                     end
                 end
             end
         end
+        if table.freeze then pcall(table.freeze, valid) end
         return valid
     end
 
@@ -1772,22 +2072,143 @@ local function initUpdateGate(guiParent, UpdateBadge)
         end
     end
 
-    local function openUpdateModal(customData)
+    local isDefcon1Lockdown = false
+    local userConsentCallback = nil
+
+    local function applyVerifiedUpdateSequence()
+        if not currentUpdateData then return false end
+        local stages = currentUpdateData.stages
+        if not stages or #stages == 0 then
+            stages = {
+                {
+                    repoPath = "kernel/KernelTaskManager.lua",
+                    localPath = "autoexec/kernel/KernelTaskManager.lua",
+                    name = "KernelTaskManager",
+                    sha256 = "a15cfe41a10508962ed4b3943ce429f6bbfcfd1cc71549febe6b834448184349"
+                }
+            }
+        end
+
+        ApplyUpdateBtn.Active = false
+        ApplyUpdateBtn.Text = "⏳ Verifying SHA-256 and applying..."
+
+        local anySuccess = false
+        local lastCode = nil
+        local shaToUse = currentUpdateData.sha or getLatestCommitSha()
+        local ledger = loadLedger()
+
+        for idx, stage in ipairs(stages) do
+            local repoPath = stage.repoPath or stage.url
+            local localPath = stage.localPath or stage.path
+            if not localPath or type(localPath) ~= "string" then
+                continue
+            end
+            local name = stage.name or localPath:match("[^/\\]+$") or "Component"
+
+            local remoteContent = stage.code or stage.content or fetchedStageCodes[idx]
+            if not remoteContent and repoPath then
+                local url = repoPath
+                if not url:find("^https?://") then
+                    url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. shaToUse .. "/" .. url
+                end
+                remoteContent = fetchGithubScript(url)
+            end
+
+            if remoteContent and #remoteContent > 100 then
+                -- STEP 3: STRICT SHA-256 HASH VERIFICATION (TOCTOU Defense)
+                local expectedSha = stage.sha256 or stage.hash
+                if expectedSha then
+                    local isValid = verifyContentHash(remoteContent, expectedSha)
+                    if not isValid then
+                        warn(string.format("[OmniUpdater | INTEGRITY BREACH]: SHA-256 mismatch for %s! Expected: %s. Aborting component installation.", name, expectedSha))
+                        continue
+                    end
+                end
+
+                -- Write to disk as offline cache
+                local parentDir = localPath:match("^(.*)[/\\][^/\\]+$")
+                if parentDir and isfolder and not isfolder(parentDir) then
+                    pcall(makefolder, parentDir)
+                end
+
+                local ok, err = pcall(writefile, localPath, remoteContent)
+                if ok then
+                    anySuccess = true
+                    ledger.components[name] = {
+                        installed = true,
+                        lastSeenVersion = currentUpdateData.version,
+                        path = localPath,
+                        updatedAt = os.time(),
+                        sha256 = expectedSha
+                    }
+                    -- STEP 3: MEMORY-ONLY EXECUTION - execute directly from the verified in-memory remoteContent buffer!
+                    if localPath:find("KernelTaskManager") then
+                        lastCode = remoteContent
+                    elseif localPath:find("OmniEnhancementSuite") then
+                        task.spawn(function()
+                            local fn, errComp = _clonedLoadstring(remoteContent, "@OmniEnhancementSuite")
+                            if fn then pcall(fn) else warn("[OmniUpdater]: Compilation error: " .. tostring(errComp)) end
+                        end)
+                    end
+                else
+                    warn("[OmniUpdater]: Failed writing " .. localPath .. ": " .. tostring(err))
+                end
+            end
+        end
+
+        ledger.version = currentUpdateData.version
+        saveLedger(ledger)
+
+        if anySuccess then
+            getgenv()._OmniUpdateDismissed = true
+            getgenv()._OmniUpdateAvailable = false
+            if isDefcon1Lockdown then
+                ApplyUpdateBtn.Text = "✓ Security Patch Applied! Please restart Roblox."
+                ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 80)
+                ApplyUpdateBtn.Active = false
+                DismissBtn.Text = "Close"
+                return true
+            end
+            ApplyUpdateBtn.Text = "✓ Applied! Reloading Omni..."
+            task.wait(0.7)
+            closeUpdateModal()
+            PillToast.Visible = false
+            if UpdateBadge then UpdateBadge.Visible = false end
+
+            if lastCode then
+                if type(getgenv()._KernelTaskManagerUnifiedCleanUp) == "function" then
+                    pcall(getgenv()._KernelTaskManagerUnifiedCleanUp)
+                end
+                local fn, syntaxErr = _clonedLoadstring(lastCode, "@KernelTaskManager")
+                if fn then
+                    task.spawn(fn)
+                else
+                    warn("[OmniUpdater]: Reload compilation error: " .. tostring(syntaxErr))
+                end
+            end
+            return true
+        else
+            ApplyUpdateBtn.Text = "❌ Verification / Download Failed"
+            task.wait(2.5)
+            ApplyUpdateBtn.Active = true
+            refreshApplyButtonUI()
+            return false
+        end
+    end
+
+    local function openUpdateModal(lockdownFlag, lockdownMsg)
         if forceInstallResetThread then
             task.cancel(forceInstallResetThread)
             forceInstallResetThread = nil
         end
         forceInstallConfirmActive = false
         isObfuscatedUpdateDetected = false
+        isDefcon1Lockdown = (lockdownFlag == true)
 
-        if customData and type(customData) == "table" then
-            currentUpdateData = customData
-            currentUpdateData.stages = sanitizeStages(currentUpdateData.stages)
-            fetchedStageCodes = {}
-        elseif not currentUpdateData then
+        if not currentUpdateData then
             currentUpdateData = {
                 version = CURRENT_OMNI_VERSION,
-                releaseDate = "2026-10-03",
+                releaseDate = "2026-10-06",
                 title = "Omni v1.0 - Runtime Micro-Kernel & Enhancement Suite",
                 changelog = {
                     "Adaptive 6.0ms frame-budgeted bootloader with automated crash recovery and Safe Mode",
@@ -1796,22 +2217,32 @@ local function initUpdateGate(guiParent, UpdateBadge)
                     "Real-time game connection ingestion, priority bands, and instant hot-reloading",
                     "Omni Enhancement Suite: Streamer mode, Personal Space Bubble, Player ESP, Anti-AFK, and native ESC settings"
                 },
-                stages = sanitizeStages({
-                    {
-                        repoPath = "kernel/KernelTaskManager.lua",
-                        localPath = "autoexec/kernel/KernelTaskManager.lua",
-                        name = "KernelTaskManager"
-                    },
-                    {
-                        repoPath = "gameloaded/OmniEnhancementSuite.lua",
-                        localPath = "autoexec/gameloaded/OmniEnhancementSuite.lua",
-                        name = "OmniEnhancementSuite"
-                    }
-                })
+                stages = sanitizeStages(BOOTSTRAP_STAGES)
             }
         end
 
-        -- Pre-scan any immediately available stage contents for obfuscation
+        -- Configure visual presentation based on Defcon 1 Lockdown status
+        if isDefcon1Lockdown then
+            ModalTitle.Text = "🚨 DEFCON 1 SECURITY LOCKDOWN"
+            ModalTitle.TextColor3 = Color3.fromRGB(255, 65, 65)
+            ModalSubtitle.Text = "AIR-GAP ACTIVE: Client disconnected from server to prevent anti-cheat detection telemetry"
+            ModalSubtitle.TextColor3 = Color3.fromRGB(255, 140, 140)
+            ApplyUpdateBtn.Text = "🛡️ Apply Critical Security Patch"
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(210, 35, 35)
+            DiffCard.BackgroundColor3 = Color3.fromRGB(38, 18, 22)
+            DiffStroke.Color = Color3.fromRGB(180, 45, 45)
+        else
+            ModalTitle.Text = "⚡ OMNI UPDATE & SECURITY GATE"
+            ModalTitle.TextColor3 = Color3.fromRGB(64, 196, 255)
+            ModalSubtitle.Text = "Verified code changes • Complete transparency before updating local files"
+            ModalSubtitle.TextColor3 = Color3.fromRGB(150, 165, 185)
+            ApplyUpdateBtn.Text = "⬇️ Update & Apply Now"
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+            DiffCard.BackgroundColor3 = Color3.fromRGB(22, 27, 38)
+            DiffStroke.Color = Color3.fromRGB(38, 50, 72)
+        end
+
+        -- Pre-scan stage contents for obfuscation
         if currentUpdateData and currentUpdateData.stages then
             for idx, st in ipairs(currentUpdateData.stages) do
                 local c = st.code or st.content or fetchedStageCodes[idx]
@@ -1828,14 +2259,29 @@ local function initUpdateGate(guiParent, UpdateBadge)
         end
 
         ApplyUpdateBtn.Active = true
-        refreshApplyButtonUI()
+        if not isDefcon1Lockdown then
+            refreshApplyButtonUI()
+        end
 
         local ledger = loadLedger()
         local installedVersion = (ledger and ledger.version) or CURRENT_OMNI_VERSION
         DiffCurrent.Text = "Installed: v" .. tostring(installedVersion)
         DiffAvailable.Text = "Available: v" .. tostring(currentUpdateData.version)
         DiffDate.Text = tostring(currentUpdateData.releaseDate or "Latest")
-        populateChangelog(currentUpdateData.changelog or { "Performance improvements and bug fixes" })
+
+        local changelogItems = {}
+        if isDefcon1Lockdown then
+            table.insert(changelogItems, "🚨 [DEFCON 1 LOCKDOWN ACTIVE]: " .. tostring(lockdownMsg or "Core exploit detection alert"))
+            table.insert(changelogItems, "🛡️ Client has been air-gapped from game server to prevent telemetry detection.")
+            table.insert(changelogItems, "⚠️ All core rings and autoexec scripts are completely halted.")
+            table.insert(changelogItems, "🔍 Inspect the verified code diff below before applying the security patch.")
+        end
+        if currentUpdateData.changelog then
+            for _, note in ipairs(currentUpdateData.changelog) do
+                table.insert(changelogItems, note)
+            end
+        end
+        populateChangelog(changelogItems)
         setupStageBar()
         renderStageDiff(1)
         switchTab("Changelog")
@@ -1845,8 +2291,26 @@ local function initUpdateGate(guiParent, UpdateBadge)
         UserInputService.MouseIconEnabled = true
     end
 
-    getgenv().OpenOmniUpdateGate = openUpdateModal
-    getgenv().TestOmniUpdateGate = openUpdateModal
+    local function yieldForUserApproval(lockdownFlag, lockdownMsg)
+        local approved = nil
+        userConsentCallback = function(val)
+            approved = val
+            userConsentCallback = nil
+        end
+
+        openUpdateModal(lockdownFlag, lockdownMsg)
+
+        -- Pure Zero-Trust Synchronous Yield: caller blocks until user explicitly clicks button in UI
+        while approved == nil do
+            task.wait(0.1)
+        end
+
+        return approved
+    end
+
+    -- Parameterless globals to eliminate any capability scraping or arbitrary code injection
+    getgenv().OpenOmniUpdateGate = function() openUpdateModal(false) end
+    getgenv().TestOmniUpdateGate = function() openUpdateModal(false) end
 
     local function closeUpdateModal()
         if forceInstallResetThread then
@@ -1860,8 +2324,11 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
     -- Event Wiring
     ModalCloseBtn.MouseButton1Click:Connect(function()
+        if userConsentCallback then
+            userConsentCallback(false)
+        end
         closeUpdateModal()
-        if not getgenv()._OmniUpdateDismissed and currentUpdateData then
+        if not getgenv()._OmniUpdateDismissed and currentUpdateData and not isDefcon1Lockdown then
             PillToast.Visible = true
         end
     end)
@@ -1889,13 +2356,13 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
     PillReviewBtn.MouseButton1Click:Connect(function()
         PillToast.Visible = false
-        openUpdateModal()
+        openUpdateModal(false)
     end)
 
     PillDismissBtn.MouseButton1Click:Connect(function()
         PillToast.Visible = false
         getgenv()._OmniUpdateDismissed = true
-                getgenv()._OmniUpdateAvailable = false
+        getgenv()._OmniUpdateAvailable = false
         -- Update ledger dismissed state
         local ledger = loadLedger()
         if currentUpdateData and currentUpdateData.stages then
@@ -1909,10 +2376,13 @@ local function initUpdateGate(guiParent, UpdateBadge)
     end)
 
     DismissBtn.MouseButton1Click:Connect(function()
+        if userConsentCallback then
+            userConsentCallback(false)
+        end
         closeUpdateModal()
         PillToast.Visible = false
         getgenv()._OmniUpdateDismissed = true
-                getgenv()._OmniUpdateAvailable = false
+        getgenv()._OmniUpdateAvailable = false
         local ledger = loadLedger()
         if currentUpdateData and currentUpdateData.stages then
             for _, stage in ipairs(currentUpdateData.stages) do
@@ -1925,7 +2395,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
     end)
 
     if UpdateBadge then
-        UpdateBadge.MouseButton1Click:Connect(openUpdateModal)
+        UpdateBadge.MouseButton1Click:Connect(function() openUpdateModal(false) end)
     end
 
     -- Keybind: Shift + F7 to toggle Update Gate (Shift + F8 toggles Task Manager HUD)
@@ -1937,7 +2407,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 if ModalBackdrop.Visible then
                     closeUpdateModal()
                 else
-                    openUpdateModal()
+                    openUpdateModal(false)
                 end
             end
         end
@@ -1966,110 +2436,17 @@ local function initUpdateGate(guiParent, UpdateBadge)
         end
         forceInstallConfirmActive = false
 
-        ApplyUpdateBtn.Active = false
-        ApplyUpdateBtn.Text = "⏳ Fetching from GitHub..."
-
-        task.spawn(function()
-            local stages = currentUpdateData.stages
-            if not stages or #stages == 0 then
-                stages = {
-                    {
-                        repoPath = "kernel/KernelTaskManager.lua",
-                        localPath = "autoexec/kernel/KernelTaskManager.lua",
-                        name = "KernelTaskManager"
-                    }
-                }
-            end
-
-            local anySuccess = false
-            local lastCode = nil
-            local shaToUse = (currentUpdateData and currentUpdateData.sha) or getLatestCommitSha()
-            local ledger = loadLedger()
-
-            for idx, stage in ipairs(stages) do
-                local repoPath = stage.repoPath or stage.url
-                local localPath = stage.localPath or stage.path
-                if not localPath or type(localPath) ~= "string" then
-                    continue
-                end
-                local name = stage.name or localPath:match("[^/\\]+$") or "Component"
-
-                local remoteContent = stage.code or stage.content or fetchedStageCodes[idx]
-                if not remoteContent and repoPath then
-                    local url = repoPath
-                    if not url:find("^https?://") then
-                        url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. shaToUse .. "/" .. url
-                    end
-                    remoteContent = fetchGithubScript(url)
-                end
-
-                if remoteContent and #remoteContent > 100 then
-                    -- Ensure parent directory exists
-                    local parentDir = localPath:match("^(.*)[/\\][^/\\]+$")
-                    if parentDir and isfolder and not isfolder(parentDir) then
-                        pcall(makefolder, parentDir)
-                    end
-
-                    local ok, err = pcall(writefile, localPath, remoteContent)
-                    if ok then
-                        anySuccess = true
-                        ledger.components[name] = {
-                            installed = true,
-                            lastSeenVersion = currentUpdateData.version,
-                            path = localPath,
-                            updatedAt = os.time()
-                        }
-                        if localPath:find("KernelTaskManager") then
-                            lastCode = remoteContent
-                        elseif localPath:find("OmniEnhancementSuite") then
-                            -- Live reload enhancement suite
-                            task.spawn(function()
-                                local fn = loadstring(remoteContent, "@OmniEnhancementSuite")
-                                if fn then pcall(fn) end
-                            end)
-                        end
-                    else
-                        warn("[OmniUpdater]: Failed writing " .. localPath .. ": " .. tostring(err))
-                    end
-                end
-            end
-
-            ledger.version = currentUpdateData.version
-            saveLedger(ledger)
-
-            if anySuccess then
-                getgenv()._OmniUpdateDismissed = true
-                getgenv()._OmniUpdateAvailable = false
-                ApplyUpdateBtn.Text = "✓ Applied! Reloading Omni..."
-                task.wait(0.7)
-                closeUpdateModal()
-                PillToast.Visible = false
-                if UpdateBadge then UpdateBadge.Visible = false end
-
-                -- Teardown old instance and execute updated code if kernel was updated
-                if lastCode then
-                    if type(getgenv()._KernelTaskManagerUnifiedCleanUp) == "function" then
-                        pcall(getgenv()._KernelTaskManagerUnifiedCleanUp)
-                    end
-                    local fn, syntaxErr = loadstring(lastCode, "@KernelTaskManager")
-                    if fn then
-                        task.spawn(fn)
-                    else
-                        warn("[OmniUpdater]: Reload compilation error: " .. tostring(syntaxErr))
-                    end
-                end
-            else
-                ApplyUpdateBtn.Text = "❌ Download Failed (Check Connection)"
-                task.wait(2.5)
-                ApplyUpdateBtn.Active = true
-                refreshApplyButtonUI()
-            end
-        end)
+        if userConsentCallback then
+            userConsentCallback(true)
+        else
+            task.spawn(applyVerifiedUpdateSequence)
+        end
     end)
 
     -- Background Update & Missing Component Checker
     task.spawn(function()
         task.wait(1.5)
+        if getgenv()._OmniLockdownActive then return end
         local sha = getLatestCommitSha()
         local manifestUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. sha .. "/manifest.json"
         local rawManifest = fetchGithubScript(manifestUrl)
@@ -2139,32 +2516,167 @@ local function initUpdateGate(guiParent, UpdateBadge)
         end
     end)
 
-    return function()
-        if inputConn then
-            pcall(function() inputConn:Disconnect() end)
-            inputConn = nil
+    local controller = {
+        open = function(lockdownFlag, msg) openUpdateModal(lockdownFlag, msg) end,
+        close = closeUpdateModal,
+        yieldApproval = yieldForUserApproval,
+        applyVerified = applyVerifiedUpdateSequence,
+        setManifestData = function(data)
+            if type(data) == "table" then
+                local st = sanitizeStages(data.stages or {})
+                currentUpdateData = {
+                    version = data.version or CURRENT_OMNI_VERSION,
+                    releaseDate = data.releaseDate or "Latest",
+                    title = data.title or ("Omni v" .. tostring(data.version or "1.0")),
+                    changelog = data.changelog or { "Security update and performance improvements" },
+                    stages = st,
+                    sha = data.sha or "main",
+                    lockdown = data.lockdown or false,
+                    lockdown_message = data.lockdown_message or nil
+                }
+                if table.freeze then pcall(table.freeze, currentUpdateData) end
+            end
+        end,
+        cleanup = function()
+            if inputConn then pcall(function() inputConn:Disconnect() end); inputConn = nil end
+            if UpdateScreenGui then pcall(function() UpdateScreenGui:Destroy() end); UpdateScreenGui = nil end
+            getgenv().OpenOmniUpdateGate = nil
+            getgenv().TestOmniUpdateGate = nil
         end
-        if UpdateScreenGui then
-            pcall(function() UpdateScreenGui:Destroy() end)
-            UpdateScreenGui = nil
-        end
-        getgenv().OpenOmniUpdateGate = nil
-        getgenv().TestOmniUpdateGate = nil
+    }
+    if table.freeze then pcall(table.freeze, controller) end
+    return controller
+end
+
+-- ==============================================================================
+-- ROOT OF TRUST: UPDATE GATE INSTANTIATION & DEFCON 1 KILL SWITCH
+-- ==============================================================================
+local updateGateController = nil
+local guiParent = getGuiParent()
+if guiParent then
+    local ok, gate = pcall(initUpdateGate, guiParent)
+    if ok and type(gate) == "table" then
+        updateGateController = gate
+    else
+        warn("[Bootloader]: Update Gate initialization notice: " .. tostring(gate))
     end
 end
 
--- Launch Root-of-Trust Security & Update Gate
-task.spawn(function()
-    local ok, err = pcall(function()
-        local guiParent = getGuiParent()
-        if guiParent then
-            initUpdateGate(guiParent)
+-- ==============================================================================
+-- STEP 1: DEFCON 1 SECURITY LOCKDOWN & AIR-GAP KILL SWITCH
+-- ==============================================================================
+local function checkDefcon1Lockdown()
+    -- Check manifest.json (GitHub raw or local check) for lockdown (bool) & lockdown_message (string)
+    local rawManifest = fetchGithubScript(MANIFEST_URL .. "?v=" .. tostring(os.time()))
+    if not rawManifest and isfile then
+        if isfile("manifest.json") then
+            local ok, raw = pcall(readfile, "manifest.json")
+            if ok and raw then rawManifest = raw end
+        elseif isfile("autoexec/manifest.json") then
+            local ok, raw = pcall(readfile, "autoexec/manifest.json")
+            if ok and raw then rawManifest = raw end
         end
-    end)
-    if not ok then
-        warn("[Bootloader]: Update Gate initialization error: " .. tostring(err))
     end
-end)
+
+    if not rawManifest then
+        return false -- Proceed with local offline boot
+    end
+
+    local ok, parsed = pcall(function() return HttpService:JSONDecode(rawManifest) end)
+    if not ok or type(parsed) ~= "table" then
+        return false
+    end
+
+    -- Update manifest stage hash lookup table
+    if parsed.stages and type(parsed.stages) == "table" then
+        for _, st in ipairs(parsed.stages) do
+            registerManifestStage(st)
+        end
+    end
+
+    if updateGateController and updateGateController.setManifestData then
+        updateGateController.setManifestData(parsed)
+    end
+
+    if parsed.lockdown == true then
+        local lockdownMsg = parsed.lockdown_message or "Omni Defcon 1 Security Lockdown: Core exploit detection alert. Client air-gapped from server to prevent anti-cheat telemetry. Please review and apply the security patch."
+
+        warn("=====================================================================")
+        warn("[Bootloader | DEFCON 1 SECURITY LOCKDOWN ENGAGED]")
+        warn(lockdownMsg)
+        warn("=====================================================================")
+
+        -- Air-gap client from game server: call LocalPlayer:Kick with appropriate safety checks/waits
+        local function airGapClient(msg)
+            local Players = nil
+            pcall(function() Players = game:GetService("Players") end)
+            if not Players then
+                pcall(function() Players = game:FindService("Players") end)
+            end
+            local lp = Players and Players.LocalPlayer
+            if lp then
+                pcall(function() lp:Kick(msg) end)
+                return
+            end
+            task.spawn(function()
+                local kicked = false
+                if Players then
+                    pcall(function()
+                        local conn
+                        conn = Players:GetPropertyChangedSignal("LocalPlayer"):Connect(function()
+                            if Players.LocalPlayer and not kicked then
+                                kicked = true
+                                pcall(function() Players.LocalPlayer:Kick(msg) end)
+                                if conn then conn:Disconnect() end
+                            end
+                        end)
+                    end)
+                end
+                local start = os.clock()
+                while not kicked and (os.clock() - start) < 30.0 do
+                    if not Players then
+                        pcall(function() Players = game:GetService("Players") end)
+                    end
+                    if Players and Players.LocalPlayer then
+                        kicked = true
+                        pcall(function() Players.LocalPlayer:Kick(msg) end)
+                        break
+                    end
+                    task.wait(0.05)
+                end
+            end)
+        end
+        airGapClient(lockdownMsg)
+
+        pcall(delfile, RUNNING_LOCK)
+        getgenv()._OmniBootloaderRunning = false
+        getgenv()._OmniLockdownActive = true
+
+        -- STEP 4: Render Diff Viewer in CoreGui and yield synchronously for user approval
+        if updateGateController and updateGateController.yieldApproval then
+            local approved = updateGateController.yieldApproval(true, lockdownMsg)
+            if approved then
+                updateGateController.applyVerified()
+                warn("[Bootloader | DEFCON 1]: Security patch applied successfully from memory. Please restart client.")
+            else
+                warn("[Bootloader | DEFCON 1]: Security patch dismissed by user.")
+            end
+        else
+            warn("[Bootloader | DEFCON 1]: CoreGui unavailable. Client air-gapped from server.")
+        end
+
+        -- HALT BOOTLOADER: Core rings and user autoexec scripts NEVER RUN
+        return true
+    end
+
+    return false
+end
+
+local isLockdownActive = checkDefcon1Lockdown()
+if isLockdownActive then
+    print("[Bootloader]: Bootloader halted under Defcon 1 Security Lockdown.")
+    return
+end
 
 local PlaceIdStr = tostring(game.PlaceId)
 local GameIdStr = tostring(game.GameId or 0)
@@ -2364,26 +2876,9 @@ local function executeScript(meta)
     local compileStart = os.clock()
     local compiledFn, syntaxErr = nil, nil
     local content = ""
-    
-    if type(readfile) == "function" and isfile(file) then
-        local ok, fileData = pcall(readfile, file)
-        if ok and fileData then
-            content = fileData
-            compiledFn, syntaxErr = loadstring(content, "@" .. scriptName)
-        else
-            syntaxErr = "Failed to read file from disk."
-        end
-    elseif type(loadfile) == "function" then
-        compiledFn, syntaxErr = loadfile(file)
-        if type(readfile) == "function" and isfile(file) then
-            pcall(function() content = readfile(file) end)
-        end
-    end
-    
-    local compileMs = (os.clock() - compileStart) * 1000
-    local execMs = 0
-    local status = "SUCCESS"
+    local status = "PENDING"
     local errorMsg = nil
+    local execMs = 0
     
     local scriptEntry = {
         name = scriptName,
@@ -2391,10 +2886,46 @@ local function executeScript(meta)
         stage = meta.stage,
         priority = meta.priority,
         status = "PENDING",
-        compileMs = math.floor(compileMs * 100) / 100,
+        compileMs = 0,
         execMs = 0,
         error = nil
     }
+    
+    if type(readfile) == "function" and isfile(file) then
+        local ok, fileData = pcall(readfile, file)
+        if ok and fileData then
+            content = fileData
+            -- STEP 3: Cryptographic Integrity Verification (TOCTOU Defense)
+            local expectedSha = meta.sha256
+            if not expectedSha then
+                local stageObj = lookupManifestStage(scriptName, file)
+                if stageObj then expectedSha = stageObj.sha256 end
+            end
+            if expectedSha then
+                local isValid = verifyContentHash(content, expectedSha)
+                if not isValid then
+                    warn(string.format("[Bootloader | INTEGRITY BREACH]: SHA-256 hash mismatch for %s! Expected: %s. Aborting execution!", scriptName, expectedSha))
+                    status = "SECURITY_HASH_MISMATCH"
+                    scriptEntry.status = status
+                    scriptEntry.error = "SHA-256 integrity check failed: file may be tampered on disk"
+                    Telemetry.errors = Telemetry.errors + 1
+                    Telemetry.executed = Telemetry.executed + 1
+                    table.insert(Telemetry.scripts, scriptEntry)
+                    emitTelemetry()
+                    return
+                end
+            end
+            -- Memory-only compilation from verified buffer via unhookable cloned loadstring
+            compiledFn, syntaxErr = _clonedLoadstring(content, "@" .. scriptName)
+        else
+            syntaxErr = "Failed to read file from disk."
+        end
+    else
+        syntaxErr = "File inaccessible via readfile."
+    end
+    
+    local compileMs = (os.clock() - compileStart) * 1000
+    scriptEntry.compileMs = math.floor(compileMs * 100) / 100
 
     if compiledFn then
         -- Attach scoped environment to un-obfuscated scripts so game:GetService("RunService") routes to Active Tasks
