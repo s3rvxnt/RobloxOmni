@@ -50,12 +50,14 @@ local function isObfuscatedCode(src, chunkname)
     if chunkname and type(chunkname) == "string" and chunkname ~= "" then
         local cLower = chunkname:lower()
         if cLower:find("luraph", 1, true)
-            or cLower:find("lph", 1, true)
+            or cLower:find("lph_", 1, true)
             or cLower:find("luaauth", 1, true)
             or cLower:find("moonsec", 1, true)
             or cLower:find("ironbrew", 1, true)
             or cLower:find("plasmii", 1, true)
-            or cLower:find("obf", 1, true) then
+            or cLower:find("_obf", 1, true)
+            or cLower:find(".obf", 1, true)
+            or cLower:find("obfuscated", 1, true) then
             return true
         end
         local exempt = getgenv()._KernelExemptScripts
@@ -65,6 +67,31 @@ local function isObfuscatedCode(src, chunkname)
     end
 
     if type(src) ~= "string" or #src < 10 then return false end
+    if src:sub(1, 4) == "\27Lua" then return true end
+
+    -- Structured source code inspection (30+ lines, reasonable avg line length, 5+ functions)
+    local lineCount = 0
+    for _ in src:gmatch("[^\r\n]+") do
+        lineCount = lineCount + 1
+    end
+    local avgLen = #src / math.max(1, lineCount)
+    local funcCount = 0
+    for _ in src:gmatch("%f[%w_]function%s*[%w_:%.]*%s*%(") do
+        funcCount = funcCount + 1
+    end
+
+    -- Human-readable structured source code is not obfuscated unless it contains a dense VM line
+    if lineCount >= 30 and avgLen <= 250 and funcCount >= 5 then
+        for line in src:gmatch("[^\r\n]+") do
+            if #line > 2500 and not line:match("^%s*%-%-") then
+                if line:find("string%.char") or line:find("bit32") or line:find("getfenv") or line:find("unpack") or line:find("table%.concat") then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
     local head = src:sub(1, 4000):lower()
     return head:find("luraph", 1, true) ~= nil
         or head:find("lph_", 1, true) ~= nil
@@ -83,9 +110,6 @@ local function isObfuscatedCode(src, chunkname)
         or head:find("obfuscated with", 1, true) ~= nil
         or head:find("this file was obfuscated", 1, true) ~= nil
         or head:find("protected by", 1, true) ~= nil
-        or src:sub(1, 4) == "\27Lua"
-        or head:find("\\27lua", 1, true) ~= nil
-        or head:find("\\x1blua", 1, true) ~= nil
 end
 
 -- Safe loadstring shim with Adaptive Execution Gateway
@@ -542,20 +566,10 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
         -- Obfuscation Detection
         local isObfuscated = false
-        local lower = code:lower()
 
-        -- 1. Known Obfuscator Signatures & Watermarks
-        local obfKeywords = {
-            "luarmor", "luraph", "ironbrew", "moonsec", "prometheus", "psu obfuscator",
-            "aztup", "boron", "wearedevs obfuscator", "synapse xen",
-            "obfuscated with", "this file was obfuscated", "protected by",
-            "lph-", "lph_", "lph_obfuscated", "lph_jit", "lph_enc"
-        }
-        for _, sig in ipairs(obfKeywords) do
-            if lower:find(sig, 1, true) then
-                isObfuscated = true
-                break
-            end
+        -- 1. Precompiled Bytecode Signature (Raw binary header)
+        if code:sub(1, 4) == "\27Lua" then
+            isObfuscated = true
         end
 
         -- 2. Barcode variable names (e.g. IlIIlllIIllI)
@@ -582,14 +596,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
             end
         end
 
-        -- 4. Precompiled Bytecode Signature
-        if not isObfuscated then
-            if code:sub(1, 4) == "\27Lua" or code:find("\\27Lua", 1, true) or code:find("\\x1bLua", 1, true) then
-                isObfuscated = true
-            end
-        end
-
-        -- 5. Packed Decimal Byte Streams (\123\145\167...)
+        -- 4. Packed Decimal Byte Streams (\123\145\167...)
         if not isObfuscated then
             local escapedByteCount = 0
             for _ in code:gmatch("\\[0-9][0-9][0-9]") do
@@ -601,7 +608,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
             end
         end
 
-        -- 6. Packed Hex Byte Streams (\x41\x42\x43...)
+        -- 5. Packed Hex Byte Streams (\x41\x42\x43...)
         if not isObfuscated then
             local hexEscapeCount = 0
             for _ in code:gmatch("\\x%x%x") do
@@ -613,7 +620,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
             end
         end
 
-        -- 7. Giant dense single-line VM wrapper (> 2500 chars with string decoding)
+        -- 6. Giant dense single-line VM wrapper (> 2500 chars with string decoding)
         if not isObfuscated then
             for line in code:gmatch("[^\r\n]+") do
                 if #line > 2500 and not line:match("^%s*%-%-") then
@@ -625,7 +632,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
             end
         end
 
-        -- 8. Excessive dynamic string.char calls
+        -- 7. Excessive dynamic string.char calls
         if not isObfuscated then
             local strCharCount = 0
             for _ in code:gmatch("string%.char%s*%(") do
@@ -633,6 +640,57 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 if strCharCount >= 15 then
                     isObfuscated = true
                     break
+                end
+            end
+        end
+
+        -- 8. Known Obfuscator Signatures & Watermarks
+        if not isObfuscated then
+            local lineCount = 0
+            for _ in code:gmatch("[^\r\n]+") do
+                lineCount = lineCount + 1
+            end
+            local avgLen = #code / math.max(1, lineCount)
+            local funcCount = 0
+            for _ in code:gmatch("%f[%w_]function%s*[%w_:%.]*%s*%(") do
+                funcCount = funcCount + 1
+            end
+            local isStructured = (lineCount >= 30 and avgLen <= 250 and funcCount >= 5)
+
+            if isStructured then
+                -- For structured source code, only flag if top 20 lines contain an unambiguous obfuscator declaration banner
+                local topLines = {}
+                local n = 0
+                for line in code:gmatch("[^\r\n]+") do
+                    n = n + 1
+                    table.insert(topLines, line:lower())
+                    if n >= 20 then break end
+                end
+                local headerText = table.concat(topLines, "\n")
+                local explicitBanners = {
+                    "obfuscated with", "this file was obfuscated", "protected by luarmor",
+                    "protected by luraph", "moonsec v", "lph--"
+                }
+                for _, banner in ipairs(explicitBanners) do
+                    if headerText:find(banner, 1, true) then
+                        isObfuscated = true
+                        break
+                    end
+                end
+            else
+                -- For non-structured / minified / short files, check standard obfuscator keywords
+                local lower = code:lower()
+                local obfKeywords = {
+                    "luarmor", "luraph", "ironbrew", "moonsec", "prometheus", "psu obfuscator",
+                    "aztup", "boron", "wearedevs obfuscator", "synapse xen",
+                    "obfuscated with", "this file was obfuscated", "protected by",
+                    "lph-", "lph_", "lph_obfuscated", "lph_jit", "lph_enc"
+                }
+                for _, sig in ipairs(obfKeywords) do
+                    if lower:find(sig, 1, true) then
+                        isObfuscated = true
+                        break
+                    end
                 end
             end
         end
@@ -679,13 +737,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
             local diff = {}
             for idx, line in ipairs(newLines) do
                 table.insert(diff, { type = "add", lineNum = idx, text = line })
-                if idx >= 500 then
-                    local rem = #newLines - idx
-                    if rem > 0 then
-                        table.insert(diff, { type = "info", lineNum = 0, text = string.format("... [preview truncated, %d lines remaining] ...", rem) })
-                    end
-                    break
-                end
             end
             return diff, #newLines, #newLines, 0
         end
@@ -756,7 +807,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
         local diff = {}
         local skipped = 0
-        local maxDiffLines = 300
         for idx, entry in ipairs(rawEntries) do
             if keep[idx] then
                 if skipped > 0 then
@@ -764,13 +814,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
                     skipped = 0
                 end
                 table.insert(diff, entry)
-                if #diff >= maxDiffLines then
-                    local remaining = #rawEntries - idx
-                    if remaining > 0 then
-                        table.insert(diff, { type = "info", lineNum = 0, text = string.format("... [diff preview truncated, %d lines remaining] ...", remaining) })
-                    end
-                    break
-                end
             else
                 skipped = skipped + 1
             end
@@ -1345,6 +1388,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
         for _, c in ipairs(CodeScroll:GetChildren()) do
             if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
         end
+        CodeScroll.CanvasPosition = Vector2.new(0, 0)
 
         local loadingLbl = Instance.new("TextLabel")
         loadingLbl.Size = UDim2.new(1, 0, 0, 40)
@@ -1551,54 +1595,80 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 emptyLbl.Text = "✓ Local file matches repository version (" .. tostring(totalLines) .. " lines verified identical - no changes needed)"
                 emptyLbl.Parent = emptyRow
             else
-                for idx, item in ipairs(diff) do
-                    local lineRow = Instance.new("Frame")
-                    lineRow.Name = "Line_" .. idx
-                    lineRow.Size = UDim2.new(1, 0, 0, 16)
-                    lineRow.BorderSizePixel = 0
-                    lineRow.LayoutOrder = idx
+                local BATCH_SIZE = 100
+                local totalDiff = #diff
 
-                    local bgCol = Color3.fromRGB(10, 12, 16)
-                    local textCol = Color3.fromRGB(190, 200, 215)
-                    local prefix = "  "
+                local function renderBatch(startIdx, endIdx)
+                    for idx = startIdx, endIdx do
+                        local item = diff[idx]
+                        if not item then break end
 
-                    if item.type == "add" then
-                        bgCol = Color3.fromRGB(16, 38, 24)
-                        textCol = Color3.fromRGB(100, 230, 130)
-                        prefix = "+ "
-                    elseif item.type == "remove" then
-                        bgCol = Color3.fromRGB(42, 18, 20)
-                        textCol = Color3.fromRGB(250, 110, 110)
-                        prefix = "- "
-                    elseif item.type == "info" then
-                        bgCol = Color3.fromRGB(24, 30, 42)
-                        textCol = Color3.fromRGB(140, 165, 195)
-                        prefix = "  "
+                        local lineRow = Instance.new("Frame")
+                        lineRow.Name = "Line_" .. idx
+                        lineRow.Size = UDim2.new(1, 0, 0, 16)
+                        lineRow.BorderSizePixel = 0
+                        lineRow.LayoutOrder = idx
+
+                        local bgCol = Color3.fromRGB(10, 12, 16)
+                        local textCol = Color3.fromRGB(190, 200, 215)
+                        local prefix = "  "
+
+                        if item.type == "add" then
+                            bgCol = Color3.fromRGB(16, 38, 24)
+                            textCol = Color3.fromRGB(100, 230, 130)
+                            prefix = "+ "
+                        elseif item.type == "remove" then
+                            bgCol = Color3.fromRGB(42, 18, 20)
+                            textCol = Color3.fromRGB(250, 110, 110)
+                            prefix = "- "
+                        elseif item.type == "info" then
+                            bgCol = Color3.fromRGB(24, 30, 42)
+                            textCol = Color3.fromRGB(140, 165, 195)
+                            prefix = "  "
+                        end
+                        lineRow.BackgroundColor3 = bgCol
+                        lineRow.Parent = CodeScroll
+
+                        local numLbl = Instance.new("TextLabel")
+                        numLbl.Size = UDim2.new(0, 36, 1, 0)
+                        numLbl.Position = UDim2.new(0, 4, 0, 0)
+                        numLbl.BackgroundTransparency = 1
+                        numLbl.Font = Enum.Font.RobotoMono
+                        numLbl.TextSize = 10
+                        numLbl.TextColor3 = Color3.fromRGB(90, 105, 125)
+                        numLbl.TextXAlignment = Enum.TextXAlignment.Right
+                        numLbl.Text = (item.type == "info") and "..." or tostring(item.lineNum or idx)
+                        numLbl.Parent = lineRow
+
+                        local txtLbl = Instance.new("TextLabel")
+                        txtLbl.Size = UDim2.new(1, -48, 1, 0)
+                        txtLbl.Position = UDim2.new(0, 46, 0, 0)
+                        txtLbl.BackgroundTransparency = 1
+                        txtLbl.Font = Enum.Font.RobotoMono
+                        txtLbl.TextSize = 10
+                        txtLbl.TextColor3 = textCol
+                        txtLbl.TextXAlignment = Enum.TextXAlignment.Left
+                        txtLbl.Text = prefix .. item.text
+                        txtLbl.Parent = lineRow
                     end
-                    lineRow.BackgroundColor3 = bgCol
-                    lineRow.Parent = CodeScroll
+                end
 
-                    local numLbl = Instance.new("TextLabel")
-                    numLbl.Size = UDim2.new(0, 36, 1, 0)
-                    numLbl.Position = UDim2.new(0, 4, 0, 0)
-                    numLbl.BackgroundTransparency = 1
-                    numLbl.Font = Enum.Font.RobotoMono
-                    numLbl.TextSize = 10
-                    numLbl.TextColor3 = Color3.fromRGB(90, 105, 125)
-                    numLbl.TextXAlignment = Enum.TextXAlignment.Right
-                    numLbl.Text = (item.type == "info") and "..." or tostring(item.lineNum or idx)
-                    numLbl.Parent = lineRow
+                -- Immediately render initial batch
+                local firstEnd = math.min(totalDiff, BATCH_SIZE)
+                renderBatch(1, firstEnd)
 
-                    local txtLbl = Instance.new("TextLabel")
-                    txtLbl.Size = UDim2.new(1, -48, 1, 0)
-                    txtLbl.Position = UDim2.new(0, 46, 0, 0)
-                    txtLbl.BackgroundTransparency = 1
-                    txtLbl.Font = Enum.Font.RobotoMono
-                    txtLbl.TextSize = 10
-                    txtLbl.TextColor3 = textCol
-                    txtLbl.TextXAlignment = Enum.TextXAlignment.Left
-                    txtLbl.Text = prefix .. item.text
-                    txtLbl.Parent = lineRow
+                -- Progressively stream remaining lines across frames
+                if firstEnd < totalDiff then
+                    task.spawn(function()
+                        local nextStart = firstEnd + 1
+                        while nextStart <= totalDiff do
+                            task.wait()
+                            if selectedStageIdx ~= stageIdx then break end
+                            local nextEnd = math.min(totalDiff, nextStart + BATCH_SIZE - 1)
+                            renderBatch(nextStart, nextEnd)
+                            nextStart = nextEnd + 1
+                        end
+                    end)
                 end
             end
         end)

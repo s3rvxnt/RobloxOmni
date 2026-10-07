@@ -85,12 +85,14 @@ local function isObfuscatedCode(src, chunkname)
     if chunkname and type(chunkname) == "string" and chunkname ~= "" then
         local cLower = chunkname:lower()
         if cLower:find("luraph", 1, true)
-            or cLower:find("lph", 1, true)
+            or cLower:find("lph_", 1, true)
             or cLower:find("luaauth", 1, true)
             or cLower:find("moonsec", 1, true)
             or cLower:find("ironbrew", 1, true)
             or cLower:find("plasmii", 1, true)
-            or cLower:find("obf", 1, true) then
+            or cLower:find("_obf", 1, true)
+            or cLower:find(".obf", 1, true)
+            or cLower:find("obfuscated", 1, true) then
             return true
         end
         local exempt = getgenv()._KernelExemptScripts
@@ -100,6 +102,31 @@ local function isObfuscatedCode(src, chunkname)
     end
 
     if type(src) ~= "string" or #src < 10 then return false end
+    if src:sub(1, 4) == "\27Lua" then return true end
+
+    -- Structured source code inspection (30+ lines, reasonable avg line length, 5+ functions)
+    local lineCount = 0
+    for _ in src:gmatch("[^\r\n]+") do
+        lineCount = lineCount + 1
+    end
+    local avgLen = #src / math.max(1, lineCount)
+    local funcCount = 0
+    for _ in src:gmatch("%f[%w_]function%s*[%w_:%.]*%s*%(") do
+        funcCount = funcCount + 1
+    end
+
+    -- Human-readable structured source code is not obfuscated unless it contains a dense VM line
+    if lineCount >= 30 and avgLen <= 250 and funcCount >= 5 then
+        for line in src:gmatch("[^\r\n]+") do
+            if #line > 2500 and not line:match("^%s*%-%-") then
+                if line:find("string%.char") or line:find("bit32") or line:find("getfenv") or line:find("unpack") or line:find("table%.concat") then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
     local head = src:sub(1, 4000):lower()
     return head:find("luraph", 1, true) ~= nil
         or head:find("lph_", 1, true) ~= nil
@@ -118,9 +145,6 @@ local function isObfuscatedCode(src, chunkname)
         or head:find("obfuscated with", 1, true) ~= nil
         or head:find("this file was obfuscated", 1, true) ~= nil
         or head:find("protected by", 1, true) ~= nil
-        or src:sub(1, 4) == "\27Lua"
-        or head:find("\\27lua", 1, true) ~= nil
-        or head:find("\\x1blua", 1, true) ~= nil
 end
 
 -- Universal Scheduler Exemption Registry (API for external scripts/addons to opt out of loop management)
