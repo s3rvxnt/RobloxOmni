@@ -2711,11 +2711,11 @@ task.spawn(function()
 
         -- Keep Omni alive across teleports only if not already installed in autoexec
         local hasLocal = (type(isfile) == "function") and (
-            isfile("Omni_Installed.marker")
-            or isfile("Omni_KernelInitialized.marker")
-            or isfile("Omni_Ledger.json")
-            or isfile("autoexec/kernel/KernelTaskManager.lua")
+            isfile("Omni_Autoexec.marker")
             or isfile("autoexec/Bootloader.lua")
+            or isfile("autoexec/CustomAutoExec.lua")
+            or isfile("autoexe/Bootloader.lua")
+            or isfile("autoexe/CustomAutoExec.lua")
         )
         if not hasLocal then
             local queueOnTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or queueonteleport or (fluxus and fluxus.queue_on_teleport)
@@ -2730,11 +2730,11 @@ task.spawn(function()
                             end
                             if not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning then
                                 local isLocal = (type(isfile) == "function") and (
-                                    isfile("Omni_Installed.marker")
-                                    or isfile("Omni_KernelInitialized.marker")
-                                    or isfile("Omni_Ledger.json")
-                                    or isfile("autoexec/kernel/KernelTaskManager.lua")
+                                    isfile("Omni_Autoexec.marker")
                                     or isfile("autoexec/Bootloader.lua")
+                                    or isfile("autoexec/CustomAutoExec.lua")
+                                    or isfile("autoexe/Bootloader.lua")
+                                    or isfile("autoexe/CustomAutoExec.lua")
                                 )
                                 if not isLocal then
                                     pcall(function()

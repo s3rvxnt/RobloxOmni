@@ -168,6 +168,10 @@ foreach ($root in $detectedRoots) {
     $oesDest = Join-Path $targetGameloaded "OmniEnhancementSuite.lua"
     [IO.File]::WriteAllText($oesDest, $contents["OmniEnhancementSuite"], [Text.UTF8Encoding]::new($false))
 
+    # Write Omni_Autoexec.marker into workspace for zero-race teleport persistence
+    $autoexecMarkerDest = Join-Path $workspaceDir "Omni_Autoexec.marker"
+    [IO.File]::WriteAllText($autoexecMarkerDest, [string]$timestamp, [Text.UTF8Encoding]::new($false))
+
     # Write Omni_Installed.marker into workspace for zero-race teleport persistence
     $markerDest = Join-Path $workspaceDir "Omni_Installed.marker"
     [IO.File]::WriteAllText($markerDest, [string]$timestamp, [Text.UTF8Encoding]::new($false))
