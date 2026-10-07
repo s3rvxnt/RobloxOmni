@@ -758,6 +758,10 @@ end
 local function sanitizeDiffText(text)
     if not text or type(text) ~= "string" then return "" end
     local s = text
+    -- Hard safety clamp: Never process or assign strings > 1200 chars to a TextLabel
+    if #s > 1200 then
+        s = s:sub(1, 1200) .. " ... [line truncated: " .. tostring(#text) .. " chars]"
+    end
     -- Reveal Zero-Width characters and invisible controls
     s = s:gsub("\239\187\191", "[BOM]")
     s = s:gsub("\226\128\139", "[ZWSP]")
@@ -782,22 +786,40 @@ local function sanitizeDiffText(text)
     s = s:gsub("[\1-\8\11-\12\14-\31\127]", function(c)
         return string.format("\\x%02X", string.byte(c))
     end)
+    if #s > 1500 then
+        s = s:sub(1, 1500)
+    end
     return s
 end
 
 -- Ultra-Fast Linear Diff Engine
 local function computeLineDiff(oldCode, newCode)
+    local CHUNK_SIZE = 800
     local oldLines = {}
     if oldCode and #oldCode > 0 then
         for line in (oldCode .. "\n"):gmatch("(.-)\r?\n") do
-            table.insert(oldLines, line)
+            if #line > CHUNK_SIZE then
+                for i = 1, math.min(#line, CHUNK_SIZE * 5), CHUNK_SIZE do
+                    table.insert(oldLines, line:sub(i, i + CHUNK_SIZE - 1))
+                end
+            else
+                table.insert(oldLines, line)
+            end
+            if #oldLines >= 500 then break end
         end
     end
 
     local newLines = {}
     if newCode and #newCode > 0 then
         for line in (newCode .. "\n"):gmatch("(.-)\r?\n") do
-            table.insert(newLines, line)
+            if #line > CHUNK_SIZE then
+                for i = 1, math.min(#line, CHUNK_SIZE * 5), CHUNK_SIZE do
+                    table.insert(newLines, line:sub(i, i + CHUNK_SIZE - 1))
+                end
+            else
+                table.insert(newLines, line)
+            end
+            if #newLines >= 500 then break end
         end
     end
 
@@ -2996,7 +3018,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                         txtLbl.TextSize = 10
                         txtLbl.TextColor3 = textCol
                         txtLbl.TextXAlignment = Enum.TextXAlignment.Left
-                        txtLbl.Text = prefix .. item.text
+                        txtLbl.Text = prefix .. tostring(item.text or ""):sub(1, 1500)
                         txtLbl.Parent = lineRow
                     end
                 end
@@ -3763,7 +3785,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     txtLbl.TextSize = 10
                     txtLbl.TextColor3 = textCol
                     txtLbl.TextXAlignment = Enum.TextXAlignment.Left
-                    txtLbl.Text = prefix .. (item.text or "")
+                    txtLbl.Text = prefix .. tostring(item.text or ""):sub(1, 1500)
                     txtLbl.Parent = lineRow
                 end
             end
@@ -3846,8 +3868,27 @@ initUpdateGate = function(guiParent, UpdateBadge)
             end
 
             local rawLines = {}
+            local MAX_PREVIEW_LINES = 400
+            local CHUNK_SIZE = 800
             for line in (newCode .. "\n"):gmatch("(.-)\r?\n") do
-                table.insert(rawLines, line)
+                if #rawLines >= MAX_PREVIEW_LINES then
+                    table.insert(rawLines, string.format("... [Preview capped at %d lines]", MAX_PREVIEW_LINES))
+                    break
+                end
+                if #line > CHUNK_SIZE then
+                    for i = 1, math.min(#line, CHUNK_SIZE * 5), CHUNK_SIZE do
+                        table.insert(rawLines, line:sub(i, i + CHUNK_SIZE - 1))
+                        if #rawLines >= MAX_PREVIEW_LINES then break end
+                    end
+                    if #line > CHUNK_SIZE * 5 then
+                        table.insert(rawLines, string.format("... [minified line truncated: %d chars total]", #line))
+                    end
+                else
+                    table.insert(rawLines, line)
+                end
+            end
+            if #rawLines == 0 then
+                table.insert(rawLines, "-- (Empty Script)")
             end
 
             local BATCH_SIZE = 60
@@ -3882,7 +3923,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     txtLbl.TextSize = 10
                     txtLbl.TextColor3 = Color3.fromRGB(180, 195, 215)
                     txtLbl.TextXAlignment = Enum.TextXAlignment.Left
-                    txtLbl.Text = "  " .. sanitizeDiffText(line)
+                    txtLbl.Text = "  " .. sanitizeDiffText(line):sub(1, 1500)
                     txtLbl.Parent = lineRow
                 end
             end
