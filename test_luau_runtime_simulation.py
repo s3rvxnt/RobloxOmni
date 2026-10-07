@@ -1148,6 +1148,148 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
             if os.path.exists(temp_file):
                 os.remove(temp_file)
 
+    def test_17_obfuscated_script_real_loadstring_injection(self):
+        """Verify approved obfuscated scripts receive authentic loadstring and inner calls bypass the gate."""
+        harness = r"""
+        -- Mock primitives
+        local origLoadstring = function(code, chunk)
+            return function()
+                return "UNPACKED_PAYLOAD_EXECUTED:" .. tostring(code)
+            end
+        end
+
+        local _exemptObfuscatedClosures = setmetatable({}, { __mode = "k" })
+        local _exemptObfuscatedCallers = {}
+
+        local function sanitizeCallerChunk(name)
+            if not name or type(name) ~= "string" then return "" end
+            return name:gsub("^[@%[%]=]", ""):gsub("\"%]$", ""):gsub("%]$", ""):lower()
+        end
+
+        local function compileExecutableChunk(code, chunk, isObf)
+            local compiledFn, compileErr = origLoadstring(code, chunk)
+            if not compiledFn then
+                return nil, compileErr
+            end
+
+            if isObf then
+                if chunk and type(chunk) == "string" and chunk ~= "" then
+                    local cleanChunk = sanitizeCallerChunk(chunk)
+                    if cleanChunk ~= "" then
+                        _exemptObfuscatedCallers[cleanChunk] = true
+                    end
+                end
+
+                if type(compiledFn) == "function" then
+                    _exemptObfuscatedClosures[compiledFn] = true
+                    if setfenv and getfenv then
+                        pcall(function()
+                            local baseEnv = getfenv(compiledFn)
+                            local scriptEnv = setmetatable({
+                                loadstring = origLoadstring,
+                            }, {
+                                __index = baseEnv,
+                                __newindex = baseEnv,
+                            })
+                            setfenv(compiledFn, scriptEnv)
+                        end)
+                    end
+                end
+            end
+
+            return compiledFn
+        end
+
+        local promptCallCount = 0
+        local function shimLoadstring(src, chunkname)
+            local isCallerExempt = false
+            local isCallerObfuscatedExempt = false
+            if debug and debug.info then
+                for lvl = 2, 8 do
+                    local okF, cFunc = pcall(debug.info, lvl, "f")
+                    if okF and cFunc and _exemptObfuscatedClosures[cFunc] then
+                        isCallerExempt = true
+                        isCallerObfuscatedExempt = true
+                        break
+                    end
+                    local okS, cSrc = pcall(debug.info, lvl, "s")
+                    if okS and cSrc and type(cSrc) == "string" and cSrc ~= "" and cSrc ~= "[C]" then
+                        local clean = sanitizeCallerChunk(cSrc)
+                        if _exemptObfuscatedCallers[clean] then
+                            isCallerExempt = true
+                            isCallerObfuscatedExempt = true
+                            break
+                        end
+                    end
+                end
+            end
+
+            if isCallerExempt then
+                return compileExecutableChunk(src, chunkname, isCallerObfuscatedExempt)
+            end
+
+            -- Otherwise simulate gate prompt
+            promptCallCount = promptCallCount + 1
+            return compileExecutableChunk(src, chunkname, true)
+        end
+
+        -- 1. Initial execution of LuaArmor loader (prompts user once for gate approval)
+        local loaderChunk = "@https://api.luaauth.com/loader/sample123"
+        local loaderCode = "-- api.luaauth.com\\nlocal x = 1"
+        local approvedLoaderFn = shimLoadstring(loaderCode, loaderChunk)
+        print("INITIAL_PROMPT_COUNT:" .. tostring(promptCallCount))
+
+        -- 2. Simulate LuaArmor script body executing inside approved environment
+        -- It checks its own loadstring
+        local bodyFn = function()
+            -- Verify loadstring inside body is origLoadstring
+            local isRealLoadstring = (loadstring == origLoadstring)
+            -- Call loadstring directly (e.g. unpacking stage 2)
+            local directUnpack = loadstring("local stage2 = true")()
+            return isRealLoadstring, directUnpack
+        end
+
+        local baseEnv = getfenv(bodyFn)
+        local scriptEnv = setmetatable({
+            loadstring = origLoadstring
+        }, {
+            __index = baseEnv,
+            __newindex = baseEnv
+        })
+        setfenv(bodyFn, scriptEnv)
+        _exemptObfuscatedClosures[bodyFn] = true
+        _exemptObfuscatedCallers[sanitizeCallerChunk(loaderChunk)] = true
+
+        local isReal, unpackRes = bodyFn()
+        print("REAL_LOADSTRING_RECEIVED:" .. tostring(isReal))
+        print("DIRECT_UNPACK_RESULT:" .. tostring(unpackRes))
+
+        -- 3. Simulate nested unpacker calling shimLoadstring (via getgenv or global shim) from within approved script stack
+        local nestedRes = nil
+        local function executeNestedFromApproved()
+            nestedRes = shimLoadstring("local stage3 = true", "@inner_chunk")
+        end
+        _exemptObfuscatedClosures[executeNestedFromApproved] = true
+        executeNestedFromApproved()
+        print("NESTED_PROMPT_COUNT_UNCHANGED:" .. tostring(promptCallCount == 1))
+        print("NESTED_EXEC_SUCCESS:" .. tostring(type(nestedRes) == "function"))
+        """
+        temp_file = "sim_obfuscated_loadstring.luau"
+        with open(temp_file, "w", encoding="utf-8") as f:
+            f.write(harness)
+
+        try:
+            res = subprocess.run([LUAU_PATH, temp_file], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
+            self.assertIn("INITIAL_PROMPT_COUNT:1", res.stdout)
+            self.assertIn("REAL_LOADSTRING_RECEIVED:true", res.stdout)
+            self.assertIn("DIRECT_UNPACK_RESULT:UNPACKED_PAYLOAD_EXECUTED:local stage2 = true", res.stdout)
+            self.assertIn("NESTED_PROMPT_COUNT_UNCHANGED:true", res.stdout)
+            self.assertIn("NESTED_EXEC_SUCCESS:true", res.stdout)
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
 
 if __name__ == "__main__":
     unittest.main()

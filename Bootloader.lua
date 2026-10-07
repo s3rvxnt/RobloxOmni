@@ -354,6 +354,8 @@ local function isObfuscatedCode(src, chunkname)
         if cLower:find("luraph", 1, true)
             or cLower:find("lph_", 1, true)
             or cLower:find("luaauth", 1, true)
+            or cLower:find("luarmor", 1, true)
+            or cLower:find("luaarmor", 1, true)
             or cLower:find("moonsec", 1, true)
             or cLower:find("ironbrew", 1, true)
             or cLower:find("plasmii", 1, true)
@@ -395,13 +397,17 @@ local function isObfuscatedCode(src, chunkname)
     end
 
     local head = src:sub(1, 4000):lower()
-    return head:find("luraph", 1, true) ~= nil
+    if head:find("luraph", 1, true) ~= nil
         or head:find("lph_", 1, true) ~= nil
         or head:find("lh={", 1, true) ~= nil
         or head:find("lh = {", 1, true) ~= nil
         or head:find(",lh={},", 1, true) ~= nil
         or head:find("luaauth", 1, true) ~= nil
+        or head:find("luarmor", 1, true) ~= nil
+        or head:find("luaarmor", 1, true) ~= nil
         or head:find("la_script_id", 1, true) ~= nil
+        or head:find("api.luaauth.com", 1, true) ~= nil
+        or head:find("api.luarmor.net", 1, true) ~= nil
         or head:find("moonsec", 1, true) ~= nil
         or head:find("ironbrew", 1, true) ~= nil
         or head:find("prometheus", 1, true) ~= nil
@@ -411,7 +417,55 @@ local function isObfuscatedCode(src, chunkname)
         or head:find("boron", 1, true) ~= nil
         or head:find("obfuscated with", 1, true) ~= nil
         or head:find("this file was obfuscated", 1, true) ~= nil
-        or head:find("protected by", 1, true) ~= nil
+        or head:find("protected by", 1, true) ~= nil then
+        return true
+    end
+
+    -- Barcode variable names
+    local barcodeCount = 0
+    for _ in src:gmatch("[Il1][Il1][Il1][Il1][Il1][Il1][Il1][Il1]+") do
+        barcodeCount = barcodeCount + 1
+        if barcodeCount >= 5 then return true end
+    end
+
+    -- Hex variable identifiers
+    local hexVarCount = 0
+    for _ in src:gmatch("_0x%x%x%x%x+") do
+        hexVarCount = hexVarCount + 1
+        if hexVarCount >= 8 then return true end
+    end
+
+    -- Packed decimal escapes
+    local escapedByteCount = 0
+    for _ in src:gmatch("\\[0-9][0-9][0-9]") do
+        escapedByteCount = escapedByteCount + 1
+        if escapedByteCount > 80 then return true end
+    end
+
+    -- Packed hex escapes
+    local hexEscapeCount = 0
+    for _ in src:gmatch("\\x%x%x") do
+        hexEscapeCount = hexEscapeCount + 1
+        if hexEscapeCount > 80 then return true end
+    end
+
+    -- Dense single line VM wrapper
+    for line in src:gmatch("[^\r\n]+") do
+        if #line > 2500 and not line:match("^%s*%-%-") then
+            if line:find("string%.char") or line:find("bit32") or line:find("getfenv") or line:find("unpack") or line:find("table%.concat") then
+                return true
+            end
+        end
+    end
+
+    -- Excessive dynamic string.char
+    local strCharCount = 0
+    for _ in src:gmatch("string%.char%s*%(") do
+        strCharCount = strCharCount + 1
+        if strCharCount >= 15 then return true end
+    end
+
+    return false
 end
 
 -- ==============================================================================
@@ -952,6 +1006,50 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
     local origLoadstring = _clonedLoadstring or getgenv().loadstring or loadstring
     getgenv()._KernelOrigLoadstring = nil
     if type(origLoadstring) == "function" then
+        local _exemptObfuscatedClosures = setmetatable({}, { __mode = "k" })
+        local _exemptObfuscatedCallers = {}
+
+        local function sanitizeCallerChunk(name)
+            if not name or type(name) ~= "string" then return "" end
+            return name:gsub("^[@%[%]=]", ""):gsub("\"%]$", ""):gsub("%]$", ""):lower()
+        end
+
+        local function compileExecutableChunk(code, chunk, isObf)
+            local compiledFn, compileErr = origLoadstring(code, chunk)
+            if not compiledFn then
+                return nil, compileErr
+            end
+
+            if isObf then
+                if chunk and type(chunk) == "string" and chunk ~= "" then
+                    local cleanChunk = sanitizeCallerChunk(chunk)
+                    if cleanChunk ~= "" then
+                        _exemptObfuscatedCallers[cleanChunk] = true
+                    end
+                end
+
+                if type(compiledFn) == "function" then
+                    _exemptObfuscatedClosures[compiledFn] = true
+                    if setfenv and getfenv then
+                        pcall(function()
+                            local baseEnv = getfenv(compiledFn)
+                            local scriptEnv = setmetatable({
+                                loadstring = origLoadstring,
+                                loadfile = _loadfile or getgenv().loadfile,
+                                dofile = _dofile or getgenv().dofile,
+                            }, {
+                                __index = baseEnv,
+                                __newindex = baseEnv,
+                            })
+                            setfenv(compiledFn, scriptEnv)
+                        end)
+                    end
+                end
+            end
+
+            return compiledFn
+        end
+
         local function loadstringShim(src, chunkname)
             if typeof(src) == "Instance" then
                 if src:IsA("LuaSourceContainer") then
@@ -975,21 +1073,34 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             local srcHash = computeSha256(src)
             local normSrcHash = computeSha256(src:gsub("\r\n", "\n"))
 
-            -- Stack origin inspection: check if caller itself is internal or an exempt script
+            -- Stack origin inspection: check if caller itself is internal or an exempt/obfuscated script
             local isCallerExempt = false
+            local isCallerObfuscatedExempt = false
             if debug and debug.info then
                 local immSrc = debug.info(2, "s")
                 if immSrc and type(immSrc) == "string" and immSrc ~= "" and immSrc ~= "[C]" then
-                    local cleanImm = immSrc:gsub("^[@%[]", ""):gsub("\"%]$", ""):lower()
+                    local cleanImm = sanitizeCallerChunk(immSrc)
                     if cleanImm:find("remoteexecute") then
                         isCallerExempt = true
                     end
                 end
                 if not isCallerExempt then
-                    for lvl = 2, 7 do
-                        local cSrc = debug.info(lvl, "s")
-                        if cSrc and type(cSrc) == "string" and cSrc ~= "" and cSrc ~= "[C]" then
-                            local clean = cSrc:gsub("^[@%[]", ""):gsub("\"%]$", ""):lower()
+                    for lvl = 2, 8 do
+                        local okF, cFunc = pcall(debug.info, lvl, "f")
+                        if okF and cFunc and _exemptObfuscatedClosures[cFunc] then
+                            isCallerExempt = true
+                            isCallerObfuscatedExempt = true
+                            break
+                        end
+
+                        local okS, cSrc = pcall(debug.info, lvl, "s")
+                        if okS and cSrc and type(cSrc) == "string" and cSrc ~= "" and cSrc ~= "[C]" then
+                            local clean = sanitizeCallerChunk(cSrc)
+                            if _exemptObfuscatedCallers[clean] then
+                                isCallerExempt = true
+                                isCallerObfuscatedExempt = true
+                                break
+                            end
                             if clean:find("bootloader") or clean:find("taskmanager") or clean:find("enhancementsuite") or clean:find("taskscheduler") or (getgenv()._KernelExemptScripts and getgenv()._KernelExemptScripts[clean]) then
                                 isCallerExempt = true
                                 break
@@ -999,9 +1110,9 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 end
             end
 
-            -- If internal Omni caller, bypass security gate directly
+            -- If internal Omni caller or approved obfuscated script, bypass security gate directly
             if isCallerExempt then
-                return origLoadstring(src, chunkname)
+                return compileExecutableChunk(src, chunkname, isCallerObfuscatedExempt or isObfuscatedCode(src, chunkname))
             end
 
             -- 1. Identify URL
@@ -1036,7 +1147,15 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
                     if hashMatches then
                         -- Content is identical to approved local copy: instant pass-through!
-                        return origLoadstring(src, chunkname or ("@" .. targetUrl))
+                        local effectiveChunk = chunkname or ("@" .. targetUrl)
+                        local isObf = isObfuscatedCode(src, effectiveChunk)
+                        if isObf then
+                            _exemptObfuscatedCallers[sanitizeCallerChunk(targetUrl)] = true
+                            if trustedEntry.local_file then
+                                _exemptObfuscatedCallers[sanitizeCallerChunk(trustedEntry.local_file)] = true
+                            end
+                        end
+                        return compileExecutableChunk(src, effectiveChunk, isObf)
                     else
                         -- Content was updated by the author!
                         local localCopy = (trustedEntry.local_file and isfile(trustedEntry.local_file) and readfile(trustedEntry.local_file)) or ""
@@ -1066,10 +1185,26 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                             trustedEntry.hash = srcHash
                             trustedEntry.last_updated = os.time()
                             saveTrustedUrlLedger(ledger)
-                            return origLoadstring(src, chunkname or ("@" .. targetUrl))
+                            local effectiveChunk = chunkname or ("@" .. targetUrl)
+                            local isObf = isObfuscatedCode(src, effectiveChunk)
+                            if isObf then
+                                _exemptObfuscatedCallers[sanitizeCallerChunk(targetUrl)] = true
+                                if trustedEntry.local_file then
+                                    _exemptObfuscatedCallers[sanitizeCallerChunk(trustedEntry.local_file)] = true
+                                end
+                            end
+                            return compileExecutableChunk(src, effectiveChunk, isObf)
                         elseif decision == "run_previous" then
                             if localCopy and localCopy ~= "" then
-                                return origLoadstring(localCopy, chunkname or ("@" .. targetUrl))
+                                local effectiveChunk = chunkname or ("@" .. targetUrl)
+                                local isObf = isObfuscatedCode(localCopy, effectiveChunk)
+                                if isObf then
+                                    _exemptObfuscatedCallers[sanitizeCallerChunk(targetUrl)] = true
+                                    if trustedEntry.local_file then
+                                        _exemptObfuscatedCallers[sanitizeCallerChunk(trustedEntry.local_file)] = true
+                                    end
+                                end
+                                return compileExecutableChunk(localCopy, effectiveChunk, isObf)
                             else
                                 return nil, "Omni Security Gate: No previous safe version found on disk"
                             end
@@ -1110,7 +1245,13 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                             last_updated = os.time()
                         }
                         saveTrustedUrlLedger(ledger)
-                        return origLoadstring(src, chunkname or ("@" .. targetUrl))
+                        local effectiveChunk = chunkname or ("@" .. targetUrl)
+                        local isObf = isObfuscatedCode(src, effectiveChunk)
+                        if isObf then
+                            _exemptObfuscatedCallers[sanitizeCallerChunk(targetUrl)] = true
+                            _exemptObfuscatedCallers[sanitizeCallerChunk(filename)] = true
+                        end
+                        return compileExecutableChunk(src, effectiveChunk, isObf)
                     else
                         return nil, "Omni Security Gate: Execution blocked by user"
                     end
@@ -1118,7 +1259,8 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             else
                 -- Dynamic / Inline loadstring (no URL)
                 if _sessionApprovedHashes[srcHash] or (ledger.hashes and ledger.hashes[srcHash]) then
-                    return origLoadstring(src, chunkname)
+                    local isObf = isObfuscatedCode(src, chunkname)
+                    return compileExecutableChunk(src, chunkname, isObf)
                 end
 
                 local badges = auditScriptContent(src)
@@ -1153,13 +1295,15 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                         _sessionApprovedHashes[srcHash] = true
                         ledger.hashes[srcHash] = true
                         saveTrustedUrlLedger(ledger)
-                        return origLoadstring(src, chunkname)
+                        local isObf = isObfuscatedCode(src, chunkname)
+                        return compileExecutableChunk(src, chunkname, isObf)
                     else
                         return nil, "Omni Security Gate: Execution blocked by user"
                     end
                 else
                     _sessionApprovedHashes[srcHash] = true
-                    return origLoadstring(src, chunkname)
+                    local isObf = isObfuscatedCode(src, chunkname)
+                    return compileExecutableChunk(src, chunkname, isObf)
                 end
             end
         end

@@ -270,6 +270,18 @@ class TestBootloaderHardening(unittest.TestCase):
         self.assertIn("🛑 Block", self.bootloader_source)
         self.assertIn("Omni Security Gate: Execution blocked by user", self.bootloader_source)
 
+    def test_21_obfuscated_script_real_loadstring_invariants(self):
+        """Verify obfuscated scripts receive authentic loadstring and are whitelisted in caller registry."""
+        self.assertIn("_exemptObfuscatedClosures = setmetatable({}, { __mode = \"k\" })", self.bootloader_source)
+        self.assertIn("_exemptObfuscatedCallers = {}", self.bootloader_source)
+        self.assertIn("local function compileExecutableChunk(code, chunk, isObf)", self.bootloader_source)
+        self.assertIn("loadstring = origLoadstring", self.bootloader_source)
+        self.assertIn("setfenv(compiledFn, scriptEnv)", self.bootloader_source)
+        self.assertIn("isCallerObfuscatedExempt", self.bootloader_source)
+        self.assertIn('cLower:find("luarmor", 1, true)', self.bootloader_source)
+        self.assertIn('cLower:find("luaarmor", 1, true)', self.bootloader_source)
+        self.assertIn('cLower:find("luaauth", 1, true)', self.bootloader_source)
+
 
 if __name__ == "__main__":
     unittest.main()
