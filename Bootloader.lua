@@ -462,25 +462,35 @@ local function fetchGithubScript(url)
     return nil
 end
 
--- Initial Core Kernel Bootstrap (Only triggers if core kernel is completely missing and wasn't intentionally deleted)
-local coreKernelLocal = "autoexec/kernel/KernelTaskManager.lua"
-local KERNEL_INIT_MARKER = "Omni_KernelInitialized.marker"
-if not isfile(coreKernelLocal) and not isfile(KERNEL_INIT_MARKER) then
-    local coreUrl = GITHUB_REPO_RAW .. "kernel/KernelTaskManager.lua?v=" .. tostring(os.time())
-    local coreContent = fetchGithubScript(coreUrl)
-    if coreContent and #coreContent > 100 then
-        local parentDir = coreKernelLocal:match("^(.*)[/\\][^/\\]+$")
-        if parentDir and not isfolder(parentDir) then pcall(makefolder, parentDir) end
-        local ok, err = pcall(writefile, coreKernelLocal, coreContent)
-        if ok then
-            pcall(writefile, KERNEL_INIT_MARKER, tostring(os.time()))
-            print("[Bootloader]: Initialized core KernelTaskManager -> " .. coreKernelLocal)
-        else
-            warn("[Bootloader]: Failed to bootstrap core kernel: " .. tostring(err))
+-- Initial Core Components Bootstrap (Ensures all official stages are initialized on fresh install)
+local BOOTSTRAP_STAGES = {
+    {
+        repoPath = "kernel/KernelTaskManager.lua",
+        localPath = "autoexec/kernel/KernelTaskManager.lua",
+        name = "KernelTaskManager"
+    },
+    {
+        repoPath = "gameloaded/OmniEnhancementSuite.lua",
+        localPath = "autoexec/gameloaded/OmniEnhancementSuite.lua",
+        name = "OmniEnhancementSuite"
+    }
+}
+
+for _, bStage in ipairs(BOOTSTRAP_STAGES) do
+    if isfile and not isfile(bStage.localPath) then
+        local url = GITHUB_REPO_RAW .. bStage.repoPath .. "?v=" .. tostring(os.time())
+        local content = fetchGithubScript(url)
+        if content and #content > 100 then
+            local parentDir = bStage.localPath:match("^(.*)[/\\][^/\\]+$")
+            if parentDir and isfolder and not isfolder(parentDir) then pcall(makefolder, parentDir) end
+            local ok, err = pcall(writefile, bStage.localPath, content)
+            if ok then
+                print(string.format("[Bootloader]: Initialized core %s -> %s", bStage.name, bStage.localPath))
+            else
+                warn(string.format("[Bootloader]: Failed to bootstrap %s: %s", bStage.name, tostring(err)))
+            end
         end
     end
-elseif isfile(coreKernelLocal) and not isfile(KERNEL_INIT_MARKER) then
-    pcall(writefile, KERNEL_INIT_MARKER, tostring(os.time()))
 end
 
 -- ==============================================================================

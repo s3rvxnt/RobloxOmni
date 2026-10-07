@@ -32,7 +32,7 @@ if ($Path -and (Test-Path $Path)) {
 
         # Check the search root itself
         $hasWs = Test-Path (Join-Path $searchRoot 'workspace')
-        $hasAe = Test-Path (Join-Path $searchRoot 'autoexec')
+        $hasAe = (Test-Path (Join-Path $searchRoot 'autoexec')) -or (Test-Path (Join-Path $searchRoot 'autoexe'))
         if ($hasWs -and $hasAe) {
             $full = (Get-Item $searchRoot).FullName
             if (-not $detectedRoots.Contains($full)) { $detectedRoots.Add($full) }
@@ -41,7 +41,7 @@ if ($Path -and (Test-Path $Path)) {
         # Check 1-level deep subdirectories
         Get-ChildItem -Path $searchRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
             $subWs = Test-Path (Join-Path $_.FullName 'workspace')
-            $subAe = Test-Path (Join-Path $_.FullName 'autoexec')
+            $subAe = (Test-Path (Join-Path $_.FullName 'autoexec')) -or (Test-Path (Join-Path $_.FullName 'autoexe'))
             if ($subWs -and $subAe) {
                 if (-not $detectedRoots.Contains($_.FullName)) {
                     $detectedRoots.Add($_.FullName)
@@ -106,7 +106,7 @@ $excludeList = @("Bootloader.lua", "CustomAutoExec.lua", "OmniBootloader.lua", "
 # Deploy to each detected executor
 foreach ($root in $detectedRoots) {
     $execName = Split-Path $root -Leaf
-    $autoexecDir = Join-Path $root "autoexec"
+    $autoexecDir = if (Test-Path (Join-Path $root "autoexe")) { Join-Path $root "autoexe" } else { Join-Path $root "autoexec" }
     $workspaceDir = Join-Path $root "workspace"
     $targetPreinit = Join-Path $workspaceDir "autoexec\preinit"
     $targetKernel = Join-Path $workspaceDir "autoexec\kernel"
