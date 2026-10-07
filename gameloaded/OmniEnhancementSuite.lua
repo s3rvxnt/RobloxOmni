@@ -1449,11 +1449,16 @@ if genv then
 end
 
 -- Centralized Render Loop: Virtual Frustum Allocation & Tracers
+local ExcludeFilterType = (function()
+    local ok, ft = pcall(function() return Enum.RaycastFilterType.Exclude end)
+    if ok and ft then return ft end
+    return Enum.RaycastFilterType.Blacklist
+end)()
 local RayParams = RaycastParams.new()
-RayParams.FilterType = Enum.RaycastFilterType.Exclude
-RayParams.IgnoreWater = true
+pcall(function() RayParams.FilterType = ExcludeFilterType end)
+pcall(function() RayParams.IgnoreWater = true end)
 
-local rayFilter = {nil, nil}
+local rayFilter = {}
 local visibleCandidates = {}
 local locatorRenderFrame = 0
 local HEAD_OFFSET = Vector3.new(0, 1.5, 0)
@@ -1525,7 +1530,6 @@ local RenderConnection = RunService.RenderStepped:Connect(function(dt)
     end
     
     table.clear(visibleCandidates)
-    rayFilter[1] = myChar
     local tracerAlpha = math.clamp(1 - math.exp(-8 * dt), 0, 1)
     
     for playerName, entry in pairs(TrackedPlayers) do
@@ -1536,6 +1540,7 @@ local RenderConnection = RunService.RenderStepped:Connect(function(dt)
         if character and character.Parent and rootPart then
             local rootPos = rootPart.Position
             local camDist = (rootPos - camPos).Magnitude
+            local playerDist = myRoot and (rootPos - myRoot.Position).Magnitude or camDist
             
             local head = entry.CachedHead
             if not head or not head.Parent then
@@ -1650,8 +1655,15 @@ local RenderConnection = RunService.RenderStepped:Connect(function(dt)
                         if not isOffScreen and head and myChar then
                             local headPos = (head:IsA("BasePart") and head.Position) or (rootPart and rootPart.Position)
                             if headPos then
-                                -- Option 2: Raycast Distance Culling & Frame Interleaving
-                                if camDist > 250 then
+                                local myHead = myChar:FindFirstChild("Head")
+                                local myOrigin = (myHead and myHead:IsA("BasePart") and myHead.Position) or (myRoot and myRoot.Position) or camPos
+                                local totalRay = headPos - myOrigin
+                                local totalDist = totalRay.Magnitude
+
+                                if totalDist <= 1 then
+                                    isObstructed = false
+                                    entry.CachedObstructed = false
+                                elseif playerDist > 250 then
                                     -- Distance Culling: beyond 250 studs, tracer is fully opaque anyway, skip raycast entirely
                                     isObstructed = true
                                     entry.CachedObstructed = true
@@ -1659,23 +1671,34 @@ local RenderConnection = RunService.RenderStepped:Connect(function(dt)
                                     -- Frame Interleaving: stagger 4-pass raycast across 3 frames (~62Hz on 185 FPS)
                                     local shouldRaycast = (entry.CachedObstructed == nil) or ((locatorRenderFrame + (entry.InterleaveSlot or 0)) % 3 == 0)
                                     if shouldRaycast then
-                                        rayFilter[2] = character
+                                        table.clear(rayFilter)
+                                        if myChar then table.insert(rayFilter, myChar) end
+                                        if character then table.insert(rayFilter, character) end
                                         RayParams.FilterDescendantsInstances = rayFilter
-                                        local rayDir = headPos - camPos
-                                        local curOrigin = camPos
-                                        local curDir = rayDir
+
+                                        local curOrigin = myOrigin
+                                        local curDir = totalRay
                                         local obstructed = false
                                         for _ = 1, 4 do
                                             local rayHit = Workspace:Raycast(curOrigin, curDir, RayParams)
                                             if not rayHit then
+                                                obstructed = false
                                                 break
                                             end
                                             local hitPart = rayHit.Instance
+                                            if hitPart:IsDescendantOf(character) or hitPart:IsDescendantOf(myChar) then
+                                                obstructed = false
+                                                break
+                                            end
+
                                             local hitChar = hitPart:FindFirstAncestorOfClass("Model")
                                             local isOtherPlayer = hitChar and hitChar:FindFirstChildOfClass("Humanoid") and hitChar ~= myChar and hitChar ~= character
-                                            if (hitPart.Transparency > 0.75 and not hitPart.CanCollide) or isOtherPlayer then
-                                                curOrigin = rayHit.Position + curDir.Unit * 0.2
-                                                if (headPos - curOrigin):Dot(rayDir) <= 0 then
+                                            local isIgnorable = (not hitPart.CanCollide) or (hitPart.Transparency >= 0.75) or isOtherPlayer
+                                            if isIgnorable then
+                                                local stepDir = curDir.Magnitude > 0.001 and curDir.Unit or Vector3.new(0, 0, 0)
+                                                curOrigin = rayHit.Position + stepDir * 0.2
+                                                if (headPos - curOrigin):Dot(totalRay) <= 0 then
+                                                    obstructed = false
                                                     break
                                                 end
                                                 curDir = headPos - curOrigin
@@ -1700,7 +1723,7 @@ local RenderConnection = RunService.RenderStepped:Connect(function(dt)
                         tracerLine.Position = UDim2.new(0, midPoint.X, 0, midPoint.Y)
                         tracerLine.Rotation = angle
 
-                        local fadeDist = math.clamp((camDist - 6) / 34, 0, 1)
+                        local fadeDist = math.clamp((playerDist - 6) / 34, 0, 1)
                         local targetTransparency = (isOffScreen or isObstructed) and 0 or (1 - fadeDist)
                         local curTrans = entry.CurrentTracerTrans or targetTransparency
                         curTrans = curTrans + (targetTransparency - curTrans) * tracerAlpha
