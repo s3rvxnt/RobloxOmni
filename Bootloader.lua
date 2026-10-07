@@ -35,7 +35,7 @@ if (getgenv()._OmniBootloaderRunning or getgenv()._OmniBootloaderLoaded) and not
 end
 getgenv()._OmniBootloaderRunning = true
 
-if type(isfolder) ~= "function" or type(listfiles) ~= "function" then
+if type(isfolder) ~= "function" or type(listfiles) ~= "function" or type(isfile) ~= "function" then
     print("[Bootloader]: Incompatible exploit environment.")
     getgenv()._OmniBootloaderRunning = false
     return
@@ -505,13 +505,35 @@ local BOOTSTRAP_STAGES = {
     }
 }
 
+local function isStageDisabled(localPath)
+    if not isfile then return false end
+    -- Check disabled extensions: .off, .bak, .disabled
+    if isfile(localPath .. ".off") or isfile(localPath .. ".bak") or isfile(localPath .. ".disabled") then
+        return true
+    end
+    -- Check disabled/ignored subfolders: Off/, Disabled/, .ignore/, _disabled/, _backup/, _ignored/
+    local dir, fname = localPath:match("^(.-)[/\\]([^/\\]+)$")
+    if dir and fname then
+        local checkDirs = { "Off", "Disabled", ".ignore", "_disabled", "_backup", "_ignored" }
+        for _, sub in ipairs(checkDirs) do
+            if isfile(dir .. "/" .. sub .. "/" .. fname)
+                or isfile(dir .. "/" .. sub .. "/" .. fname .. ".off")
+                or isfile(dir .. "/" .. sub .. "/" .. fname .. ".bak")
+                or isfile(dir .. "/" .. sub .. "/" .. fname .. ".disabled") then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 local isInitialized = (isfile and (isfile(KERNEL_INIT_MARKER) or isfile(LEDGER_PATH))) or false
 local ledger = loadLedger()
 
 if not SafeMode and not isInitialized then
     local bootstrappedAny = false
     for _, bStage in ipairs(BOOTSTRAP_STAGES) do
-        local isOff = isfile and (isfile(bStage.localPath .. ".off") or isfile(bStage.localPath:gsub("([^/\\]+)$", "Off/%1")) or isfile(bStage.localPath:gsub("([^/\\]+)$", "Off/%1.off")))
+        local isOff = isStageDisabled(bStage.localPath)
         if isfile and not isfile(bStage.localPath) and not isOff then
             local url = GITHUB_REPO_RAW .. bStage.repoPath .. "?v=" .. tostring(os.time())
             local content = fetchGithubScript(url)
@@ -537,12 +559,18 @@ if not SafeMode and not isInitialized then
     if isfile and not isfile(KERNEL_INIT_MARKER) and writefile then
         pcall(writefile, KERNEL_INIT_MARKER, tostring(os.time()))
     end
+    if isfile and not isfile("Omni_Installed.marker") and writefile then
+        pcall(writefile, "Omni_Installed.marker", tostring(os.time()))
+    end
     if bootstrappedAny then
         saveLedger(ledger)
     end
-elseif not isfile(KERNEL_INIT_MARKER) and isfile and isfile(LEDGER_PATH) and writefile then
+elseif isfile and not isfile(KERNEL_INIT_MARKER) and isfile(LEDGER_PATH) and writefile then
     -- Backfill marker if ledger already exists from installer
     pcall(writefile, KERNEL_INIT_MARKER, tostring(os.time()))
+    if not isfile("Omni_Installed.marker") then
+        pcall(writefile, "Omni_Installed.marker", tostring(os.time()))
+    end
 end
 
 -- ==============================================================================
@@ -2069,7 +2097,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
                     continue
                 end
                 local name = stage.name or localPath
-                local isOff = isfile and (isfile(localPath .. ".off") or isfile(localPath:gsub("([^/\\]+)$", "Off/%1")) or isfile(localPath:gsub("([^/\\]+)$", "Off/%1.off")))
+                local isOff = isStageDisabled(localPath)
                 if isfile and not isfile(localPath) and not isOff then
                     local compData = ledger.components[name]
                     local lastSeen = compData and compData.lastSeenVersion
@@ -2682,7 +2710,13 @@ task.spawn(function()
             totalBootMs, Telemetry.discovered, Telemetry.executed, Telemetry.success, Telemetry.errors))
 
         -- Keep Omni alive across teleports only if not already installed in autoexec
-        local hasLocal = (type(isfile) == "function") and (isfile("autoexec/Bootloader.lua") or isfile("workspace/autoexec/Bootloader.lua") or isfile("autoexec/CustomAutoExec.lua") or isfile("Omni_Installed.marker"))
+        local hasLocal = (type(isfile) == "function") and (
+            isfile("Omni_Installed.marker")
+            or isfile("Omni_KernelInitialized.marker")
+            or isfile("Omni_Ledger.json")
+            or isfile("autoexec/kernel/KernelTaskManager.lua")
+            or isfile("autoexec/Bootloader.lua")
+        )
         if not hasLocal then
             local queueOnTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or queueonteleport or (fluxus and fluxus.queue_on_teleport)
             if type(queueOnTeleport) == "function" then
@@ -2695,7 +2729,13 @@ task.spawn(function()
                                 waited = waited + 0.2
                             end
                             if not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning then
-                                local isLocal = (type(isfile) == "function") and (isfile("autoexec/Bootloader.lua") or isfile("workspace/autoexec/Bootloader.lua") or isfile("autoexec/CustomAutoExec.lua") or isfile("Omni_Installed.marker"))
+                                local isLocal = (type(isfile) == "function") and (
+                                    isfile("Omni_Installed.marker")
+                                    or isfile("Omni_KernelInitialized.marker")
+                                    or isfile("Omni_Ledger.json")
+                                    or isfile("autoexec/kernel/KernelTaskManager.lua")
+                                    or isfile("autoexec/Bootloader.lua")
+                                )
                                 if not isLocal then
                                     pcall(function()
                                         loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()
