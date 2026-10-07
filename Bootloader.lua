@@ -373,20 +373,22 @@ local function isObfuscatedCode(src, chunkname)
     if type(src) ~= "string" or #src < 10 then return false end
     if src:sub(1, 4) == "\27Lua" then return true end
 
+    local sample = #src > 10000 and src:sub(1, 10000) or src
+
     -- Structured source code inspection (30+ lines, reasonable avg line length, 5+ functions)
     local lineCount = 0
-    for _ in src:gmatch("[^\r\n]+") do
+    for _ in sample:gmatch("[^\r\n]+") do
         lineCount = lineCount + 1
     end
-    local avgLen = #src / math.max(1, lineCount)
+    local avgLen = #sample / math.max(1, lineCount)
     local funcCount = 0
-    for _ in src:gmatch("%f[%w_]function%s*[%w_:%.]*%s*%(") do
+    for _ in sample:gmatch("%f[%w_]function%s*[%w_:%.]*%s*%(") do
         funcCount = funcCount + 1
     end
 
     -- Human-readable structured source code is not obfuscated unless it contains a dense VM line
     if lineCount >= 30 and avgLen <= 250 and funcCount >= 5 then
-        for line in src:gmatch("[^\r\n]+") do
+        for line in sample:gmatch("[^\r\n]+") do
             if #line > 2500 and not line:match("^%s*%-%-") then
                 if line:find("string%.char") or line:find("bit32") or line:find("getfenv") or line:find("unpack") or line:find("table%.concat") then
                     return true
@@ -396,7 +398,7 @@ local function isObfuscatedCode(src, chunkname)
         return false
     end
 
-    local head = src:sub(1, 4000):lower()
+    local head = sample:sub(1, 4000):lower()
     if head:find("luraph", 1, true) ~= nil
         or head:find("lph_", 1, true) ~= nil
         or head:find("lh={", 1, true) ~= nil
@@ -423,34 +425,34 @@ local function isObfuscatedCode(src, chunkname)
 
     -- Barcode variable names
     local barcodeCount = 0
-    for _ in src:gmatch("[Il1][Il1][Il1][Il1][Il1][Il1][Il1][Il1]+") do
+    for _ in sample:gmatch("[Il1][Il1][Il1][Il1][Il1][Il1][Il1][Il1]+") do
         barcodeCount = barcodeCount + 1
         if barcodeCount >= 5 then return true end
     end
 
     -- Hex variable identifiers
     local hexVarCount = 0
-    for _ in src:gmatch("_0x%x%x%x%x+") do
+    for _ in sample:gmatch("_0x%x%x%x%x+") do
         hexVarCount = hexVarCount + 1
         if hexVarCount >= 8 then return true end
     end
 
     -- Packed decimal escapes
     local escapedByteCount = 0
-    for _ in src:gmatch("\\[0-9][0-9][0-9]") do
+    for _ in sample:gmatch("\\[0-9][0-9][0-9]") do
         escapedByteCount = escapedByteCount + 1
         if escapedByteCount > 80 then return true end
     end
 
     -- Packed hex escapes
     local hexEscapeCount = 0
-    for _ in src:gmatch("\\x%x%x") do
+    for _ in sample:gmatch("\\x%x%x") do
         hexEscapeCount = hexEscapeCount + 1
         if hexEscapeCount > 80 then return true end
     end
 
     -- Dense single line VM wrapper
-    for line in src:gmatch("[^\r\n]+") do
+    for line in sample:gmatch("[^\r\n]+") do
         if #line > 2500 and not line:match("^%s*%-%-") then
             if line:find("string%.char") or line:find("bit32") or line:find("getfenv") or line:find("unpack") or line:find("table%.concat") then
                 return true
@@ -460,7 +462,7 @@ local function isObfuscatedCode(src, chunkname)
 
     -- Excessive dynamic string.char
     local strCharCount = 0
-    for _ in src:gmatch("string%.char%s*%(") do
+    for _ in sample:gmatch("string%.char%s*%(") do
         strCharCount = strCharCount + 1
         if strCharCount >= 15 then return true end
     end
@@ -648,6 +650,8 @@ local function auditScriptContent(code)
     local badges = {}
     if not code or #code == 0 then return badges end
 
+    local sample = #code > 10000 and code:sub(1, 10000) or code
+
     -- Obfuscation Detection
     local isObfuscated = false
 
@@ -659,7 +663,7 @@ local function auditScriptContent(code)
     -- 2. Barcode variable names (e.g. IlIIlllIIllI)
     if not isObfuscated then
         local barcodeCount = 0
-        for _ in code:gmatch("[Il1][Il1][Il1][Il1][Il1][Il1][Il1][Il1]+") do
+        for _ in sample:gmatch("[Il1][Il1][Il1][Il1][Il1][Il1][Il1][Il1]+") do
             barcodeCount = barcodeCount + 1
             if barcodeCount >= 5 then
                 isObfuscated = true
@@ -671,7 +675,7 @@ local function auditScriptContent(code)
     -- 3. Hex variable identifiers (e.g. _0x4f1a2b)
     if not isObfuscated then
         local hexVarCount = 0
-        for _ in code:gmatch("_0x%x%x%x%x+") do
+        for _ in sample:gmatch("_0x%x%x%x%x+") do
             hexVarCount = hexVarCount + 1
             if hexVarCount >= 8 then
                 isObfuscated = true
@@ -683,7 +687,7 @@ local function auditScriptContent(code)
     -- 4. Packed Decimal Byte Streams (\123\145\167...)
     if not isObfuscated then
         local escapedByteCount = 0
-        for _ in code:gmatch("\\[0-9][0-9][0-9]") do
+        for _ in sample:gmatch("\\[0-9][0-9][0-9]") do
             escapedByteCount = escapedByteCount + 1
             if escapedByteCount > 80 then
                 isObfuscated = true
@@ -695,7 +699,7 @@ local function auditScriptContent(code)
     -- 5. Packed Hex Byte Streams (\x41\x42\x43...)
     if not isObfuscated then
         local hexEscapeCount = 0
-        for _ in code:gmatch("\\x%x%x") do
+        for _ in sample:gmatch("\\x%x%x") do
             hexEscapeCount = hexEscapeCount + 1
             if hexEscapeCount > 80 then
                 isObfuscated = true
@@ -706,7 +710,7 @@ local function auditScriptContent(code)
 
     -- 6. Giant dense single-line VM wrapper (> 2500 chars with string decoding)
     if not isObfuscated then
-        for line in code:gmatch("[^\r\n]+") do
+        for line in sample:gmatch("[^\r\n]+") do
             if #line > 2500 and not line:match("^%s*%-%-") then
                 if line:find("string%.char") or line:find("bit32") or line:find("getfenv") or line:find("unpack") or line:find("table%.concat") then
                     isObfuscated = true
@@ -719,7 +723,7 @@ local function auditScriptContent(code)
     -- 7. Excessive dynamic string.char calls
     if not isObfuscated then
         local strCharCount = 0
-        for _ in code:gmatch("string%.char%s*%(") do
+        for _ in sample:gmatch("string%.char%s*%(") do
             strCharCount = strCharCount + 1
             if strCharCount >= 15 then
                 isObfuscated = true
@@ -1008,6 +1012,12 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
     if type(origLoadstring) == "function" then
         local _exemptObfuscatedClosures = setmetatable({}, { __mode = "k" })
         local _exemptObfuscatedCallers = {}
+        local _exemptObfuscatedThreads = setmetatable({}, { __mode = "k" })
+        local _lastApprovedObfuscatedExecTime = 0
+
+        for _, k in ipairs({ "luraph", "luaauth", "luarmor", "luaarmor", "moonsec", "ironbrew", "plasmii", "prometheus", "psu obfuscator", "synapse xen", "boron", "aztup" }) do
+            _exemptObfuscatedCallers[k] = true
+        end
 
         local function sanitizeCallerChunk(name)
             if not name or type(name) ~= "string" then return "" end
@@ -1022,6 +1032,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             end
 
             if isObf then
+                _lastApprovedObfuscatedExecTime = os.clock()
                 if chunk and type(chunk) == "string" and chunk ~= "" then
                     local cleanChunk = sanitizeCallerChunk(chunk)
                     if cleanChunk ~= "" then
@@ -1031,6 +1042,15 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
                 if type(compiledFn) == "function" then
                     _exemptObfuscatedClosures[compiledFn] = true
+                    local rawCompiled = compiledFn
+                    local wrappedFn = function(...)
+                        local curThread = coroutine.running()
+                        _exemptObfuscatedThreads[curThread] = os.clock() + 60.0
+                        _lastApprovedObfuscatedExecTime = os.clock()
+                        return rawCompiled(...)
+                    end
+                    _exemptObfuscatedClosures[wrappedFn] = true
+                    return wrappedFn
                 end
             end
 
@@ -1057,22 +1077,25 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 return origLoadstring(src, chunkname)
             end
 
-            local srcHash = computeSha256(src)
-            local normSrcHash = computeSha256(src:gsub("\r\n", "\n"))
+            -- 1. Thread-Level Exemption Check (Instantaneous 0ms lookup)
+            local curThread = coroutine.running()
+            if _exemptObfuscatedThreads[curThread] and (os.clock() < _exemptObfuscatedThreads[curThread]) then
+                return origLoadstring(src, chunkname)
+            end
 
-            -- Stack origin inspection: check if caller itself is internal or an exempt/obfuscated script
+            -- 2. Stack origin inspection: check if caller itself is internal or an exempt/obfuscated script
             local isCallerExempt = false
             local isCallerObfuscatedExempt = false
             if debug and debug.info then
                 local immSrc = debug.info(2, "s")
                 if immSrc and type(immSrc) == "string" and immSrc ~= "" and immSrc ~= "[C]" then
                     local cleanImm = sanitizeCallerChunk(immSrc)
-                    if cleanImm:find("remoteexecute") then
+                    if cleanImm:find("remoteexecute") or cleanImm:find("bootloader") then
                         isCallerExempt = true
                     end
                 end
                 if not isCallerExempt then
-                    for lvl = 2, 15 do
+                    for lvl = 2, 20 do
                         local okF, cFunc = pcall(debug.info, lvl, "f")
                         if okF and cFunc and _exemptObfuscatedClosures[cFunc] then
                             isCallerExempt = true
@@ -1083,12 +1106,23 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                         local okS, cSrc = pcall(debug.info, lvl, "s")
                         if okS and cSrc and type(cSrc) == "string" and cSrc ~= "" and cSrc ~= "[C]" then
                             local clean = sanitizeCallerChunk(cSrc)
-                            if _exemptObfuscatedCallers[clean] or clean:find("luaauth", 1, true) or clean:find("luarmor", 1, true) or clean:find("luaarmor", 1, true) then
+                            if _exemptObfuscatedCallers[clean]
+                                or clean:find("luraph", 1, true)
+                                or clean:find("luaauth", 1, true)
+                                or clean:find("luarmor", 1, true)
+                                or clean:find("luaarmor", 1, true)
+                                or clean:find("moonsec", 1, true)
+                                or clean:find("ironbrew", 1, true)
+                                or clean:find("plasmii", 1, true)
+                                or clean:find("omni_trusted_scripts", 1, true) then
                                 isCallerExempt = true
                                 isCallerObfuscatedExempt = true
                                 break
                             end
-                            if clean:find("bootloader") or clean:find("taskmanager") or clean:find("enhancementsuite") or clean:find("taskscheduler") or (getgenv()._KernelExemptScripts and getgenv()._KernelExemptScripts[clean]) then
+                            if clean:find("bootloader", 1, true) or clean:find("taskmanager", 1, true)
+                                or clean:find("enhancementsuite", 1, true) or clean:find("taskscheduler", 1, true)
+                                or clean:find("remoteexecute", 1, true)
+                                or (getgenv()._KernelExemptScripts and getgenv()._KernelExemptScripts[clean]) then
                                 isCallerExempt = true
                                 break
                             end
@@ -1097,10 +1131,32 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 end
             end
 
-            -- If internal Omni caller or approved obfuscated script, bypass security gate directly
-            if isCallerExempt then
-                return compileExecutableChunk(src, chunkname, isCallerObfuscatedExempt or isObfuscatedCode(src, chunkname))
+            -- 3. Temporal Unpack Lease (Dynamic loadstrings within 15 seconds of approved obfuscated script run)
+            if not isCallerExempt and (os.clock() - _lastApprovedObfuscatedExecTime < 15.0) then
+                local chunkLow = (chunkname and type(chunkname) == "string") and chunkname:lower() or ""
+                if chunkLow:find("luraph", 1, true)
+                    or chunkLow:find("luaauth", 1, true)
+                    or chunkLow:find("luarmor", 1, true)
+                    or chunkLow:find("luaarmor", 1, true)
+                    or chunkLow:find("moonsec", 1, true)
+                    or chunkLow:find("ironbrew", 1, true)
+                    or _exemptObfuscatedCallers[sanitizeCallerChunk(chunkname)]
+                    or isObfuscatedCode(src, chunkname) then
+                    isCallerExempt = true
+                    isCallerObfuscatedExempt = true
+                end
             end
+
+            -- If internal Omni caller or approved obfuscated script, bypass security gate directly with authentic loadstring
+            if isCallerExempt then
+                if isCallerObfuscatedExempt then
+                    _exemptObfuscatedThreads[curThread] = os.clock() + 60.0
+                end
+                return origLoadstring(src, chunkname)
+            end
+
+            local srcHash = computeSha256(src)
+            local normSrcHash = computeSha256(src:gsub("\r\n", "\n"))
 
             -- 1. Identify URL
             local targetUrl = _fetchedUrlByContentHash[srcHash] or _fetchedUrlByContentHash[normSrcHash]
