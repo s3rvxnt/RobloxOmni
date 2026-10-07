@@ -1011,7 +1011,8 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
         local function sanitizeCallerChunk(name)
             if not name or type(name) ~= "string" then return "" end
-            return name:gsub("^[@%[%]=]", ""):gsub("\"%]$", ""):gsub("%]$", ""):lower()
+            local s = name:gsub("^%[string%s+\"", ""):gsub("\"%]$", ""):gsub("^[@%[%]=]", ""):gsub("%]$", "")
+            return s:lower()
         end
 
         local function compileExecutableChunk(code, chunk, isObf)
@@ -1030,20 +1031,6 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
                 if type(compiledFn) == "function" then
                     _exemptObfuscatedClosures[compiledFn] = true
-                    if setfenv and getfenv then
-                        pcall(function()
-                            local baseEnv = getfenv(compiledFn)
-                            local scriptEnv = setmetatable({
-                                loadstring = origLoadstring,
-                                loadfile = _loadfile or getgenv().loadfile,
-                                dofile = _dofile or getgenv().dofile,
-                            }, {
-                                __index = baseEnv,
-                                __newindex = baseEnv,
-                            })
-                            setfenv(compiledFn, scriptEnv)
-                        end)
-                    end
                 end
             end
 
@@ -1085,7 +1072,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                     end
                 end
                 if not isCallerExempt then
-                    for lvl = 2, 8 do
+                    for lvl = 2, 15 do
                         local okF, cFunc = pcall(debug.info, lvl, "f")
                         if okF and cFunc and _exemptObfuscatedClosures[cFunc] then
                             isCallerExempt = true
@@ -1096,7 +1083,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                         local okS, cSrc = pcall(debug.info, lvl, "s")
                         if okS and cSrc and type(cSrc) == "string" and cSrc ~= "" and cSrc ~= "[C]" then
                             local clean = sanitizeCallerChunk(cSrc)
-                            if _exemptObfuscatedCallers[clean] then
+                            if _exemptObfuscatedCallers[clean] or clean:find("luaauth", 1, true) or clean:find("luarmor", 1, true) or clean:find("luaarmor", 1, true) then
                                 isCallerExempt = true
                                 isCallerObfuscatedExempt = true
                                 break
