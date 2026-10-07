@@ -1710,11 +1710,19 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 if type(stage) == "table" then
                     local p = stage.localPath or stage.path
                     if p and type(p) == "string" and p ~= "" then
-                        stage.localPath = p
-                        stage.name = stage.name or p:match("[^/\\]+$") or "Component"
-                        stage.sha256 = stage.sha256 or stage.hash or nil
-                        if table.freeze then pcall(table.freeze, stage) end
-                        table.insert(valid, stage)
+                        local newStage = {
+                            repoPath = stage.repoPath or stage.url,
+                            localPath = p,
+                            path = p,
+                            stage = stage.stage,
+                            name = stage.name or p:match("[^/\\]+$") or "Component",
+                            desc = stage.desc,
+                            sha256 = stage.sha256 or stage.hash or nil,
+                            code = stage.code,
+                            content = stage.content
+                        }
+                        if table.freeze then pcall(table.freeze, newStage) end
+                        table.insert(valid, newStage)
                     end
                 end
             end
@@ -2074,6 +2082,8 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
     local isDefcon1Lockdown = false
     local userConsentCallback = nil
+    local closeUpdateModal = nil
+    local openUpdateModal = nil
 
     local function applyVerifiedUpdateSequence()
         if not currentUpdateData then return false end
@@ -2196,7 +2206,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
         end
     end
 
-    local function openUpdateModal(lockdownFlag, lockdownMsg)
+    openUpdateModal = function(lockdownFlag, lockdownMsg)
         if forceInstallResetThread then
             task.cancel(forceInstallResetThread)
             forceInstallResetThread = nil
@@ -2312,7 +2322,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
     getgenv().OpenOmniUpdateGate = function() openUpdateModal(false) end
     getgenv().TestOmniUpdateGate = function() openUpdateModal(false) end
 
-    local function closeUpdateModal()
+    closeUpdateModal = function()
         if forceInstallResetThread then
             task.cancel(forceInstallResetThread)
             forceInstallResetThread = nil
