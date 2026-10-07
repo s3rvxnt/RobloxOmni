@@ -4,3 +4,5 @@ scratch/
 .env
 *config*.json
 *.key
+__pycache__/
+*.pyc
