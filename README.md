@@ -60,14 +60,7 @@ irm https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/install.ps1 | iex
 * Safely migrates existing loose scripts to `workspace/autoexec/preinit/` (preserving immediate Frame-0 execution without overwriting colliding files).
 * Deploys `Bootloader.lua` into your executor's `autoexec/` folder in under a second (UTF-8 without BOM).
 
-#### Option 2: In-Game Session *(Zero Install)*
-Paste into your executor's execution tab and hit **Execute**:
-
-```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()
-```
-
-#### Option 3: Manual Setup
+#### Option 2: Manual Setup
 Drop **[`Bootloader.lua`](Bootloader.lua)** into your executor's `autoexec` folder (sibling to `workspace/`):
 
 ```text
