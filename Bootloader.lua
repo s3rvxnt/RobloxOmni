@@ -462,7 +462,36 @@ local function fetchGithubScript(url)
     return nil
 end
 
+-- ==============================================================================
+-- LEDGER MANAGEMENT & INITIAL CORE BOOTSTRAP GATE
+-- ==============================================================================
+local LEDGER_PATH = "Omni_Ledger.json"
+local KERNEL_INIT_MARKER = "Omni_KernelInitialized.marker"
+
+local function loadLedger()
+    if type(isfile) == "function" and isfile(LEDGER_PATH) then
+        local ok, raw = pcall(readfile, LEDGER_PATH)
+        if ok and raw and #raw > 2 then
+            local okDec, data = pcall(function() return HttpService:JSONDecode(raw) end)
+            if okDec and type(data) == "table" then
+                data.components = data.components or {}
+                return data
+            end
+        end
+    end
+    return { version = CURRENT_OMNI_VERSION, components = {} }
+end
+
+local function saveLedger(ledger)
+    if type(writefile) == "function" and HttpService then
+        pcall(function()
+            writefile(LEDGER_PATH, HttpService:JSONEncode(ledger))
+        end)
+    end
+end
+
 -- Initial Core Components Bootstrap (Ensures all official stages are initialized on fresh install)
+-- Strictly respects user sovereignty: if already initialized, deleted or .off components are NEVER silently re-downloaded
 local BOOTSTRAP_STAGES = {
     {
         repoPath = "kernel/KernelTaskManager.lua",
@@ -476,21 +505,44 @@ local BOOTSTRAP_STAGES = {
     }
 }
 
-for _, bStage in ipairs(BOOTSTRAP_STAGES) do
-    if isfile and not isfile(bStage.localPath) then
-        local url = GITHUB_REPO_RAW .. bStage.repoPath .. "?v=" .. tostring(os.time())
-        local content = fetchGithubScript(url)
-        if content and #content > 100 then
-            local parentDir = bStage.localPath:match("^(.*)[/\\][^/\\]+$")
-            if parentDir and isfolder and not isfolder(parentDir) then pcall(makefolder, parentDir) end
-            local ok, err = pcall(writefile, bStage.localPath, content)
-            if ok then
-                print(string.format("[Bootloader]: Initialized core %s -> %s", bStage.name, bStage.localPath))
-            else
-                warn(string.format("[Bootloader]: Failed to bootstrap %s: %s", bStage.name, tostring(err)))
+local isInitialized = (isfile and (isfile(KERNEL_INIT_MARKER) or isfile(LEDGER_PATH))) or false
+local ledger = loadLedger()
+
+if not SafeMode and not isInitialized then
+    local bootstrappedAny = false
+    for _, bStage in ipairs(BOOTSTRAP_STAGES) do
+        local isOff = isfile and (isfile(bStage.localPath .. ".off") or isfile(bStage.localPath:gsub("([^/\\]+)$", "Off/%1")) or isfile(bStage.localPath:gsub("([^/\\]+)$", "Off/%1.off")))
+        if isfile and not isfile(bStage.localPath) and not isOff then
+            local url = GITHUB_REPO_RAW .. bStage.repoPath .. "?v=" .. tostring(os.time())
+            local content = fetchGithubScript(url)
+            if content and #content > 100 then
+                local parentDir = bStage.localPath:match("^(.*)[/\\][^/\\]+$")
+                if parentDir and isfolder and not isfolder(parentDir) then pcall(makefolder, parentDir) end
+                local ok, err = pcall(writefile, bStage.localPath, content)
+                if ok then
+                    bootstrappedAny = true
+                    ledger.components[bStage.name] = {
+                        installed = true,
+                        lastSeenVersion = CURRENT_OMNI_VERSION,
+                        path = bStage.localPath,
+                        updatedAt = os.time()
+                    }
+                    print(string.format("[Bootloader]: Initialized core %s -> %s", bStage.name, bStage.localPath))
+                else
+                    warn(string.format("[Bootloader]: Failed to bootstrap %s: %s", bStage.name, tostring(err)))
+                end
             end
         end
     end
+    if isfile and not isfile(KERNEL_INIT_MARKER) and writefile then
+        pcall(writefile, KERNEL_INIT_MARKER, tostring(os.time()))
+    end
+    if bootstrappedAny then
+        saveLedger(ledger)
+    end
+elseif not isfile(KERNEL_INIT_MARKER) and isfile and isfile(LEDGER_PATH) and writefile then
+    -- Backfill marker if ledger already exists from installer
+    pcall(writefile, KERNEL_INIT_MARKER, tostring(os.time()))
 end
 
 -- ==============================================================================
@@ -522,10 +574,6 @@ local function getGuiParent()
 end
 
 local function initUpdateGate(guiParent, UpdateBadge)
-    local GITHUB_REPO_RAW = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/"
-    local MANIFEST_URL = GITHUB_REPO_RAW .. "manifest.json"
-    local LEDGER_PATH = "Omni_Ledger.json"
-
     local function getLatestCommitSha()
         local ok, res = pcall(function()
             if type(request) == "function" then
@@ -544,29 +592,6 @@ local function initUpdateGate(guiParent, UpdateBadge)
             return res
         end
         return "main"
-    end
-
-    -- Ledger Management
-    local function loadLedger()
-        if type(isfile) == "function" and isfile(LEDGER_PATH) then
-            local ok, raw = pcall(readfile, LEDGER_PATH)
-            if ok and raw and #raw > 2 then
-                local okDec, data = pcall(function() return HttpService:JSONDecode(raw) end)
-                if okDec and type(data) == "table" then
-                    data.components = data.components or {}
-                    return data
-                end
-            end
-        end
-        return { version = CURRENT_OMNI_VERSION, components = {} }
-    end
-
-    local function saveLedger(ledger)
-        if type(writefile) == "function" and HttpService then
-            pcall(function()
-                writefile(LEDGER_PATH, HttpService:JSONEncode(ledger))
-            end)
-        end
     end
 
     -- Security Heuristics Audit
@@ -2044,7 +2069,8 @@ local function initUpdateGate(guiParent, UpdateBadge)
                     continue
                 end
                 local name = stage.name or localPath
-                if isfile and not isfile(localPath) then
+                local isOff = isfile and (isfile(localPath .. ".off") or isfile(localPath:gsub("([^/\\]+)$", "Off/%1")) or isfile(localPath:gsub("([^/\\]+)$", "Off/%1.off")))
+                if isfile and not isfile(localPath) and not isOff then
                     local compData = ledger.components[name]
                     local lastSeen = compData and compData.lastSeenVersion
                     if not lastSeen or isNewerVersion(parsed.version, lastSeen) then
