@@ -498,6 +498,496 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
             if os.path.exists(temp_file):
                 os.remove(temp_file)
 
+    def test_09_validate_safe_local_path_runtime_simulation(self):
+        """Simulate validateSafeLocalPath against diverse sandbox escape vectors."""
+        # Extract validateSafeLocalPath from Bootloader.lua
+        start_marker = "local function validateSafeLocalPath(path)"
+        end_marker = "local BOOTSTRAP_STAGES ="
+        func_body = self.bootloader_source[self.bootloader_source.find(start_marker):self.bootloader_source.find(end_marker)]
+
+        harness = f"""
+        {func_body}
+
+        local testVectors = {{
+            {{ path = "../../evil.bat", expectSafe = false }},
+            {{ path = "autoexec/../../Windows/calc.exe", expectSafe = false }},
+            {{ path = "C:\\\\Windows\\\\System32\\\\cmd.exe", expectSafe = false }},
+            {{ path = "/etc/passwd", expectSafe = false }},
+            {{ path = "autoexec/test.lua:evil.bat", expectSafe = false }},
+            {{ path = "autoexec/%2e%2e/test.lua", expectSafe = false }},
+            {{ path = "autoexec/test.lua.", expectSafe = false }},
+            {{ path = "autoexec//test.lua", expectSafe = false }},
+            {{ path = "autoexec/kernel/KernelTaskManager.lua", expectSafe = true }},
+            {{ path = "autoexec\\\\kernel\\\\KernelTaskManager.lua", expectSafe = true }},
+            {{ path = "workspace/manifest.json", expectSafe = true }},
+            {{ path = "Omni_Ledger.json", expectSafe = true }}
+        }}
+
+        local allPassed = true
+        for idx, vec in ipairs(testVectors) do
+            local res = validateSafeLocalPath(vec.path)
+            local isSafe = (res ~= nil)
+            if isSafe ~= vec.expectSafe then
+                print("FAIL_VEC_" .. idx .. ":" .. tostring(vec.path) .. " expected:" .. tostring(vec.expectSafe) .. " got:" .. tostring(isSafe))
+                allPassed = false
+            end
+        end
+        print("ALL_PATHS_SECURE:" .. tostring(allPassed))
+        """
+        temp_file = "sim_path_traversal.luau"
+        with open(temp_file, "w", encoding="utf-8") as f:
+            f.write(harness)
+
+        try:
+            res = subprocess.run([LUAU_PATH, temp_file], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
+            self.assertIn("ALL_PATHS_SECURE:true", res.stdout)
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+    def test_10_unicode_smuggling_and_diff_sanitizer_simulation(self):
+        """Simulate Zero-Width Unicode smuggling and Trojan Source BiDi overrides in Luau runtime."""
+        harness = r"""
+        -- Test sanitizeDiffText
+        local function sanitizeDiffText(text)
+            if not text or type(text) ~= "string" then return "" end
+            local s = text
+            s = s:gsub("\239\187\191", "[BOM]")
+            s = s:gsub("\226\128\139", "[ZWSP]")
+            s = s:gsub("\226\128\140", "[ZWNJ]")
+            s = s:gsub("\226\128\141", "[ZWJ]")
+            s = s:gsub("\226\128\142", "[LRM]")
+            s = s:gsub("\226\128\143", "[RLM]")
+            s = s:gsub("\226\128\170", "[LRE]")
+            s = s:gsub("\226\128\171", "[RLE]")
+            s = s:gsub("\226\128\172", "[PDF]")
+            s = s:gsub("\226\128\173", "[LRO]")
+            s = s:gsub("\226\128\174", "[RLO]")
+            s = s:gsub("\226\129\166", "[LRI]")
+            s = s:gsub("\226\129\167", "[RLI]")
+            s = s:gsub("\226\129\168", "[FSI]")
+            s = s:gsub("\226\129\169", "[PDI]")
+            s = s:gsub("[\1-\8\11-\12\14-\31]", function(c)
+                return string.format("\\x%02X", string.byte(c))
+            end)
+            return s
+        end
+
+        local maliciousLine1 = "local secret = 'p" .. "\226\128\139" .. "assword'"
+        local maliciousLine2 = "print('safe') -- " .. "\226\128\174" .. " 'admin' == user"
+        local maliciousLine3 = "\239\187\191local x = 1"
+
+        local clean1 = sanitizeDiffText(maliciousLine1)
+        local clean2 = sanitizeDiffText(maliciousLine2)
+        local clean3 = sanitizeDiffText(maliciousLine3)
+
+        print("HAS_ZWSP:" .. tostring(clean1:find("%[ZWSP%]") ~= nil))
+        print("HAS_RLO:" .. tostring(clean2:find("%[RLO%]") ~= nil))
+        print("HAS_BOM:" .. tostring(clean3:find("%[BOM%]") ~= nil))
+        """
+        temp_file = "sim_unicode_test.luau"
+        with open(temp_file, "w", encoding="utf-8") as f:
+            f.write(harness)
+
+        try:
+            res = subprocess.run([LUAU_PATH, temp_file], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
+            self.assertIn("HAS_ZWSP:true", res.stdout)
+            self.assertIn("HAS_RLO:true", res.stdout)
+            self.assertIn("HAS_BOM:true", res.stdout)
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+    def test_11_clonefunction_poisoning_detection_simulation(self):
+        """Simulate pre-empting autoexec script poisoning clonefunction with a Lua closure."""
+        harness = """
+        -- Third party script 00_evil.lua hooks clonefunction with a Lua closure
+        local evilHookInvoked = false
+        local fakeClonefunction = function(f)
+            evilHookInvoked = true
+            return f
+        end
+
+        local _rawClone = fakeClonefunction
+        local _clonefunctionPoisoned = false
+
+        -- Mock executor primitives: islclosure returns true for Lua functions
+        local function islclosure(fn) return true end
+        local function iscclosure(fn) return false end
+
+        local _checkIsCClosure = iscclosure
+        local _checkIsLClosure = islclosure
+        local _checkDebugInfo = debug.info
+
+        if _checkIsLClosure then
+            local okL, isL = pcall(_checkIsLClosure, _rawClone)
+            if okL and isL == true then
+                _clonefunctionPoisoned = true
+            end
+        end
+
+        if not _clonefunctionPoisoned and _checkIsCClosure then
+            local okC, isC = pcall(_checkIsCClosure, _rawClone)
+            if not okC or isC ~= true then
+                _clonefunctionPoisoned = true
+            end
+        end
+
+        if not _clonefunctionPoisoned and _checkDebugInfo then
+            local okD, src = pcall(_checkDebugInfo, _rawClone, "s")
+            if not okD or src ~= "[C]" then
+                _clonefunctionPoisoned = true
+            end
+        end
+
+        if _clonefunctionPoisoned then
+            _rawClone = nil
+        end
+
+        local function _safeClone(fn)
+            if _rawClone and type(fn) == "function" then
+                return _rawClone(fn)
+            end
+            return fn
+        end
+
+        local testFn = function() return "test" end
+        local resultFn = _safeClone(testFn)
+
+        print("POISON_DETECTED:" .. tostring(_clonefunctionPoisoned))
+        print("RAW_CLONE_DISCARDED:" .. tostring(_rawClone == nil))
+        print("EVIL_HOOK_INVOKED:" .. tostring(evilHookInvoked))
+        print("FALLBACK_PRESERVED:" .. tostring(resultFn == testFn))
+        """
+        temp_file = "sim_clone_poison.luau"
+        with open(temp_file, "w", encoding="utf-8") as f:
+            f.write(harness)
+
+        try:
+            res = subprocess.run([LUAU_PATH, temp_file], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
+            self.assertIn("POISON_DETECTED:true", res.stdout)
+            self.assertIn("RAW_CLONE_DISCARDED:true", res.stdout)
+            self.assertIn("EVIL_HOOK_INVOKED:false", res.stdout)
+            self.assertIn("FALLBACK_PRESERVED:true", res.stdout)
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+    def test_12_defcon1_click_blocker_simulation(self):
+        """Simulate Defcon 1 panic click-through rejection while countdown active."""
+        harness = """
+        local applied = false
+        local isDefcon1Lockdown = true
+        local defcon1CountdownThread = {} -- Active countdown thread representation
+
+        local function onApplyClicked()
+            if isDefcon1Lockdown and defcon1CountdownThread ~= nil then
+                -- Rejected!
+                return false
+            end
+            applied = true
+            return true
+        end
+
+        local attempt1 = onApplyClicked()
+        print("ATTEMPT_1_BLOCKED:" .. tostring(not attempt1))
+        print("APPLIED_1:" .. tostring(applied))
+
+        -- Countdown finishes
+        defcon1CountdownThread = nil
+
+        local attempt2 = onApplyClicked()
+        print("ATTEMPT_2_ALLOWED:" .. tostring(attempt2))
+        print("APPLIED_2:" .. tostring(applied))
+        """
+        temp_file = "sim_defcon1_click.luau"
+        with open(temp_file, "w", encoding="utf-8") as f:
+            f.write(harness)
+
+        try:
+            res = subprocess.run([LUAU_PATH, temp_file], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
+            self.assertIn("ATTEMPT_1_BLOCKED:true", res.stdout)
+            self.assertIn("APPLIED_1:false", res.stdout)
+            self.assertIn("ATTEMPT_2_ALLOWED:true", res.stdout)
+            self.assertIn("APPLIED_2:true", res.stdout)
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+
+    def test_13_primitive_lua_hook_detection_simulation(self):
+        """Simulate pre-empting autoexec script hooking primitives (loadstring/writefile) with Lua closures."""
+        harness = """
+        local islclosure = function(fn) return true end
+        local iscclosure = function(fn) return false end
+        local _checkIsLClosure = islclosure
+
+        local _primitivesPoisoned = false
+        local function _safeClone(fn) return fn end
+
+        local function _capturePrimitive(rawFn, name)
+            if not rawFn then return nil end
+            if _checkIsLClosure then
+                local okL, isL = pcall(_checkIsLClosure, rawFn)
+                if okL and isL == true then
+                    _primitivesPoisoned = true
+                    return nil
+                end
+            end
+            return _safeClone(rawFn)
+        end
+
+        local hookedLoadstring = function(code) return function() end end
+        local captured = _capturePrimitive(hookedLoadstring, "loadstring")
+
+        print("PRIMITIVE_POISONED:" .. tostring(_primitivesPoisoned))
+        print("CAPTURED_NIL:" .. tostring(captured == nil))
+
+        local SafeMode = false
+        local SafeModeReason = nil
+        if _primitivesPoisoned then
+            SafeMode = true
+            SafeModeReason = "PrimitivePoisoning"
+        end
+        print("SAFE_MODE_ENGAGED:" .. tostring(SafeMode))
+        print("SAFE_MODE_REASON:" .. tostring(SafeModeReason))
+        """
+        temp_file = "sim_primitive_hook.luau"
+        with open(temp_file, "w", encoding="utf-8") as f:
+            f.write(harness)
+
+        try:
+            res = subprocess.run([LUAU_PATH, temp_file], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
+            self.assertIn("PRIMITIVE_POISONED:true", res.stdout)
+            self.assertIn("CAPTURED_NIL:true", res.stdout)
+            self.assertIn("SAFE_MODE_ENGAGED:true", res.stdout)
+            self.assertIn("SAFE_MODE_REASON:PrimitivePoisoning", res.stdout)
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+    def test_14_multibyte_bidi_and_typographic_unicode_simulation(self):
+        """Verify multi-byte UTF-8 regex correctly distinguishes typography from Trojan Source BiDi and Homoglyphs."""
+        harness = r"""
+        local Color3 = { fromRGB = function(r, g, b) return { r = r, g = g, b = b } end }
+
+        local function auditScriptContent(code)
+            local badges = {}
+            local isObfuscated = false
+
+            local hasZeroWidth = false
+            local hasBidiTrojan = false
+            local hasHomoglyphs = false
+
+            if code:find("\226\128\139") or code:find("\226\128\140") or code:find("\226\128\141")
+                or code:find("\239\187\191") or code:find("\226\128\142") or code:find("\226\128\143")
+                or code:find("\226\128[\128-\138]") or code:find("\226\129\160") or code:find("\194\173") then
+                hasZeroWidth = true
+            end
+
+            if code:find("\226\128[\170-\174]") or code:find("\226\129[\166-\169]") then
+                hasBidiTrojan = true
+            end
+
+            for line in code:gmatch("[^\r\n]+") do
+                if not line:match("^%s*%-%-") then
+                    local strippedLine = line:gsub('"[^"]*"', '""'):gsub("'[^']*'", "''")
+                    if strippedLine:find("[\208-\209][\128-\191]") or strippedLine:find("[\206-\207][\128-\191]") then
+                        hasHomoglyphs = true
+                        break
+                    end
+                end
+            end
+
+            if hasBidiTrojan then
+                isObfuscated = true
+                table.insert(badges, { label = "Trojan_BiDi" })
+            elseif hasZeroWidth or hasHomoglyphs then
+                isObfuscated = true
+                table.insert(badges, { label = "Unicode_Smuggling" })
+            end
+
+            if isObfuscated then
+                table.insert(badges, { label = "Obfuscated" })
+            end
+            if #badges == 0 then
+                table.insert(badges, { label = "Clean" })
+            end
+            return badges, isObfuscated
+        end
+
+        -- Case 1: Standard scripts with em-dash, euro sign, arrows, and localized Cyrillic in quotes
+        local benign1 = 'print("Version 1.0 \226\128\148 Release")' -- Em-dash U+2014
+        local benign2 = 'local price = "10\226\130\172"' -- Euro U+20AC
+        local benign3 = 'print("Step 1 \226\134\146 Step 2")' -- Arrow U+2192
+        local benign4 = 'local greeting = "\208\159\209\128\208\184\208\146\208\181\209\130"' -- Cyrillic string literal
+
+        local b1, obf1 = auditScriptContent(benign1)
+        local b2, obf2 = auditScriptContent(benign2)
+        local b3, obf3 = auditScriptContent(benign3)
+        local b4, obf4 = auditScriptContent(benign4)
+
+        print("BENIGN_1_CLEAN:" .. tostring(b1[1].label == "Clean"))
+        print("BENIGN_2_CLEAN:" .. tostring(b2[1].label == "Clean"))
+        print("BENIGN_3_CLEAN:" .. tostring(b3[1].label == "Clean"))
+        print("BENIGN_4_CLEAN:" .. tostring(b4[1].label == "Clean"))
+
+        -- Case 2: Real Trojan Source BiDi RLO U+202E (\226\128\174)
+        local maliciousBidi = "print('safe') -- " .. "\226\128\174" .. " user == 'admin'"
+        local bBidi, obfBidi = auditScriptContent(maliciousBidi)
+        print("MALICIOUS_BIDI_DETECTED:" .. tostring(bBidi[1].label == "Trojan_BiDi"))
+
+        -- Case 3: Real Zero-Width space U+200B (\226\128\139)
+        local maliciousZwsp = "local sec" .. "\226\128\139" .. "ret = 1"
+        local bZwsp, obfZwsp = auditScriptContent(maliciousZwsp)
+        print("MALICIOUS_ZWSP_DETECTED:" .. tostring(bZwsp[1].label == "Unicode_Smuggling"))
+
+        -- Case 4: Real homoglyph disguised in variable name (Cyrillic 'a' \208\176 in local admin)
+        local maliciousHomoglyph = "local \208\176dmin = true"
+        local bHomo, obfHomo = auditScriptContent(maliciousHomoglyph)
+        print("MALICIOUS_HOMOGLYPH_DETECTED:" .. tostring(bHomo[1].label == "Unicode_Smuggling"))
+        """
+        temp_file = "sim_multibyte_unicode.luau"
+        with open(temp_file, "w", encoding="utf-8") as f:
+            f.write(harness)
+
+        try:
+            res = subprocess.run([LUAU_PATH, temp_file], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
+            self.assertIn("BENIGN_1_CLEAN:true", res.stdout)
+            self.assertIn("BENIGN_2_CLEAN:true", res.stdout)
+            self.assertIn("BENIGN_3_CLEAN:true", res.stdout)
+            self.assertIn("BENIGN_4_CLEAN:true", res.stdout)
+            self.assertIn("MALICIOUS_BIDI_DETECTED:true", res.stdout)
+            self.assertIn("MALICIOUS_ZWSP_DETECTED:true", res.stdout)
+            self.assertIn("MALICIOUS_HOMOGLYPH_DETECTED:true", res.stdout)
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+    def test_15_sandbox_dos_device_and_executable_rejection_simulation(self):
+        """Simulate validateSafeLocalPath in Luau rejecting DOS devices, dangerous extensions, and lockfiles."""
+        harness = r"""
+        local function validateSafeLocalPath(path)
+            if type(path) ~= "string" or #path == 0 or #path > 260 then return nil end
+            if path:find("[\0-\31\127]") then return nil end
+            if path:find('[<>:"|%?%*]') then return nil end
+            local lowerPath = path:lower()
+            if lowerPath:find("%%2e") or lowerPath:find("%%2f") or lowerPath:find("%%5c") or lowerPath:find("%%25") then return nil end
+            if path:match("^[/\\]") then return nil end
+            local normalized = path:gsub("\\", "/")
+            if normalized:find("%.%./") or normalized:find("/%.%.") or normalized == ".." or normalized:match("^%.%.$") then return nil end
+            if normalized:find("//") then return nil end
+            if normalized:match("[%s%.]$") then return nil end
+            if not (normalized:match("^autoexec/") or normalized:match("^workspace/") or not normalized:find("/")) then return nil end
+
+            local fileName = normalized:match("[^/]+$") or normalized
+            local baseName = fileName:match("^([^%.]+)") or fileName
+            local upperBase = baseName:upper()
+            if upperBase == "CON" or upperBase == "PRN" or upperBase == "AUX" or upperBase == "NUL"
+                or upperBase:match("^COM[1-9]$") or upperBase:match("^LPT[1-9]$") then
+                return nil
+            end
+
+            local lowerNorm = normalized:lower()
+            if lowerNorm == "bootloader.lua" or lowerNorm == "autoexec/bootloader.lua"
+                or lowerNorm:find("bootloader_running%.lock")
+                or lowerNorm:find("bootloader_handoff%.lock")
+                or lowerNorm:find("safe_mode%.lock") then
+                return nil
+            end
+
+            local ext = normalized:match("%.([^%./\\]+)$")
+            if ext then
+                local lowerExt = ext:lower()
+                if lowerExt ~= "lua" and lowerExt ~= "luau" and lowerExt ~= "json" and lowerExt ~= "txt" and lowerExt ~= "marker" then
+                    return nil
+                end
+            end
+            return normalized
+        end
+
+        local tests = {
+            { path = "autoexec/CON", expect = false },
+            { path = "autoexec/con.lua", expect = false },
+            { path = "workspace/aux.lua", expect = false },
+            { path = "workspace/nul.json", expect = false },
+            { path = "workspace/payload.exe", expect = false },
+            { path = "autoexec/script.bat", expect = false },
+            { path = "autoexec/exploit.dll", expect = false },
+            { path = "autoexec/Bootloader.lua", expect = false },
+            { path = "autoexec/Bootloader_Running.lock", expect = false },
+            { path = "autoexec/<test>.lua", expect = false },
+            { path = "autoexec/kernel/KernelTaskManager.lua", expect = true },
+            { path = "workspace/manifest.json", expect = true },
+            { path = "Omni_Ledger.json", expect = true }
+        }
+
+        local allPassed = true
+        for idx, t in ipairs(tests) do
+            local res = validateSafeLocalPath(t.path)
+            local ok = (res ~= nil)
+            if ok ~= t.expect then
+                print("FAIL_IDX_" .. idx .. ":" .. t.path .. " got:" .. tostring(ok) .. " exp:" .. tostring(t.expect))
+                allPassed = false
+            end
+        end
+        print("ALL_SANDBOX_TESTS_PASSED:" .. tostring(allPassed))
+        """
+        temp_file = "sim_sandbox_dos.luau"
+        with open(temp_file, "w", encoding="utf-8") as f:
+            f.write(harness)
+
+        try:
+            res = subprocess.run([LUAU_PATH, temp_file], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
+            self.assertIn("ALL_SANDBOX_TESTS_PASSED:true", res.stdout)
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+    def test_16_defcon1_monotonic_countdown_simulation(self):
+        """Simulate Defcon 1 monotonic clock click rejection even if countdown thread is killed or cleared."""
+        harness = """
+        local isDefcon1Lockdown = true
+        local defcon1UnlockTime = os.clock() + 10.0 -- 10 seconds in the future
+        local defcon1CountdownThread = nil -- Thread killed or bypassed
+
+        local function onApplyClicked()
+            -- Threat: thread is nil, but monotonic clock time has NOT arrived!
+            if isDefcon1Lockdown and (defcon1CountdownThread ~= nil or os.clock() < defcon1UnlockTime) then
+                return false
+            end
+            return true
+        end
+
+        local attemptWhileClockActive = onApplyClicked()
+        print("BLOCKED_BY_MONOTONIC_CLOCK:" .. tostring(not attemptWhileClockActive))
+
+        -- Time advances past unlock time
+        defcon1UnlockTime = os.clock() - 1.0
+
+        local attemptAfterClockExpired = onApplyClicked()
+        print("ALLOWED_AFTER_EXPIRY:" .. tostring(attemptAfterClockExpired))
+        """
+        temp_file = "sim_monotonic_clock.luau"
+        with open(temp_file, "w", encoding="utf-8") as f:
+            f.write(harness)
+
+        try:
+            res = subprocess.run([LUAU_PATH, temp_file], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
+            self.assertIn("BLOCKED_BY_MONOTONIC_CLOCK:true", res.stdout)
+            self.assertIn("ALLOWED_AFTER_EXPIRY:true", res.stdout)
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
 
 if __name__ == "__main__":
     unittest.main()

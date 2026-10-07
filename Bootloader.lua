@@ -20,6 +20,86 @@
 -- Must execute before ANY other logic, hooks, or third-party libraries.
 -- Captures unhookable references to executor primitives via clonefunction.
 local _rawClone = (type(clonefunction) == "function" and clonefunction) or nil
+local _clonefunctionPoisoned = false
+local _primitivesPoisoned = false
+
+local _checkIsCClosure = (type(iscclosure) == "function" and iscclosure) or nil
+local _checkIsLClosure = (type(islclosure) == "function" and islclosure) or nil
+local _checkDebugInfo = (debug and type(debug.info) == "function" and debug.info) or nil
+
+-- Authenticate a function primitive as an authentic C-closure
+local function _isAuthenticCClosure(fn)
+    if type(fn) ~= "function" then return false end
+    if _checkIsLClosure then
+        local okL, isL = pcall(_checkIsLClosure, fn)
+        if okL and isL == true then return false end
+    end
+    if _checkIsCClosure then
+        local okC, isC = pcall(_checkIsCClosure, fn)
+        if not okC or isC ~= true then return false end
+    end
+    if _checkDebugInfo then
+        local okS, src = pcall(_checkDebugInfo, fn, "s")
+        if not okS or (src ~= "[C]" and src ~= "=[C]") then return false end
+        local okL, line = pcall(_checkDebugInfo, fn, "l")
+        if not okL or line ~= -1 then return false end
+    end
+    return true
+end
+
+if _rawClone then
+    -- 0. Check islclosure(clonefunction)
+    if _checkIsLClosure then
+        local okL, isL = pcall(_checkIsLClosure, _rawClone)
+        if okL and isL == true then
+            _clonefunctionPoisoned = true
+        end
+    end
+
+    -- 1. Check iscclosure itself if debug.info is present
+    if not _clonefunctionPoisoned and _checkIsCClosure and _checkDebugInfo then
+        local okC, srcC = pcall(_checkDebugInfo, _checkIsCClosure, "s")
+        if not okC or (srcC ~= "[C]" and srcC ~= "=[C]") then
+            _checkIsCClosure = nil
+            _clonefunctionPoisoned = true
+        end
+    end
+
+    -- 2. Inspect iscclosure(clonefunction)
+    if not _clonefunctionPoisoned and _checkIsCClosure then
+        local ok, isC = pcall(_checkIsCClosure, _rawClone)
+        if not ok or isC ~= true then
+            _clonefunctionPoisoned = true
+        end
+    end
+
+    -- 3. Inspect debug.info(clonefunction, "s") == "[C]"
+    if not _clonefunctionPoisoned and _checkDebugInfo then
+        local ok, src = pcall(_checkDebugInfo, _rawClone, "s")
+        if not ok or (src ~= "[C]" and src ~= "=[C]") then
+            _clonefunctionPoisoned = true
+        end
+        local okL, line = pcall(_checkDebugInfo, _rawClone, "l")
+        if not okL or line ~= -1 then
+            _clonefunctionPoisoned = true
+        end
+    end
+
+    -- 4. Functional clone canary test: authentic clonefunction returns a distinct closure pointer
+    if not _clonefunctionPoisoned then
+        local function _canary() return true end
+        local okTest, clonedCanary = pcall(_rawClone, _canary)
+        if not okTest or type(clonedCanary) ~= "function" or clonedCanary == _canary then
+            _clonefunctionPoisoned = true
+        end
+    end
+
+    if _clonefunctionPoisoned then
+        _rawClone = nil
+        warn("[Bootloader | ROOT-OF-TRUST BREACH]: Malicious clonefunction hook or alphabetical pre-emption detected! Discarding poisoned clone primitive.")
+    end
+end
+
 local function _safeClone(fn)
     if _rawClone and type(fn) == "function" then
         local ok, cloned = pcall(_rawClone, fn)
@@ -30,20 +110,40 @@ local function _safeClone(fn)
     return fn
 end
 
+-- Validate and capture pristine closures for all critical primitives
+local function _capturePrimitive(rawFn, name)
+    if not rawFn then return nil end
+    if _checkIsLClosure then
+        local okL, isL = pcall(_checkIsLClosure, rawFn)
+        if okL and isL == true then
+            _primitivesPoisoned = true
+            warn("[Bootloader | ROOT-OF-TRUST BREACH]: Hooked Lua-closure detected for primitive: " .. tostring(name))
+            return nil
+        end
+    end
+    return _safeClone(rawFn)
+end
+
 -- Capture pristine unhookable C-closures for all critical primitives
-local _writefile   = _safeClone(writefile)
-local _readfile    = _safeClone(readfile)
-local _isfile      = _safeClone(isfile)
-local _isfolder    = _safeClone(isfolder)
-local _makefolder  = _safeClone(makefolder)
-local _delfile     = _safeClone(delfile)
-local _listfiles   = _safeClone(listfiles)
-local _loadstring  = _safeClone(loadstring)
+local _writefile   = _capturePrimitive(writefile, "writefile")
+local _readfile    = _capturePrimitive(readfile, "readfile")
+local _isfile      = _capturePrimitive(isfile, "isfile")
+local _isfolder    = _capturePrimitive(isfolder, "isfolder")
+local _makefolder  = _capturePrimitive(makefolder, "makefolder")
+local _delfile     = _capturePrimitive(delfile, "delfile")
+local _listfiles   = _capturePrimitive(listfiles, "listfiles")
+local _loadstring  = _capturePrimitive(loadstring, "loadstring")
 local _clonedLoadstring = _loadstring
-local _request     = _safeClone(request or http_request or (syn and syn.request) or (http and http.request))
+local _request     = _capturePrimitive(request or http_request or (syn and syn.request) or (http and http.request), "request")
 local _isGameHttpGet = (game and type(game.HttpGet) == "function")
 local _rawHttpGet  = (_isGameHttpGet and game.HttpGet) or (type(httpget) == "function" and httpget)
-local _clonedHttpGet = _safeClone(_rawHttpGet)
+local _clonedHttpGet = _capturePrimitive(_rawHttpGet, "HttpGet")
+
+-- Authenticate and capture native crypto primitives at Frame 0
+local _capturedCryptHash = (type(crypt) == "table" and type(crypt.hash) == "function" and _isAuthenticCClosure(crypt.hash) and _safeClone(crypt.hash)) or nil
+local _capturedCryptSha256 = (type(crypt) == "table" and type(crypt.sha256) == "function" and _isAuthenticCClosure(crypt.sha256) and _safeClone(crypt.sha256)) or nil
+local _capturedSha256 = (type(sha256) == "function" and _isAuthenticCClosure(sha256) and _safeClone(sha256)) or nil
+local _capturedSynCryptHash = (type(syn) == "table" and type(syn.crypt) == "table" and type(syn.crypt.hash) == "function" and _isAuthenticCClosure(syn.crypt.hash) and _safeClone(syn.crypt.hash)) or nil
 
 -- Provide file-scoped shadow locals so internal operations strictly bind to cloned closures
 local writefile  = _writefile
@@ -172,23 +272,21 @@ end
 
 local function computeSha256(str)
     if type(str) ~= "string" then return nil end
-    -- Check executor crypto library primitives
-    if type(crypt) == "table" then
-        if type(crypt.hash) == "function" then
-            local ok, h = pcall(crypt.hash, str, "sha256")
-            if ok and type(h) == "string" and #h == 64 then return h:lower() end
-        end
-        if type(crypt.sha256) == "function" then
-            local ok, h = pcall(crypt.sha256, str)
-            if ok and type(h) == "string" and #h == 64 then return h:lower() end
-        end
-    end
-    if type(sha256) == "function" then
-        local ok, h = pcall(sha256, str)
+    -- Check executor crypto library primitives captured and authenticated at Frame 0
+    if _capturedCryptHash then
+        local ok, h = pcall(_capturedCryptHash, str, "sha256")
         if ok and type(h) == "string" and #h == 64 then return h:lower() end
     end
-    if type(syn) == "table" and type(syn.crypt) == "table" and type(syn.crypt.hash) == "function" then
-        local ok, h = pcall(syn.crypt.hash, str, "sha256")
+    if _capturedCryptSha256 then
+        local ok, h = pcall(_capturedCryptSha256, str)
+        if ok and type(h) == "string" and #h == 64 then return h:lower() end
+    end
+    if _capturedSha256 then
+        local ok, h = pcall(_capturedSha256, str)
+        if ok and type(h) == "string" and #h == 64 then return h:lower() end
+    end
+    if _capturedSynCryptHash then
+        local ok, h = pcall(_capturedSynCryptHash, str, "sha256")
         if ok and type(h) == "string" and #h == 64 then return h:lower() end
     end
     return pureLuauSha256(str)
@@ -488,6 +586,17 @@ else
     end)
 end
 
+-- Check 4: Alphabetical pre-emption or clonefunction hook poisoning detected at Step 2
+if _clonefunctionPoisoned then
+    SafeMode = true
+    SafeModeReason = "ClonefunctionPoisoning"
+    warn("[Bootloader]: ⚠️ ALPHABETICAL PRE-EMPTION / HOOK POISONING DETECTED — Activating Safe Mode!")
+elseif _primitivesPoisoned then
+    SafeMode = true
+    SafeModeReason = "PrimitivePoisoning"
+    warn("[Bootloader]: ⚠️ PRIMITIVE HOOK POISONING DETECTED — Activating Safe Mode!")
+end
+
 if SafeMode then
     print(string.format("[Bootloader]: ⚠️ SAFE MODE ENGAGED (Reason: %s) — Bypassing user autoexec scripts.", tostring(SafeModeReason)))
 end
@@ -695,6 +804,75 @@ local function saveLedger(ledger)
     end
 end
 
+-- ==============================================================================
+-- SANDBOX PATH TRAVERSAL SANITIZATION & BOUNDARY VALIDATION
+-- ==============================================================================
+local function validateSafeLocalPath(path)
+    if type(path) ~= "string" or #path == 0 or #path > 260 then
+        return nil
+    end
+    -- Reject null bytes and non-printable control characters
+    if path:find("[\0-\31\127]") then
+        return nil
+    end
+    -- Reject illegal Windows filename characters (< > : " | ? *)
+    if path:find('[<>:"|%?%*]') then
+        return nil
+    end
+    -- Reject URL-encoded traversal (%2e, %2f, %5c, %25)
+    local lowerPath = path:lower()
+    if lowerPath:find("%%2e") or lowerPath:find("%%2f") or lowerPath:find("%%5c") or lowerPath:find("%%25") then
+        return nil
+    end
+    -- Reject absolute paths (leading slashes / or \)
+    if path:match("^[/\\]") then
+        return nil
+    end
+    -- Normalize backslashes to forward slashes for validation
+    local normalized = path:gsub("\\", "/")
+    -- Reject directory traversal (../ or /.. or ^../ or /..$)
+    if normalized:find("%.%./") or normalized:find("/%.%.") or normalized == ".." or normalized:match("^%.%.$") then
+        return nil
+    end
+    -- Reject consecutive slashes
+    if normalized:find("//") then
+        return nil
+    end
+    -- Reject trailing dots or whitespace (Windows canonicalization vulnerability)
+    if normalized:match("[%s%.]$") then
+        return nil
+    end
+    -- Enforce sandbox boundary: must be inside autoexec/ or workspace/ or be a local filename
+    if not (normalized:match("^autoexec/") or normalized:match("^workspace/") or not normalized:find("/")) then
+        return nil
+    end
+    -- Reject Windows DOS reserved device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+    local fileName = normalized:match("[^/]+$") or normalized
+    local baseName = fileName:match("^([^%.]+)") or fileName
+    local upperBase = baseName:upper()
+    if upperBase == "CON" or upperBase == "PRN" or upperBase == "AUX" or upperBase == "NUL"
+        or upperBase:match("^COM[1-9]$") or upperBase:match("^LPT[1-9]$") then
+        return nil
+    end
+    -- Reject targeting bootloader core files and runtime lock/sentinel files
+    local lowerNorm = normalized:lower()
+    if lowerNorm == "bootloader.lua" or lowerNorm == "autoexec/bootloader.lua"
+        or lowerNorm:find("bootloader_running%.lock")
+        or lowerNorm:find("bootloader_handoff%.lock")
+        or lowerNorm:find("safe_mode%.lock") then
+        return nil
+    end
+    -- Enforce strict file extension whitelist (only Luau scripts, json configs, and markers)
+    local ext = normalized:match("%.([^%./\\]+)$")
+    if ext then
+        local lowerExt = ext:lower()
+        if lowerExt ~= "lua" and lowerExt ~= "luau" and lowerExt ~= "json" and lowerExt ~= "txt" and lowerExt ~= "marker" then
+            return nil
+        end
+    end
+    return normalized
+end
+
 -- Initial Core Components Bootstrap (Ensures all official stages are initialized on fresh install)
 -- Strictly respects user sovereignty: if already initialized, deleted or .off components are NEVER silently re-downloaded
 local BOOTSTRAP_STAGES = {
@@ -702,7 +880,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "a15cfe41a10508962ed4b3943ce429f6bbfcfd1cc71549febe6b834448184349"
+        sha256 = "67f2ea77f805c22f66dd61006feb9aae805646e51988030cce966297dda0d8b5"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
@@ -1055,6 +1233,42 @@ local function initUpdateGate(guiParent, UpdateBadge)
             end
         end
 
+        -- 9. Zero-Width Unicode Smuggling & Trojan Source BiDi Overrides (CVE-2021-42574)
+        local hasZeroWidth = false
+        local hasBidiTrojan = false
+        local hasHomoglyphs = false
+
+        -- Check Zero-Width / Invisible Space sequences
+        if code:find("\226\128\139") or code:find("\226\128\140") or code:find("\226\128\141")
+            or code:find("\239\187\191") or code:find("\226\128\142") or code:find("\226\128\143")
+            or code:find("\226\128[\128-\138]") or code:find("\226\129\160") or code:find("\194\173") then
+            hasZeroWidth = true
+        end
+
+        -- Check Trojan Source BiDi Overrides / Isolates (U+202A-U+202E and U+2066-U+2069)
+        if code:find("\226\128[\170-\174]") or code:find("\226\129[\166-\169]") then
+            hasBidiTrojan = true
+        end
+
+        -- Check Cyrillic/Greek Homoglyphs disguised in identifiers (strip comments & string literals first)
+        for line in code:gmatch("[^\r\n]+") do
+            if not line:match("^%s*%-%-") then -- Skip pure comments
+                local strippedLine = line:gsub('"[^"]*"', '""'):gsub("'[^']*'", "''")
+                if strippedLine:find("[\208-\209][\128-\191]") or strippedLine:find("[\206-\207][\128-\191]") then
+                    hasHomoglyphs = true
+                    break
+                end
+            end
+        end
+
+        if hasBidiTrojan then
+            isObfuscated = true
+            table.insert(badges, { label = "🛑 Trojan Source (BiDi)", color = Color3.fromRGB(255, 35, 35) })
+        elseif hasZeroWidth or hasHomoglyphs then
+            isObfuscated = true
+            table.insert(badges, { label = "🚨 Unicode Smuggling", color = Color3.fromRGB(255, 45, 45) })
+        end
+
         if isObfuscated then
             table.insert(badges, { label = "🛑 Obfuscated", color = Color3.fromRGB(255, 65, 65) })
         end
@@ -1077,6 +1291,37 @@ local function initUpdateGate(guiParent, UpdateBadge)
         return badges
     end
 
+    -- Anti-Trojan Source & Homoglyph Diff Sanitizer (CVE-2021-42574)
+    local function sanitizeDiffText(text)
+        if not text or type(text) ~= "string" then return "" end
+        local s = text
+        -- Reveal Zero-Width characters and invisible controls
+        s = s:gsub("\239\187\191", "[BOM]")
+        s = s:gsub("\226\128\139", "[ZWSP]")
+        s = s:gsub("\226\128\140", "[ZWNJ]")
+        s = s:gsub("\226\128\141", "[ZWJ]")
+        s = s:gsub("\226\128\142", "[LRM]")
+        s = s:gsub("\226\128\143", "[RLM]")
+        s = s:gsub("\226\128[\128-\138]", "[INV-SP]")
+        s = s:gsub("\226\129\160", "[WJ]")
+        s = s:gsub("\194\173", "[SHY]")
+        -- Reveal BiDi overrides / isolates
+        s = s:gsub("\226\128\170", "[LRE]")
+        s = s:gsub("\226\128\171", "[RLE]")
+        s = s:gsub("\226\128\172", "[PDF]")
+        s = s:gsub("\226\128\173", "[LRO]")
+        s = s:gsub("\226\128\174", "[RLO]")
+        s = s:gsub("\226\129\166", "[LRI]")
+        s = s:gsub("\226\129\167", "[RLI]")
+        s = s:gsub("\226\129\168", "[FSI]")
+        s = s:gsub("\226\129\169", "[PDI]")
+        -- Reveal non-printable ASCII control characters (keep tabs and newlines)
+        s = s:gsub("[\1-\8\11-\12\14-\31\127]", function(c)
+            return string.format("\\x%02X", string.byte(c))
+        end)
+        return s
+    end
+
     -- Ultra-Fast Linear Diff Engine
     local function computeLineDiff(oldCode, newCode)
         local oldLines = {}
@@ -1096,7 +1341,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
         if #oldLines == 0 then
             local diff = {}
             for idx, line in ipairs(newLines) do
-                table.insert(diff, { type = "add", lineNum = idx, text = line })
+                table.insert(diff, { type = "add", lineNum = idx, text = sanitizeDiffText(line) })
             end
             return diff, #newLines, #newLines, 0
         end
@@ -1173,7 +1418,11 @@ local function initUpdateGate(guiParent, UpdateBadge)
                     table.insert(diff, { type = "info", lineNum = 0, text = string.format("... [%d unchanged lines] ...", skipped) })
                     skipped = 0
                 end
-                table.insert(diff, entry)
+                table.insert(diff, {
+                    type = entry.type,
+                    lineNum = entry.lineNum,
+                    text = sanitizeDiffText(entry.text)
+                })
             else
                 skipped = skipped + 1
             end
@@ -1194,6 +1443,15 @@ local function initUpdateGate(guiParent, UpdateBadge)
     UpdateScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     UpdateScreenGui.DisplayOrder = 1000000
     UpdateScreenGui.Enabled = true
+    pcall(function()
+        if type(protectgui) == "function" then
+            protectgui(UpdateScreenGui)
+        elseif type(protect_gui) == "function" then
+            protect_gui(UpdateScreenGui)
+        elseif type(syn) == "table" and type(syn.protect_gui) == "function" then
+            syn.protect_gui(UpdateScreenGui)
+        end
+    end)
     UpdateScreenGui.Parent = guiParent
 
     -- 1. Floating Pill Toast (Top-Right)
@@ -1710,19 +1968,24 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 if type(stage) == "table" then
                     local p = stage.localPath or stage.path
                     if p and type(p) == "string" and p ~= "" then
-                        local newStage = {
-                            repoPath = stage.repoPath or stage.url,
-                            localPath = p,
-                            path = p,
-                            stage = stage.stage,
-                            name = stage.name or p:match("[^/\\]+$") or "Component",
-                            desc = stage.desc,
-                            sha256 = stage.sha256 or stage.hash or nil,
-                            code = stage.code,
-                            content = stage.content
-                        }
-                        if table.freeze then pcall(table.freeze, newStage) end
-                        table.insert(valid, newStage)
+                        local safeLocalPath = validateSafeLocalPath(p)
+                        if safeLocalPath then
+                            local newStage = {
+                                repoPath = stage.repoPath or stage.url,
+                                localPath = safeLocalPath,
+                                path = safeLocalPath,
+                                stage = stage.stage,
+                                name = stage.name or safeLocalPath:match("[^/\\]+$") or "Component",
+                                desc = stage.desc,
+                                sha256 = stage.sha256 or stage.hash or nil,
+                                code = stage.code,
+                                content = stage.content
+                            }
+                            if table.freeze then pcall(table.freeze, newStage) end
+                            table.insert(valid, newStage)
+                        else
+                            warn("[Bootloader | SANDBOX SECURITY]: Discarded stage with unsafe path: " .. tostring(p))
+                        end
                     end
                 end
             end
@@ -2094,7 +2357,7 @@ local function initUpdateGate(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "a15cfe41a10508962ed4b3943ce429f6bbfcfd1cc71549febe6b834448184349"
+                    sha256 = "67f2ea77f805c22f66dd61006feb9aae805646e51988030cce966297dda0d8b5"
                 }
             }
         end
@@ -2113,6 +2376,12 @@ local function initUpdateGate(guiParent, UpdateBadge)
             if not localPath or type(localPath) ~= "string" then
                 continue
             end
+            local safeLocalPath = validateSafeLocalPath(localPath)
+            if not safeLocalPath then
+                warn("[OmniUpdater | SANDBOX SECURITY]: Skipped unsafe path traversal stage: " .. tostring(localPath))
+                continue
+            end
+            localPath = safeLocalPath
             local name = stage.name or localPath:match("[^/\\]+$") or "Component"
 
             local remoteContent = stage.code or stage.content or fetchedStageCodes[idx]
@@ -2120,6 +2389,9 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 local url = repoPath
                 if not url:find("^https?://") then
                     url = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. shaToUse .. "/" .. url
+                elseif not url:find("^https://raw%.githubusercontent%.com/s3rvxnt/RobloxOmni/") then
+                    warn("[OmniUpdater | SANDBOX SECURITY]: Disallowed external download URL: " .. tostring(url))
+                    continue
                 end
                 remoteContent = fetchGithubScript(url)
             end
@@ -2191,7 +2463,12 @@ local function initUpdateGate(guiParent, UpdateBadge)
                 end
                 local fn, syntaxErr = _clonedLoadstring(lastCode, "@KernelTaskManager")
                 if fn then
-                    task.spawn(fn)
+                    task.spawn(function()
+                        local okRun, runErr = xpcall(fn, debug.traceback)
+                        if not okRun then
+                            warn("[OmniUpdater]: Reload runtime error: " .. tostring(runErr))
+                        end
+                    end)
                 else
                     warn("[OmniUpdater]: Reload compilation error: " .. tostring(syntaxErr))
                 end
@@ -2206,14 +2483,33 @@ local function initUpdateGate(guiParent, UpdateBadge)
         end
     end
 
+    local isDefcon1Lockdown = false
+    local defcon1UnlockTime = 0
+    local defcon1CountdownThread = nil
+
     openUpdateModal = function(lockdownFlag, lockdownMsg)
+        if defcon1CountdownThread then
+            task.cancel(defcon1CountdownThread)
+            defcon1CountdownThread = nil
+        end
         if forceInstallResetThread then
             task.cancel(forceInstallResetThread)
             forceInstallResetThread = nil
         end
         forceInstallConfirmActive = false
         isObfuscatedUpdateDetected = false
-        isDefcon1Lockdown = (lockdownFlag == true)
+
+        -- Defcon 1 is sticky: once engaged or if flagged or global lockdown is active, it cannot be downgraded
+        if lockdownFlag == true or getgenv()._OmniLockdownActive == true then
+            isDefcon1Lockdown = true
+            if defcon1UnlockTime == 0 or os.clock() >= defcon1UnlockTime then
+                defcon1UnlockTime = os.clock() + 5.0
+            end
+        else
+            if not isDefcon1Lockdown then
+                isDefcon1Lockdown = false
+            end
+        end
 
         if not currentUpdateData then
             currentUpdateData = {
@@ -2237,8 +2533,8 @@ local function initUpdateGate(guiParent, UpdateBadge)
             ModalTitle.TextColor3 = Color3.fromRGB(255, 65, 65)
             ModalSubtitle.Text = "AIR-GAP ACTIVE: Client disconnected from server to prevent anti-cheat detection telemetry"
             ModalSubtitle.TextColor3 = Color3.fromRGB(255, 140, 140)
-            ApplyUpdateBtn.Text = "🛡️ Apply Critical Security Patch"
-            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(210, 35, 35)
+            ApplyUpdateBtn.Text = "🛡️ Inspecting Security Diff (5s)..."
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(130, 40, 40)
             DiffCard.BackgroundColor3 = Color3.fromRGB(38, 18, 22)
             DiffStroke.Color = Color3.fromRGB(180, 45, 45)
         else
@@ -2268,8 +2564,35 @@ local function initUpdateGate(guiParent, UpdateBadge)
             end
         end
 
-        ApplyUpdateBtn.Active = true
-        if not isDefcon1Lockdown then
+        if isDefcon1Lockdown then
+            local remaining = defcon1UnlockTime - os.clock()
+            if remaining > 0 then
+                ApplyUpdateBtn.Active = false
+                ApplyUpdateBtn.Text = string.format("🛡️ Inspecting Security Diff (%ds)...", math.max(1, math.ceil(remaining)))
+                ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(130, 40, 40)
+                defcon1CountdownThread = task.spawn(function()
+                    while os.clock() < defcon1UnlockTime do
+                        task.wait(0.2)
+                        if not isDefcon1Lockdown or not ModalBackdrop.Visible then break end
+                        local rem = defcon1UnlockTime - os.clock()
+                        if rem > 0 then
+                            ApplyUpdateBtn.Text = string.format("🛡️ Inspecting Security Diff (%ds)...", math.max(1, math.ceil(rem)))
+                        end
+                    end
+                    if isDefcon1Lockdown and ModalBackdrop.Visible and os.clock() >= defcon1UnlockTime then
+                        ApplyUpdateBtn.Active = true
+                        ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(210, 35, 35)
+                        ApplyUpdateBtn.Text = "🛡️ Apply Critical Security Patch"
+                    end
+                    defcon1CountdownThread = nil
+                end)
+            else
+                ApplyUpdateBtn.Active = true
+                ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(210, 35, 35)
+                ApplyUpdateBtn.Text = "🛡️ Apply Critical Security Patch"
+            end
+        else
+            ApplyUpdateBtn.Active = true
             refreshApplyButtonUI()
         end
 
@@ -2294,18 +2617,30 @@ local function initUpdateGate(guiParent, UpdateBadge)
         populateChangelog(changelogItems)
         setupStageBar()
         renderStageDiff(1)
-        switchTab("Changelog")
+        if isDefcon1Lockdown then
+            switchTab("Code")
+        else
+            switchTab("Changelog")
+        end
 
         ModalBackdrop.Visible = true
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
         UserInputService.MouseIconEnabled = true
     end
 
+    local isApprovalPending = false
     local function yieldForUserApproval(lockdownFlag, lockdownMsg)
+        if isApprovalPending then
+            while isApprovalPending do
+                task.wait(0.1)
+            end
+        end
+        isApprovalPending = true
         local approved = nil
         userConsentCallback = function(val)
             approved = val
             userConsentCallback = nil
+            isApprovalPending = false
         end
 
         openUpdateModal(lockdownFlag, lockdownMsg)
@@ -2323,6 +2658,10 @@ local function initUpdateGate(guiParent, UpdateBadge)
     getgenv().TestOmniUpdateGate = function() openUpdateModal(false) end
 
     closeUpdateModal = function()
+        if defcon1CountdownThread then
+            task.cancel(defcon1CountdownThread)
+            defcon1CountdownThread = nil
+        end
         if forceInstallResetThread then
             task.cancel(forceInstallResetThread)
             forceInstallResetThread = nil
@@ -2425,6 +2764,16 @@ local function initUpdateGate(guiParent, UpdateBadge)
 
     ApplyUpdateBtn.MouseButton1Click:Connect(function()
         if not currentUpdateData then return end
+
+        -- Defcon 1 Panic Click Guard: Strictly reject clicks while mandatory inspection countdown is running
+        if isDefcon1Lockdown and defcon1CountdownThread ~= nil then
+            warn("[Bootloader | UPDATE GATE]: Inspection countdown active. Please review the security diff before applying.")
+            return
+        end
+        if isDefcon1Lockdown and os.clock() < defcon1UnlockTime then
+            warn("[Bootloader | UPDATE GATE]: Inspection countdown active. Please review the security diff before applying.")
+            return
+        end
 
         -- Option B: Two-click confirmation for obfuscated updates
         if isObfuscatedUpdateDetected and not forceInstallConfirmActive then
@@ -2534,11 +2883,20 @@ local function initUpdateGate(guiParent, UpdateBadge)
         setManifestData = function(data)
             if type(data) == "table" then
                 local st = sanitizeStages(data.stages or {})
+                local cl = {}
+                if type(data.changelog) == "table" then
+                    for _, note in ipairs(data.changelog) do
+                        table.insert(cl, tostring(note))
+                    end
+                else
+                    table.insert(cl, "Security update and performance improvements")
+                end
+                if table.freeze then pcall(table.freeze, cl) end
                 currentUpdateData = {
                     version = data.version or CURRENT_OMNI_VERSION,
                     releaseDate = data.releaseDate or "Latest",
                     title = data.title or ("Omni v" .. tostring(data.version or "1.0")),
-                    changelog = data.changelog or { "Security update and performance improvements" },
+                    changelog = cl,
                     stages = st,
                     sha = data.sha or "main",
                     lockdown = data.lockdown or false,
@@ -2584,6 +2942,9 @@ local function checkDefcon1Lockdown()
             if ok and raw then rawManifest = raw end
         elseif isfile("autoexec/manifest.json") then
             local ok, raw = pcall(readfile, "autoexec/manifest.json")
+            if ok and raw then rawManifest = raw end
+        elseif isfile("workspace/manifest.json") then
+            local ok, raw = pcall(readfile, "workspace/manifest.json")
             if ok and raw then rawManifest = raw end
         end
     end

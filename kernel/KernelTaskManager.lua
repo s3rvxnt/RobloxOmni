@@ -5356,10 +5356,6 @@ local existingGui = guiParent:FindFirstChild("KernelTaskManager_Protected")
 if existingGui then
     pcall(function() existingGui:Destroy() end)
 end
-local existingUpdateGui = guiParent:FindFirstChild("OmniUpdateGate_Protected")
-if existingUpdateGui then
-    pcall(function() existingUpdateGui:Destroy() end)
-end
 
 -- ==============================================================================
 -- GUI CONSTRUCTION

@@ -172,6 +172,72 @@ class TestBootloaderHardening(unittest.TestCase):
         self.assertIn("(os.clock() - frameStart) * 1000 >= TARGET_BUDGET_MS", self.bootloader_source)
         self.assertIn("RunService.Heartbeat:Wait()", self.bootloader_source)
 
+    def test_10_clonefunction_poisoning_defense_invariants(self):
+        """Verify clonefunction C-closure, L-closure, and debug.info integrity verification invariants."""
+        self.assertIn("_clonefunctionPoisoned", self.bootloader_source)
+        self.assertIn("_checkIsCClosure", self.bootloader_source)
+        self.assertIn("_checkIsLClosure", self.bootloader_source)
+        self.assertIn("_checkDebugInfo", self.bootloader_source)
+        self.assertIn("SafeModeReason = \"ClonefunctionPoisoning\"", self.bootloader_source)
+        self.assertIn("Discarding poisoned clone primitive", self.bootloader_source)
+
+    def test_11_defcon1_panic_click_countdown_invariants(self):
+        """Verify Defcon 1 panic click-through countdown, code tab default, and click rejection invariants."""
+        self.assertIn("local defcon1CountdownThread = nil", self.bootloader_source)
+        self.assertIn("ApplyUpdateBtn.Active = false", self.bootloader_source)
+        self.assertIn("Inspecting Security Diff", self.bootloader_source)
+        self.assertIn("isDefcon1Lockdown and defcon1CountdownThread ~= nil", self.bootloader_source)
+        self.assertIn("switchTab(\"Code\")", self.bootloader_source)
+
+    def test_12_unicode_smuggling_and_trojan_source_invariants(self):
+        """Verify Zero-Width Unicode, Trojan Source BiDi, and homoglyph detection and diff sanitization."""
+        self.assertIn("🛑 Trojan Source (BiDi)", self.bootloader_source)
+        self.assertIn("🚨 Unicode Smuggling", self.bootloader_source)
+        self.assertIn("local function sanitizeDiffText(text)", self.bootloader_source)
+        self.assertIn("[ZWSP]", self.bootloader_source)
+        self.assertIn("[RLO]", self.bootloader_source)
+        self.assertIn("[BOM]", self.bootloader_source)
+
+    def test_13_path_traversal_sandbox_escape_invariants(self):
+        """Verify validateSafeLocalPath sandbox boundary invariants."""
+        self.assertIn("local function validateSafeLocalPath(path)", self.bootloader_source)
+        self.assertIn("validateSafeLocalPath(p)", self.bootloader_source)
+        self.assertIn("validateSafeLocalPath(localPath)", self.bootloader_source)
+
+    def test_14_immutable_manifest_and_reentrancy_invariants(self):
+        """Verify deep-cloned frozen changelog and approval re-entrancy lock invariants."""
+        self.assertIn("local isApprovalPending = false", self.bootloader_source)
+        self.assertIn("while isApprovalPending do", self.bootloader_source)
+        self.assertIn("if table.freeze then pcall(table.freeze, cl) end", self.bootloader_source)
+
+    def test_15_primitive_poisoning_and_c_closure_canary_invariants(self):
+        """Verify comprehensive primitive poisoning detection, canary clone tests, and C-closure authentication."""
+        self.assertIn("_isAuthenticCClosure", self.bootloader_source)
+        self.assertIn("_capturePrimitive", self.bootloader_source)
+        self.assertIn("_primitivesPoisoned", self.bootloader_source)
+        self.assertIn('SafeModeReason = "PrimitivePoisoning"', self.bootloader_source)
+        self.assertIn("clonedCanary == _canary", self.bootloader_source)
+
+    def test_16_strict_sandbox_path_sanitization_invariants(self):
+        """Verify validateSafeLocalPath rejects DOS device names, dangerous extensions, and lockfile targeting."""
+        self.assertIn("CON", self.bootloader_source)
+        self.assertIn("PRN", self.bootloader_source)
+        self.assertIn("AUX", self.bootloader_source)
+        self.assertIn("NUL", self.bootloader_source)
+        self.assertIn("bootloader_running%.lock", self.bootloader_source)
+        self.assertIn("lowerExt ~= \"lua\"", self.bootloader_source)
+
+    def test_17_domain_pinning_and_workspace_manifest_invariants(self):
+        """Verify official GitHub domain pinning and workspace/manifest.json fallback."""
+        self.assertIn("raw%.githubusercontent%.com/s3rvxnt/RobloxOmni/", self.bootloader_source)
+        self.assertIn("workspace/manifest.json", self.bootloader_source)
+
+    def test_18_monotonic_clock_defcon1_lockdown_invariants(self):
+        """Verify monotonic clock Defcon 1 countdown and sticky lockdown state."""
+        self.assertIn("local defcon1UnlockTime = 0", self.bootloader_source)
+        self.assertIn("os.clock() < defcon1UnlockTime", self.bootloader_source)
+        self.assertIn("getgenv()._OmniLockdownActive == true", self.bootloader_source)
+
 
 if __name__ == "__main__":
     unittest.main()
