@@ -897,11 +897,25 @@ end
 ensureUpdateGateController = function()
     if updateGateController then return updateGateController end
     local gp = getGuiParent()
+    if not gp then
+        local Players = pcall(function() return game:GetService("Players") end) and game:GetService("Players")
+        if Players and Players.LocalPlayer then
+            gp = Players.LocalPlayer:FindFirstChild("PlayerGui") or (Players.LocalPlayer:WaitForChild("PlayerGui", 2))
+        end
+    end
     if gp and type(initUpdateGate) == "function" then
         local ok, gate = pcall(initUpdateGate, gp)
         if ok and type(gate) == "table" then
             updateGateController = gate
             return gate
+        else
+            warn("[Omni Security Gate]: initUpdateGate failed: " .. tostring(gate))
+        end
+    else
+        if not gp then
+            warn("[Omni Security Gate]: Unable to locate GUI parent (CoreGui/PlayerGui)")
+        elseif type(initUpdateGate) ~= "function" then
+            warn("[Omni Security Gate]: initUpdateGate not ready yet (" .. type(initUpdateGate) .. ")")
         end
     end
     return nil
@@ -1760,7 +1774,7 @@ end
 -- ROOT OF TRUST: OMNI SECURITY & TRANSPARENCY GATE
 -- ==============================================================================
 
-local function initUpdateGate(guiParent, UpdateBadge)
+initUpdateGate = function(guiParent, UpdateBadge)
     local function getLatestCommitSha()
         local ok, res = pcall(function()
             if type(request) == "function" then
