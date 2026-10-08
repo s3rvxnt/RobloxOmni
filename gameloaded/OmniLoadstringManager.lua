@@ -445,6 +445,7 @@ SearchBox.BackgroundTransparency = 1
 SearchBox.Font = Enum.Font.Gotham
 SearchBox.TextSize = 12
 SearchBox.TextColor3 = Color3.fromRGB(220, 230, 245)
+SearchBox.Text = ""
 SearchBox.PlaceholderColor3 = Color3.fromRGB(100, 115, 135)
 SearchBox.PlaceholderText = "Search authorized URLs, domains, or return hashes..."
 SearchBox.ClearTextOnFocus = false
@@ -919,10 +920,12 @@ renderUrlsView = function()
         EmptyLabel.Font = Enum.Font.GothamMedium
         EmptyLabel.TextSize = 12
         EmptyLabel.TextColor3 = Color3.fromRGB(140, 155, 175)
-        if query ~= "" then
+        if #urlList == 0 then
+            EmptyLabel.Text = "No authorized URLs recorded yet.\nRun a script via loadstring() to authorize it at the Permission Gate."
+        elseif query ~= "" then
             EmptyLabel.Text = "No authorized URLs match your search query."
         else
-            EmptyLabel.Text = "No authorized URLs recorded yet.\nRun a script via loadstring() to authorize it at the Permission Gate."
+            EmptyLabel.Text = "No authorized URLs found."
         end
         EmptyLabel.Parent = EmptyNotice
     end
@@ -1055,7 +1058,13 @@ renderHashesView = function()
         EmptyLabel.Font = Enum.Font.GothamMedium
         EmptyLabel.TextSize = 12
         EmptyLabel.TextColor3 = Color3.fromRGB(140, 155, 175)
-        EmptyLabel.Text = query ~= "" and "No approved hashes match your filter." or "No return hashes recorded."
+        if #hashList == 0 then
+            EmptyLabel.Text = "No return hashes recorded yet."
+        elseif query ~= "" then
+            EmptyLabel.Text = "No approved hashes match your filter."
+        else
+            EmptyLabel.Text = "No return hashes found."
+        end
         EmptyLabel.Parent = EmptyNotice
     end
 end
@@ -1133,6 +1142,7 @@ local function openManager()
     tween.Completed:Connect(function()
         isAnimating = false
     end)
+    SearchBox.Text = ""
     if currentTab == "urls" then
         renderUrlsView()
     else

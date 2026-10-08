@@ -1852,7 +1852,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "gameloaded/OmniLoadstringManager.lua",
         localPath = "autoexec/gameloaded/OmniLoadstringManager.lua",
         name = "OmniLoadstringManager",
-        sha256 = "ab9471b02c86f860df045f85051add149460febb0bfa451a83f042eb978bf077"
+        sha256 = "f757022dd76c07347c1e1c01c6133fd327fa379fb3e714e84844e25842f776a9"
     }
 }
 
