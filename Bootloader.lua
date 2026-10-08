@@ -644,8 +644,8 @@ local function loadTrustedUrlLedger()
                 local sanitizedHashes = {}
                 if type(data.hashes) == "table" then
                     for h, val in pairs(data.hashes) do
-                        if type(h) == "string" and #h == 64 and h:match("^%x+$") and val == true then
-                            sanitizedHashes[h:lower()] = true
+                        if type(h) == "string" and #h == 64 and h:match("^%x+$") and (val == true or type(val) == "string") then
+                            sanitizedHashes[h:lower()] = val
                         end
                     end
                 end
@@ -1188,7 +1188,13 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 end
             end
 
-            -- If internal Omni caller or approved obfuscated script, bypass security gate directly with authentic loadstring
+            if not isCallerExempt and chunkname and type(chunkname) == "string" then
+                if chunkname:match("^[=@]?[%w_-]+_External$") or chunkname:match("^@?autoexec/") then
+                    isCallerExempt = true
+                end
+            end
+
+            -- If internal Omni caller, IPC bridge, or approved obfuscated script, bypass security gate directly with authentic loadstring
             if isCallerExempt then
                 if isCallerObfuscatedExempt then
                     _exemptObfuscatedThreads[curThread] = os.clock() + 30.0
@@ -1295,8 +1301,8 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                             trustedEntry.hash = srcHash
                             trustedEntry.last_updated = os.time()
                             if not ledger.hashes then ledger.hashes = {} end
-                            ledger.hashes[srcHash] = true
-                            ledger.hashes[normSrcHash] = true
+                            ledger.hashes[srcHash] = targetUrl
+                            ledger.hashes[normSrcHash] = targetUrl
                             saveTrustedUrlLedger(ledger)
                             local effectiveChunk = chunkname or ("@" .. targetUrl)
                             local isObf = isObfuscatedCode(src, effectiveChunk)
@@ -1363,8 +1369,8 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                             last_updated = os.time()
                         }
                         if not ledger.hashes then ledger.hashes = {} end
-                        ledger.hashes[srcHash] = true
-                        ledger.hashes[normSrcHash] = true
+                        ledger.hashes[srcHash] = targetUrl
+                        ledger.hashes[normSrcHash] = targetUrl
                         saveTrustedUrlLedger(ledger)
                         local effectiveChunk = chunkname or ("@" .. targetUrl)
                         local isObf = isObfuscatedCode(src, effectiveChunk)
@@ -1852,7 +1858,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "gameloaded/OmniLoadstringManager.lua",
         localPath = "autoexec/gameloaded/OmniLoadstringManager.lua",
         name = "OmniLoadstringManager",
-        sha256 = "f757022dd76c07347c1e1c01c6133fd327fa379fb3e714e84844e25842f776a9"
+        sha256 = "546019e7b478b15e5c43648ea2ea8383e83599d0333b87fb223e3d316ab0e601"
     }
 }
 

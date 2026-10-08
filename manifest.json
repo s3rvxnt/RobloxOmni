@@ -35,7 +35,7 @@
       "stage": "GameLoaded",
       "name": "OmniLoadstringManager",
       "desc": "Omni Loadstring & Trust Manager (F6 or Shift + F6)",
-      "sha256": "f757022dd76c07347c1e1c01c6133fd327fa379fb3e714e84844e25842f776a9"
+      "sha256": "546019e7b478b15e5c43648ea2ea8383e83599d0333b87fb223e3d316ab0e601"
     }
   ]
 }

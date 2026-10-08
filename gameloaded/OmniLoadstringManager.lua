@@ -94,8 +94,8 @@ local function loadLedger()
                 local sanitizedHashes = {}
                 if type(data.hashes) == "table" then
                     for h, val in pairs(data.hashes) do
-                        if type(h) == "string" and #h == 64 and h:match("^%x+$") and val == true then
-                            sanitizedHashes[h:lower()] = true
+                        if type(h) == "string" and #h == 64 and h:match("^%x+$") and (val == true or type(val) == "string") then
+                            sanitizedHashes[h:lower()] = val
                         end
                     end
                 end
@@ -762,10 +762,60 @@ renderUrlsView = function()
                     if entry.hash and currentLedger.hashes then
                         currentLedger.hashes[entry.hash] = nil
                     end
+                    if currentLedger.hashes then
+                        for hK, val in pairs(currentLedger.hashes) do
+                            if val == u or val == entry.hash then
+                                currentLedger.hashes[hK] = nil
+                            end
+                        end
+                    end
                     saveLedger(currentLedger)
-                    showToast(string.format("Revoked trust for %s. Future runs require approval.", domain), false)
+                    showToast(string.format("Revoked trust for %s and linked submodules.", domain), false)
                     renderUrlsView()
                 end
+            end)
+
+            -- Submodules & Signatures Attribution Chip (Clickable, switches to filtered Hashes view)
+            local primaryHash = entry.hash and entry.hash:lower() or nil
+            local subCount = 0
+            for hK, val in pairs(currentLedger.hashes or {}) do
+                local hKLower = hK:lower()
+                if val == u or (primaryHash and val == primaryHash) then
+                    if hKLower ~= primaryHash then
+                        subCount = subCount + 1
+                    end
+                end
+            end
+            local totalSigs = (primaryHash and 1 or 0) + subCount
+
+            local SigChip = Instance.new("TextButton")
+            SigChip.Name = "SigChip"
+            SigChip.Size = UDim2.new(0, 235, 0, 24)
+            SigChip.Position = UDim2.new(1, -245, 0, 38)
+            SigChip.BackgroundColor3 = Color3.fromRGB(26, 34, 48)
+            SigChip.BorderSizePixel = 0
+            SigChip.Font = Enum.Font.GothamMedium
+            SigChip.TextSize = 10
+            SigChip.TextColor3 = Color3.fromRGB(130, 195, 255)
+            if subCount > 0 then
+                SigChip.Text = string.format("🧩 %d Signatures (1 Primary + %d Subs) 🔍", totalSigs, subCount)
+            else
+                SigChip.Text = string.format("🧩 %d Signature (Primary Only) 🔍", totalSigs)
+            end
+            SigChip.Parent = Card
+
+            local SigChipCorner = Instance.new("UICorner")
+            SigChipCorner.CornerRadius = UDim.new(0, 6)
+            SigChipCorner.Parent = SigChip
+
+            local SigChipStroke = Instance.new("UIStroke")
+            SigChipStroke.Thickness = 1
+            SigChipStroke.Color = Color3.fromRGB(44, 58, 82)
+            SigChipStroke.Parent = SigChip
+
+            SigChip.MouseButton1Click:Connect(function()
+                SearchBox.Text = domain
+                switchTab("hashes")
             end)
 
             -- Hash Label & Copy
@@ -941,7 +991,7 @@ renderHashesView = function()
     local query = SearchBox.Text:lower():gsub("^%s+", ""):gsub("%s+$", "")
     local hashList = {}
     for h, val in pairs(currentLedger.hashes or {}) do
-        if val == true then
+        if val ~= nil and val ~= false then
             table.insert(hashList, h)
         end
     end
@@ -949,11 +999,29 @@ renderHashesView = function()
 
     HashesTabBtn.Text = string.format("🛡️ Return Hashes (%d)", #hashList)
 
-    -- Map hashes to URLs
+    -- Map hashes to URLs and roles
     local hashToUrl = {}
+    local hashRole = {} -- "primary", "submodule", "standalone"
+
+    -- 1. Register all primary entry hashes from URLs
     for u, entry in pairs(currentLedger.urls or {}) do
         if entry.hash then
-            hashToUrl[entry.hash:lower()] = u
+            local pHash = entry.hash:lower()
+            hashToUrl[pHash] = u
+            hashRole[pHash] = "primary"
+        end
+    end
+
+    -- 2. Register submodule hashes (where val is a URL string)
+    for h, val in pairs(currentLedger.hashes or {}) do
+        local hLower = h:lower()
+        if type(val) == "string" and #val > 0 then
+            hashToUrl[hLower] = val
+            if not hashRole[hLower] then
+                hashRole[hLower] = "submodule"
+            end
+        elseif not hashRole[hLower] then
+            hashRole[hLower] = "standalone"
         end
     end
 
@@ -961,13 +1029,18 @@ renderHashesView = function()
     for idx, h in ipairs(hashList) do
         local hLower = h:lower()
         local linkedUrl = hashToUrl[hLower]
+        local domain = linkedUrl and (getUrlDisplayName(linkedUrl)) or nil
+        local matchesQuery = (query == "")
+            or hLower:find(query, 1, true)
+            or (linkedUrl and linkedUrl:lower():find(query, 1, true))
+            or (domain and domain:lower():find(query, 1, true))
 
-        if query == "" or hLower:find(query, 1, true) or (linkedUrl and linkedUrl:lower():find(query, 1, true)) then
+        if matchesQuery then
             matches = matches + 1
 
             local Row = Instance.new("Frame")
             Row.Name = "HashRow_" .. idx
-            Row.Size = UDim2.new(1, 0, 0, 36)
+            Row.Size = UDim2.new(1, 0, 0, 50)
             Row.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
             Row.BorderSizePixel = 0
             Row.Parent = HashesScroll
@@ -976,26 +1049,75 @@ renderHashesView = function()
             RowCorner.CornerRadius = UDim.new(0, 6)
             RowCorner.Parent = Row
 
+            local RowStroke = Instance.new("UIStroke")
+            RowStroke.Thickness = 1
+            RowStroke.Color = Color3.fromRGB(34, 44, 62)
+            RowStroke.Parent = Row
+
+            local role = hashRole[hLower] or "standalone"
+            local domText = domain or "Direct Content"
+
+            -- Line 1: Domain Pill
+            local Pill = Instance.new("Frame")
+            local pillWidth = math.min(#domText * 7 + 14, 160)
+            Pill.Size = UDim2.new(0, pillWidth, 0, 18)
+            Pill.Position = UDim2.new(0, 10, 0, 6)
+            Pill.BackgroundColor3 = linkedUrl and Color3.fromRGB(28, 38, 56) or Color3.fromRGB(42, 36, 26)
+            Pill.BorderSizePixel = 0
+            Pill.Parent = Row
+
+            local PillCorner = Instance.new("UICorner")
+            PillCorner.CornerRadius = UDim.new(0, 4)
+            PillCorner.Parent = Pill
+
+            local PillLabel = Instance.new("TextLabel")
+            PillLabel.Size = UDim2.new(1, 0, 1, 0)
+            PillLabel.BackgroundTransparency = 1
+            PillLabel.Font = Enum.Font.GothamBold
+            PillLabel.TextSize = 10
+            PillLabel.TextColor3 = linkedUrl and Color3.fromRGB(64, 196, 255) or Color3.fromRGB(255, 190, 80)
+            PillLabel.Text = domText
+            PillLabel.Parent = Pill
+
+            -- Line 1: Relationship Badge
+            local RelLabel = Instance.new("TextLabel")
+            RelLabel.Size = UDim2.new(1, -pillWidth - 170, 0, 18)
+            RelLabel.Position = UDim2.new(0, pillWidth + 18, 0, 6)
+            RelLabel.BackgroundTransparency = 1
+            RelLabel.Font = Enum.Font.GothamMedium
+            RelLabel.TextSize = 10
+            RelLabel.TextXAlignment = Enum.TextXAlignment.Left
+            RelLabel.TextTruncate = Enum.TextTruncate.AtEnd
+
+            if role == "primary" then
+                RelLabel.TextColor3 = Color3.fromRGB(100, 230, 130)
+                RelLabel.Text = "★ Primary Entrypoint"
+            elseif role == "submodule" then
+                RelLabel.TextColor3 = Color3.fromRGB(180, 195, 255)
+                RelLabel.Text = "🧩 Submodule of " .. domText
+            else
+                RelLabel.TextColor3 = Color3.fromRGB(150, 165, 185)
+                RelLabel.Text = "⚡ Standalone / Dynamic Hash"
+            end
+            RelLabel.Parent = Row
+
+            -- Line 2: Monospace SHA-256 Hash
             local HashText = Instance.new("TextLabel")
-            HashText.Size = UDim2.new(1, -190, 1, 0)
-            HashText.Position = UDim2.new(0, 10, 0, 0)
+            HashText.Size = UDim2.new(1, -165, 0, 18)
+            HashText.Position = UDim2.new(0, 10, 0, 27)
             HashText.BackgroundTransparency = 1
             HashText.Font = Enum.Font.Code
             HashText.TextSize = 11
-            HashText.TextColor3 = Color3.fromRGB(180, 205, 235)
+            HashText.TextColor3 = Color3.fromRGB(200, 215, 240)
             HashText.TextXAlignment = Enum.TextXAlignment.Left
             HashText.TextTruncate = Enum.TextTruncate.AtEnd
-            if linkedUrl then
-                local dom = linkedUrl:match("^https?://([^/]+)") or linkedUrl
-                HashText.Text = hLower .. " (" .. dom .. ")"
-            else
-                HashText.Text = hLower .. " (Standalone / Direct Content)"
-            end
+            HashText.Text = hLower
             HashText.Parent = Row
 
+            -- Buttons on Right
             local CopyHashBtn = Instance.new("TextButton")
-            CopyHashBtn.Size = UDim2.new(0, 65, 0, 24)
-            CopyHashBtn.Position = UDim2.new(1, -145, 0, 6)
+            CopyHashBtn.Size = UDim2.new(0, 65, 0, 26)
+            CopyHashBtn.Position = UDim2.new(1, -145, 0, 12)
             CopyHashBtn.BackgroundColor3 = Color3.fromRGB(28, 36, 50)
             CopyHashBtn.BorderSizePixel = 0
             CopyHashBtn.Font = Enum.Font.GothamMedium
@@ -1005,7 +1127,7 @@ renderHashesView = function()
             CopyHashBtn.Parent = Row
 
             local CopyCorner = Instance.new("UICorner")
-            CopyCorner.CornerRadius = UDim.new(0, 4)
+            CopyCorner.CornerRadius = UDim.new(0, 5)
             CopyCorner.Parent = CopyHashBtn
 
             CopyHashBtn.MouseButton1Click:Connect(function()
@@ -1017,8 +1139,8 @@ renderHashesView = function()
             end)
 
             local RevokeHashBtn = Instance.new("TextButton")
-            RevokeHashBtn.Size = UDim2.new(0, 65, 0, 24)
-            RevokeHashBtn.Position = UDim2.new(1, -75, 0, 6)
+            RevokeHashBtn.Size = UDim2.new(0, 65, 0, 26)
+            RevokeHashBtn.Position = UDim2.new(1, -75, 0, 12)
             RevokeHashBtn.BackgroundColor3 = Color3.fromRGB(42, 28, 34)
             RevokeHashBtn.BorderSizePixel = 0
             RevokeHashBtn.Font = Enum.Font.GothamBold
@@ -1028,7 +1150,7 @@ renderHashesView = function()
             RevokeHashBtn.Parent = Row
 
             local RevokeCorner = Instance.new("UICorner")
-            RevokeCorner.CornerRadius = UDim.new(0, 4)
+            RevokeCorner.CornerRadius = UDim.new(0, 5)
             RevokeCorner.Parent = RevokeHashBtn
 
             RevokeHashBtn.MouseButton1Click:Connect(function()
@@ -1071,16 +1193,30 @@ end
 
 -- Purge Orphan Hashes
 PurgeOrphansBtn.MouseButton1Click:Connect(function()
-    local activeHashes = {}
-    for u, entry in pairs(currentLedger.urls or {}) do
+    local activeUrls = currentLedger.urls or {}
+    local activePrimaryHashes = {}
+    for u, entry in pairs(activeUrls) do
         if entry.hash then
-            activeHashes[entry.hash:lower()] = true
+            activePrimaryHashes[entry.hash:lower()] = true
         end
     end
 
     local purgedCount = 0
-    for h, _ in pairs(currentLedger.hashes or {}) do
-        if not activeHashes[h:lower()] then
+    for h, val in pairs(currentLedger.hashes or {}) do
+        local isOrphan = false
+        if type(val) == "string" and #val > 0 then
+            -- Submodule: orphan if its parent URL is no longer registered in activeUrls
+            if not activeUrls[val] then
+                isOrphan = true
+            end
+        else
+            -- Standalone / legacy: orphan if not matching any active URL's primary hash
+            if not activePrimaryHashes[h:lower()] then
+                isOrphan = true
+            end
+        end
+
+        if isOrphan then
             currentLedger.hashes[h] = nil
             purgedCount = purgedCount + 1
         end
@@ -1216,6 +1352,13 @@ getgenv().RevokeOmniUrlTrust = function(targetUrl)
         local h = l.urls[targetUrl].hash
         l.urls[targetUrl] = nil
         if h and l.hashes then l.hashes[h] = nil end
+        if l.hashes then
+            for hashKey, val in pairs(l.hashes) do
+                if val == targetUrl or val == h then
+                    l.hashes[hashKey] = nil
+                end
+            end
+        end
         saveLedger(l)
         currentLedger = l
         if isOpen then renderUrlsView() end
