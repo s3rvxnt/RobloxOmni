@@ -513,6 +513,7 @@ local initUpdateGate = nil
 local isScriptReviewActive = false
 local isScriptReviewPending = false
 local scriptReviewCallback = nil
+local _validateSafeLocalPath = nil
 
 -- Network Monitor & URL Capture Cache
 local _fetchedUrlByContentHash = {}
@@ -596,9 +597,41 @@ local function loadTrustedUrlLedger()
         if ok and raw and #raw > 0 then
             local decOk, data = pcall(function() return HttpService:JSONDecode(raw) end)
             if decOk and type(data) == "table" then
-                data.urls = data.urls or {}
-                data.hashes = data.hashes or {}
-                return data
+                local sanitizedUrls = {}
+                if type(data.urls) == "table" then
+                    for u, entry in pairs(data.urls) do
+                        if type(u) == "string" and u:match("^https?://") and type(entry) == "table" then
+                            local safeLocal = nil
+                            if entry.local_file and type(entry.local_file) == "string" then
+                                safeLocal = (_validateSafeLocalPath and _validateSafeLocalPath(entry.local_file))
+                                    or (validateSafeLocalPath and validateSafeLocalPath(entry.local_file))
+                            end
+                            local safeHash = entry.hash
+                            if type(safeHash) == "string" and #safeHash == 64 and safeHash:match("^%x+$") then
+                                sanitizedUrls[u] = {
+                                    url = u,
+                                    hash = safeHash:lower(),
+                                    local_file = safeLocal,
+                                    first_trusted = tonumber(entry.first_trusted) or os.time(),
+                                    last_updated = tonumber(entry.last_updated) or os.time()
+                                }
+                            end
+                        end
+                    end
+                end
+                local sanitizedHashes = {}
+                if type(data.hashes) == "table" then
+                    for h, val in pairs(data.hashes) do
+                        if type(h) == "string" and #h == 64 and h:match("^%x+$") and val == true then
+                            sanitizedHashes[h:lower()] = true
+                        end
+                    end
+                end
+                return {
+                    version = tonumber(data.version) or 1,
+                    urls = sanitizedUrls,
+                    hashes = sanitizedHashes
+                }
             end
         end
     end
@@ -607,6 +640,9 @@ end
 
 local function saveTrustedUrlLedger(ledger)
     if not ledger or type(ledger) ~= "table" then return false end
+    if not isfolder(TRUSTED_SCRIPTS_DIR) then
+        pcall(makefolder, TRUSTED_SCRIPTS_DIR)
+    end
     local okEnc, json = pcall(function() return HttpService:JSONEncode(ledger) end)
     if okEnc and json then
         local okW = pcall(writefile, TRUSTED_URLS_LEDGER_PATH, json)
@@ -764,17 +800,32 @@ local function auditScriptContent(code)
         table.insert(badges, { label = "🛑 Obfuscated", color = Color3.fromRGB(255, 65, 65) })
     end
 
-    if code:find("discord%.com/api/webhooks") or code:find("discordapp%.com/api/webhooks") then
+    if code:find("discord%.com/api/webhooks") or code:find("discordapp%.com/api/webhooks")
+        or code:find("discord%.com/api/v%d+/webhooks")
+        or code:find("webhook%.site")
+        or code:find("hooks%.hyra%.io")
+        or code:find("pipedream%.net")
+        or code:find("requestcatcher%.com")
+        or (code:lower():find("webhook") and (code:find("http://") or code:find("https://"))) then
         table.insert(badges, { label = "🚨 Webhook", color = Color3.fromRGB(240, 70, 70) })
     end
-    if code:find("loadstring%s*%(") then
+    if code:find("loadstring%s*%(") or code:find("loadstring%s*[\"\'%[%{]") or code:find("loadstring%s+[\"\'%[%{]") then
         table.insert(badges, { label = "⚠️ loadstring()", color = Color3.fromRGB(250, 160, 40) })
     end
-    if code:find("HttpGet%s*%(") or code:find("request%s*%(") or code:find("http_request%s*%(") then
+    if code:find("HttpGet%s*%(") or code:find("HttpGet%s*[\"\'%[%{]")
+        or code:find("request%s*%(") or code:find("request%s*[\"\'%[%{]")
+        or code:find("http_request%s*%(") or code:find("http_request%s*[\"\'%[%{]")
+        or code:find("syn%.request%s*[\"\'%[%{%(]")
+        or code:find("http%.request%s*[\"\'%[%{%(]") then
         table.insert(badges, { label = "🌐 Web Traffic", color = Color3.fromRGB(60, 180, 250) })
     end
-    if code:find("writefile%s*%(") or code:find("delfile%s*%(") then
+    if code:find("writefile%s*%(") or code:find("writefile%s*[\"\'%[%{]")
+        or code:find("appendfile%s*[\"\'%[%{%(]")
+        or code:find("delfile%s*[\"\'%[%{%(]") then
         table.insert(badges, { label = "💾 File IO", color = Color3.fromRGB(170, 130, 240) })
+    end
+    if #code > 100000 then
+        table.insert(badges, { label = "⚠️ Large File (>100KB)", color = Color3.fromRGB(255, 175, 45) })
     end
     if #badges == 0 then
         table.insert(badges, { label = "🛡️ Clean Audit", color = Color3.fromRGB(70, 210, 130) })
@@ -823,6 +874,7 @@ end
 -- Ultra-Fast Linear Diff Engine
 local function computeLineDiff(oldCode, newCode)
     local CHUNK_SIZE = 800
+    local isTruncated = false
     local oldLines = {}
     if oldCode and #oldCode > 0 then
         for line in (oldCode .. "\n"):gmatch("(.-)\r?\n") do
@@ -833,7 +885,10 @@ local function computeLineDiff(oldCode, newCode)
             else
                 table.insert(oldLines, line)
             end
-            if #oldLines >= 500 then break end
+            if #oldLines >= 500 then
+                isTruncated = true
+                break
+            end
         end
     end
 
@@ -847,7 +902,10 @@ local function computeLineDiff(oldCode, newCode)
             else
                 table.insert(newLines, line)
             end
-            if #newLines >= 500 then break end
+            if #newLines >= 500 then
+                isTruncated = true
+                break
+            end
         end
     end
 
@@ -855,6 +913,9 @@ local function computeLineDiff(oldCode, newCode)
         local diff = {}
         for idx, line in ipairs(newLines) do
             table.insert(diff, { type = "add", lineNum = idx, text = sanitizeDiffText(line) })
+        end
+        if isTruncated then
+            table.insert(diff, { type = "info", lineNum = 0, text = "⚠️ [DIFF TRUNCATED: file exceeds 500 preview lines — review full file before approval]" })
         end
         return diff, #newLines, #newLines, 0
     end
@@ -941,6 +1002,10 @@ local function computeLineDiff(oldCode, newCode)
         end
     end
 
+    if isTruncated then
+        table.insert(diff, { type = "info", lineNum = 0, text = "⚠️ [DIFF TRUNCATED: file exceeds 500 preview lines — review full file before approval]" })
+    end
+
     return diff, #newLines, adds, removes
 end
 
@@ -983,16 +1048,19 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
         local _exemptObfuscatedClosures = setmetatable({}, { __mode = "k" })
         local _exemptObfuscatedCallers = {}
         local _exemptObfuscatedThreads = setmetatable({}, { __mode = "k" })
-        local _lastApprovedObfuscatedExecTime = 0
-
-        for _, k in ipairs({ "luraph", "luaauth", "luarmor", "luaarmor", "moonsec", "ironbrew", "plasmii", "prometheus", "psu obfuscator", "synapse xen", "boron", "aztup" }) do
-            _exemptObfuscatedCallers[k] = true
-        end
 
         local function sanitizeCallerChunk(name)
             if not name or type(name) ~= "string" then return "" end
             local s = name:gsub("^%[string%s+\"", ""):gsub("\"%]$", ""):gsub("^[@%[%]=]", ""):gsub("%]$", "")
             return s:lower()
+        end
+
+        local function isGenericChunkName(clean)
+            if not clean or #clean < 4 then return true end
+            if clean == "script" or clean == "dynamic script" or clean == "unnamed" or clean == "main" or clean == "payload" then
+                return true
+            end
+            return false
         end
 
         local function compileExecutableChunk(code, chunk, isObf)
@@ -1003,12 +1071,11 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
             if isObf then
                 local curThread = coroutine.running()
-                _exemptObfuscatedThreads[curThread] = os.clock() + 120.0
-                _lastApprovedObfuscatedExecTime = os.clock()
+                _exemptObfuscatedThreads[curThread] = os.clock() + 30.0
 
                 if chunk and type(chunk) == "string" and chunk ~= "" then
                     local cleanChunk = sanitizeCallerChunk(chunk)
-                    if cleanChunk ~= "" then
+                    if not isGenericChunkName(cleanChunk) then
                         _exemptObfuscatedCallers[cleanChunk] = true
                     end
                 end
@@ -1046,19 +1113,13 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
             local curThread = coroutine.running()
 
-            -- 0. Universal Temporal Unpack Pass-Through
-            -- When an approved obfuscated script (LuaAuth, Luraph, LuaArmor) executes, its multi-stage
-            -- VM unpackers dynamically call loadstring across various worker threads/coroutines.
-            -- To prevent watchdog timeout freezes and avoid polluting the call stack or popping UI modals,
-            -- any dynamic loadstring called within 60 seconds of approved execution passes straight through!
-            if (os.clock() - _lastApprovedObfuscatedExecTime < 60.0) then
-                _exemptObfuscatedThreads[curThread] = os.clock() + 60.0
-                return origLoadstring(src, chunkname)
-            end
-
-            -- 1. Thread-Level Exemption Check (Instantaneous 0ms lookup)
+            -- 1. Thread-Level Exemption Check (Instantaneous 0ms lookup for active unpacker thread)
             if _exemptObfuscatedThreads[curThread] and (os.clock() < _exemptObfuscatedThreads[curThread]) then
-                return origLoadstring(src, chunkname)
+                local compiled = origLoadstring(src, chunkname)
+                if type(compiled) == "function" then
+                    _exemptObfuscatedClosures[compiled] = true
+                end
+                return compiled
             end
 
             -- 2. Stack origin inspection: check if caller itself is internal or an exempt/obfuscated script
@@ -1068,7 +1129,8 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 local immSrc = debug.info(2, "s")
                 if immSrc and type(immSrc) == "string" and immSrc ~= "" and immSrc ~= "[C]" then
                     local cleanImm = sanitizeCallerChunk(immSrc)
-                    if cleanImm:find("remoteexecute") or cleanImm:find("bootloader") then
+                    if cleanImm == "autoexec/bootloader.lua" or cleanImm == "autoexec/kernel/kerneltaskmanager.lua"
+                        or cleanImm:match("^autoexec/kernel/") or cleanImm:match("^autoexec/preinit/") then
                         isCallerExempt = true
                     end
                 end
@@ -1084,23 +1146,18 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                         local okS, cSrc = pcall(debug.info, lvl, "s")
                         if okS and cSrc and type(cSrc) == "string" and cSrc ~= "" and cSrc ~= "[C]" then
                             local clean = sanitizeCallerChunk(cSrc)
-                            if _exemptObfuscatedCallers[clean]
-                                or clean:find("luraph", 1, true)
-                                or clean:find("luaauth", 1, true)
-                                or clean:find("luarmor", 1, true)
-                                or clean:find("luaarmor", 1, true)
-                                or clean:find("moonsec", 1, true)
-                                or clean:find("ironbrew", 1, true)
-                                or clean:find("plasmii", 1, true)
-                                or clean:find("omni_trusted_scripts", 1, true) then
+                            if _exemptObfuscatedCallers[clean] then
                                 isCallerExempt = true
                                 isCallerObfuscatedExempt = true
                                 break
                             end
-                            if clean:find("bootloader", 1, true) or clean:find("taskmanager", 1, true)
-                                or clean:find("enhancementsuite", 1, true) or clean:find("taskscheduler", 1, true)
-                                or clean:find("remoteexecute", 1, true)
-                                or (getgenv()._KernelExemptScripts and getgenv()._KernelExemptScripts[clean]) then
+                            if clean == "autoexec/bootloader.lua" or clean == "autoexec/kernel/kerneltaskmanager.lua"
+                                or clean:match("^autoexec/kernel/") or clean:match("^autoexec/preinit/") then
+                                isCallerExempt = true
+                                break
+                            end
+                            local exempt = getgenv()._KernelExemptScripts
+                            if type(exempt) == "table" and rawget(exempt, clean) == true then
                                 isCallerExempt = true
                                 break
                             end
@@ -1112,8 +1169,12 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             -- If internal Omni caller or approved obfuscated script, bypass security gate directly with authentic loadstring
             if isCallerExempt then
                 if isCallerObfuscatedExempt then
-                    _exemptObfuscatedThreads[curThread] = os.clock() + 120.0
-                    _lastApprovedObfuscatedExecTime = os.clock()
+                    _exemptObfuscatedThreads[curThread] = os.clock() + 30.0
+                    local compiled = origLoadstring(src, chunkname)
+                    if type(compiled) == "function" then
+                        _exemptObfuscatedClosures[compiled] = true
+                    end
+                    return compiled
                 end
                 return origLoadstring(src, chunkname)
             end
@@ -1196,7 +1257,11 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
                         if decision == "approve" then
                             if trustedEntry.local_file then
-                                pcall(writefile, trustedEntry.local_file, src)
+                                local safePath = (_validateSafeLocalPath and _validateSafeLocalPath(trustedEntry.local_file))
+                                    or (validateSafeLocalPath and validateSafeLocalPath(trustedEntry.local_file))
+                                if safePath then
+                                    pcall(writefile, safePath, src)
+                                end
                             end
                             trustedEntry.hash = srcHash
                             trustedEntry.last_updated = os.time()
@@ -1255,11 +1320,16 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
                     if decision == "approve" then
                         local filename = TRUSTED_SCRIPTS_DIR .. "/" .. sanitizeUrlToFilename(targetUrl)
-                        pcall(writefile, filename, src)
+                        local safeFilename = (_validateSafeLocalPath and _validateSafeLocalPath(filename))
+                            or (validateSafeLocalPath and validateSafeLocalPath(filename)) or filename
+                        if not isfolder(TRUSTED_SCRIPTS_DIR) then
+                            pcall(makefolder, TRUSTED_SCRIPTS_DIR)
+                        end
+                        pcall(writefile, safeFilename, src)
                         ledger.urls[targetUrl] = {
                             url = targetUrl,
                             hash = srcHash,
-                            local_file = filename,
+                            local_file = safeFilename,
                             first_trusted = os.time(),
                             last_updated = os.time()
                         }
@@ -1701,8 +1771,8 @@ local function validateSafeLocalPath(path)
     if normalized:match("[%s%.]$") then
         return nil
     end
-    -- Enforce sandbox boundary: must be inside autoexec/ or workspace/ or be a local filename
-    if not (normalized:match("^autoexec/") or normalized:match("^workspace/") or not normalized:find("/")) then
+    -- Enforce sandbox boundary: must be inside autoexec/ or workspace/ or omni_trusted_scripts/ or be a local filename
+    if not (normalized:match("^autoexec/") or normalized:match("^workspace/") or normalized:match("^omni_trusted_scripts/") or not normalized:find("/")) then
         return nil
     end
     -- Reject Windows DOS reserved device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
@@ -1731,6 +1801,7 @@ local function validateSafeLocalPath(path)
     end
     return normalized
 end
+_validateSafeLocalPath = validateSafeLocalPath
 
 -- Initial Core Components Bootstrap (Ensures all official stages are initialized on fresh install)
 -- Strictly respects user sovereignty: if already initialized, deleted or .off components are NEVER silently re-downloaded
@@ -3214,6 +3285,15 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     sha256 = "67f2ea77f805c22f66dd61006feb9aae805646e51988030cce966297dda0d8b5"
                 }
             }
+        end
+
+        -- Frame budget & boot synchronization: await bootloader ring initialization completion
+        if getgenv()._OmniBootloaderRunning then
+            ApplyUpdateBtn.Text = "⏳ Waiting for boot sequence to settle..."
+            local waitStart = os.clock()
+            while getgenv()._OmniBootloaderRunning and (os.clock() - waitStart < 6.0) do
+                task.wait(0.1)
+            end
         end
 
         ApplyUpdateBtn.Active = false

@@ -1149,7 +1149,7 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
                 os.remove(temp_file)
 
     def test_17_obfuscated_script_real_loadstring_injection(self):
-        """Verify approved obfuscated scripts receive authentic loadstring and inner calls bypass the gate."""
+        """Verify approved obfuscated scripts receive authentic loadstring and inner calls bypass the gate, while untrusted threads are blocked (Zero-Trust, 0s temporal gap)."""
         harness = r"""
         -- Mock primitives
         local origLoadstring = function(code, chunk)
@@ -1161,16 +1161,19 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
         local _exemptObfuscatedClosures = setmetatable({}, { __mode = "k" })
         local _exemptObfuscatedCallers = {}
         local _exemptObfuscatedThreads = setmetatable({}, { __mode = "k" })
-        local _lastApprovedObfuscatedExecTime = 0
-
-        for _, k in ipairs({ "luraph", "luaauth", "luarmor", "luaarmor", "moonsec", "ironbrew", "plasmii" }) do
-            _exemptObfuscatedCallers[k] = true
-        end
 
         local function sanitizeCallerChunk(name)
             if not name or type(name) ~= "string" then return "" end
             local s = name:gsub("^%[string%s+\"", ""):gsub("\"%]$", ""):gsub("^[@%[%]=]", ""):gsub("%]$", "")
             return s:lower()
+        end
+
+        local function isGenericChunkName(clean)
+            if not clean or #clean < 4 then return true end
+            if clean == "script" or clean == "dynamic script" or clean == "unnamed" or clean == "main" or clean == "payload" then
+                return true
+            end
+            return false
         end
 
         local function compileExecutableChunk(code, chunk, isObf)
@@ -1180,26 +1183,21 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
             end
 
             if isObf then
-                _lastApprovedObfuscatedExecTime = os.clock()
+                local curThread = coroutine.running()
+                _exemptObfuscatedThreads[curThread] = os.clock() + 30.0
+
                 if chunk and type(chunk) == "string" and chunk ~= "" then
                     local cleanChunk = sanitizeCallerChunk(chunk)
-                    if cleanChunk ~= "" then
+                    if not isGenericChunkName(cleanChunk) then
                         _exemptObfuscatedCallers[cleanChunk] = true
                     end
                 end
 
                 if type(compiledFn) == "function" then
                     _exemptObfuscatedClosures[compiledFn] = true
-                    local rawCompiled = compiledFn
-                    local wrappedFn = function(...)
-                        local curThread = coroutine.running()
-                        _exemptObfuscatedThreads[curThread] = os.clock() + 60.0
-                        _lastApprovedObfuscatedExecTime = os.clock()
-                        return rawCompiled(...)
-                    end
-                    _exemptObfuscatedClosures[wrappedFn] = true
-                    return wrappedFn
                 end
+
+                return compiledFn
             end
 
             return compiledFn
@@ -1209,42 +1207,59 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
         local function shimLoadstring(src, chunkname)
             local curThread = coroutine.running()
             if _exemptObfuscatedThreads[curThread] and (os.clock() < _exemptObfuscatedThreads[curThread]) then
-                return origLoadstring(src, chunkname)
+                local compiled = origLoadstring(src, chunkname)
+                if type(compiled) == "function" then
+                    _exemptObfuscatedClosures[compiled] = true
+                end
+                return compiled
             end
 
             local isCallerExempt = false
             local isCallerObfuscatedExempt = false
             if debug and debug.info then
-                for lvl = 2, 20 do
-                    local okF, cFunc = pcall(debug.info, lvl, "f")
-                    if okF and cFunc and _exemptObfuscatedClosures[cFunc] then
+                local immSrc = debug.info(2, "s")
+                if immSrc and type(immSrc) == "string" and immSrc ~= "" and immSrc ~= "[C]" then
+                    local cleanImm = sanitizeCallerChunk(immSrc)
+                    if cleanImm == "autoexec/bootloader.lua" or cleanImm == "autoexec/kernel/kerneltaskmanager.lua"
+                        or cleanImm:match("^autoexec/kernel/") or cleanImm:match("^autoexec/preinit/") then
                         isCallerExempt = true
-                        isCallerObfuscatedExempt = true
-                        break
                     end
-                    local okS, cSrc = pcall(debug.info, lvl, "s")
-                    if okS and cSrc and type(cSrc) == "string" and cSrc ~= "" and cSrc ~= "[C]" then
-                        local clean = sanitizeCallerChunk(cSrc)
-                        if _exemptObfuscatedCallers[clean] or clean:find("luraph", 1, true) or clean:find("luaauth", 1, true) or clean:find("luarmor", 1, true) or clean:find("luaarmor", 1, true) then
+                end
+                if not isCallerExempt then
+                    for lvl = 2, 25 do
+                        local okF, cFunc = pcall(debug.info, lvl, "f")
+                        if okF and cFunc and _exemptObfuscatedClosures[cFunc] then
                             isCallerExempt = true
                             isCallerObfuscatedExempt = true
                             break
+                        end
+
+                        local okS, cSrc = pcall(debug.info, lvl, "s")
+                        if okS and cSrc and type(cSrc) == "string" and cSrc ~= "" and cSrc ~= "[C]" then
+                            local clean = sanitizeCallerChunk(cSrc)
+                            if _exemptObfuscatedCallers[clean] then
+                                isCallerExempt = true
+                                isCallerObfuscatedExempt = true
+                                break
+                            end
+                            if clean == "autoexec/bootloader.lua" or clean == "autoexec/kernel/kerneltaskmanager.lua"
+                                or clean:match("^autoexec/kernel/") or clean:match("^autoexec/preinit/") then
+                                isCallerExempt = true
+                                break
+                            end
                         end
                     end
                 end
             end
 
-            if not isCallerExempt and (os.clock() - _lastApprovedObfuscatedExecTime < 15.0) then
-                local chunkLow = (chunkname and type(chunkname) == "string") and chunkname:lower() or ""
-                if chunkLow:find("luraph", 1, true) or chunkLow:find("luaauth", 1, true) or _exemptObfuscatedCallers[sanitizeCallerChunk(chunkname)] then
-                    isCallerExempt = true
-                    isCallerObfuscatedExempt = true
-                end
-            end
-
             if isCallerExempt then
                 if isCallerObfuscatedExempt then
-                    _exemptObfuscatedThreads[curThread] = os.clock() + 60.0
+                    _exemptObfuscatedThreads[curThread] = os.clock() + 30.0
+                    local compiled = origLoadstring(src, chunkname)
+                    if type(compiled) == "function" then
+                        _exemptObfuscatedClosures[compiled] = true
+                    end
+                    return compiled
                 end
                 return origLoadstring(src, chunkname)
             end
@@ -1256,24 +1271,20 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
 
         -- 1. Initial execution of LuaArmor loader (prompts user once for gate approval)
         local loaderChunk = "@https://api.luaauth.com/loader/sample123"
-        local loaderCode = "-- api.luaauth.com\\nlocal x = 1"
+        local loaderCode = "-- api.luaauth.com\nlocal x = 1"
         local approvedLoaderFn = shimLoadstring(loaderCode, loaderChunk)
         print("INITIAL_PROMPT_COUNT:" .. tostring(promptCallCount))
 
-        -- 2. Simulate LuaArmor script body executing inside approved environment without cheating closures
-        -- approvedLoaderFn is the wrappedFn which sets the thread lease!
+        -- 2. Simulate LuaArmor script body executing inside approved thread
         local unpackRes = nil
         local runLoaderBody = function()
             local unpackFn = shimLoadstring("local stage2 = true", "Luraph")
             unpackRes = unpackFn()
         end
-        -- Calling approvedLoaderFn simulates running the returned loader
-        local simLoaderEntry = compileExecutableChunk([[print("running loader")]], loaderChunk, true)
-        simLoaderEntry(runLoaderBody)
-        runLoaderBody() -- also runs with active thread/caller
+        runLoaderBody()
         print("DIRECT_UNPACK_RESULT:" .. tostring(unpackRes))
 
-        -- 3. Simulate nested unpacker calling shimLoadstring from Luraph chunk
+        -- 3. Simulate nested unpacker calling shimLoadstring from Luraph chunk on same thread
         local nestedRes = nil
         local function executeNestedFromLuraph()
             nestedRes = shimLoadstring("local stage3 = true", "Luraph")
@@ -1281,6 +1292,16 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
         executeNestedFromLuraph()
         print("NESTED_PROMPT_COUNT_UNCHANGED:" .. tostring(promptCallCount == 1))
         print("NESTED_EXEC_SUCCESS:" .. tostring(type(nestedRes) == "function"))
+
+        -- 4. ADVERSARIAL AUDIT: An unapproved script on a separate concurrent thread tries to piggyback
+        -- Under the old 15s/60s clock gap, this would have bypassed the gate.
+        -- Under Zero-Trust (thread-bound + closure lineage), this must be intercepted and prompt the gate!
+        local adversaryPrompted = false
+        coroutine.wrap(function()
+            -- Unrelated coroutine thread calling loadstring with "Luraph" chunk
+            local adversaryFn = shimLoadstring("malicious_stealer_payload()", "Luraph")
+        end)()
+        print("ADVERSARY_INTERCEPTED:" .. tostring(promptCallCount == 2))
         """
         temp_file = "sim_obfuscated_loadstring.luau"
         with open(temp_file, "w", encoding="utf-8") as f:
@@ -1293,6 +1314,7 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
             self.assertIn("DIRECT_UNPACK_RESULT:UNPACKED_PAYLOAD_EXECUTED:local stage2 = true", res.stdout)
             self.assertIn("NESTED_PROMPT_COUNT_UNCHANGED:true", res.stdout)
             self.assertIn("NESTED_EXEC_SUCCESS:true", res.stdout)
+            self.assertIn("ADVERSARY_INTERCEPTED:true", res.stdout)
         finally:
             if os.path.exists(temp_file):
                 os.remove(temp_file)
