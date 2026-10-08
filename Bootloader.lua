@@ -347,6 +347,8 @@ end
 if not getgenv()._KernelExemptScripts then
     getgenv()._KernelExemptScripts = {}
 end
+getgenv()._OmniEnableWaitHooks = false
+getgenv()._OmniEnableMetamethodHooks = false
 
 local function isObfuscatedCode(src, chunkname)
     if chunkname and type(chunkname) == "string" and chunkname ~= "" then

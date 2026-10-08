@@ -2215,8 +2215,8 @@ if not getgenv()._KernelOrigTypeof then
     end
 end
 
--- Wrap getrawmetatable so getrawmetatable(getgenv().game) and getrawmetatable(RunService) return virgin metatables
-if not getgenv()._KernelOrigGetrawmetatable and type(getrawmetatable) == "function" then
+-- Wrap getrawmetatable only if metamethod hooks are explicitly enabled
+if not getgenv()._KernelOrigGetrawmetatable and type(getrawmetatable) == "function" and getgenv()._OmniEnableMetamethodHooks == true then
     local origGetrawmetatable = getrawmetatable
     getgenv()._KernelOrigGetrawmetatable = origGetrawmetatable
     getgenv().getrawmetatable = (newcclosure and newcclosure(function(obj)
@@ -3382,11 +3382,11 @@ local function ClearLoopRegistry()
     return true
 end
 
--- Install task.wait and wait hooks safely with dynamic delegation trampoline (Enabled by default; exempt scripts bypass via isSelfOrKernel)
+-- Install task.wait and wait hooks safely with dynamic delegation trampoline (Disabled by default to prevent tripping commercial obfuscator anti-hooks)
 getgenv()._OmniActiveHookedTaskWait = hookedTaskWait
 getgenv()._OmniActiveHookedWait = hookedWait
 
-if hookfunction and getgenv()._OmniEnableWaitHooks ~= false then
+if hookfunction and getgenv()._OmniEnableWaitHooks == true then
     if not getgenv()._OmniWaitTrampolineInstalled then
         if task and task.wait then
             pcall(function()
