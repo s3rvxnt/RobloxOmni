@@ -692,7 +692,7 @@ renderUrlsView = function()
 
             local Card = Instance.new("Frame")
             Card.Name = "UrlCard_" .. idx
-            Card.Size = UDim2.new(1, 0, 0, 102)
+            Card.Size = UDim2.new(1, 0, 0, 108)
             Card.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
             Card.BorderSizePixel = 0
             Card.Parent = UrlsScroll
@@ -706,20 +706,42 @@ renderUrlsView = function()
             CardStroke.Color = Color3.fromRGB(36, 46, 66)
             CardStroke.Parent = Card
 
-            -- Domain Pill
+            -- Row 1: Left Container (Domain Pill + Script Title + URL Preview)
+            local TopLeft = Instance.new("Frame")
+            TopLeft.Name = "TopLeft"
+            TopLeft.Size = UDim2.new(1, -260, 0, 22)
+            TopLeft.Position = UDim2.new(0, 10, 0, 8)
+            TopLeft.BackgroundTransparency = 1
+            TopLeft.Parent = Card
+
+            local TopLeftLayout = Instance.new("UIListLayout")
+            TopLeftLayout.FillDirection = Enum.FillDirection.Horizontal
+            TopLeftLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+            TopLeftLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            TopLeftLayout.Padding = UDim.new(0, 8)
+            TopLeftLayout.Parent = TopLeft
+
             local DomainPill = Instance.new("Frame")
-            DomainPill.Size = UDim2.new(0, math.min(#domain * 7 + 16, 180), 0, 20)
-            DomainPill.Position = UDim2.new(0, 10, 0, 10)
+            DomainPill.Name = "DomainPill"
+            DomainPill.LayoutOrder = 1
+            DomainPill.Size = UDim2.new(0, 0, 0, 20)
+            DomainPill.AutomaticSize = Enum.AutomaticSize.X
             DomainPill.BackgroundColor3 = Color3.fromRGB(28, 38, 56)
             DomainPill.BorderSizePixel = 0
-            DomainPill.Parent = Card
+            DomainPill.Parent = TopLeft
 
             local DomainCorner = Instance.new("UICorner")
             DomainCorner.CornerRadius = UDim.new(0, 4)
             DomainCorner.Parent = DomainPill
 
+            local DomainPadding = Instance.new("UIPadding")
+            DomainPadding.PaddingLeft = UDim.new(0, 8)
+            DomainPadding.PaddingRight = UDim.new(0, 8)
+            DomainPadding.Parent = DomainPill
+
             local DomainLabel = Instance.new("TextLabel")
-            DomainLabel.Size = UDim2.new(1, 0, 1, 0)
+            DomainLabel.Size = UDim2.new(0, 0, 1, 0)
+            DomainLabel.AutomaticSize = Enum.AutomaticSize.X
             DomainLabel.BackgroundTransparency = 1
             DomainLabel.Font = Enum.Font.GothamBold
             DomainLabel.TextSize = 10
@@ -727,18 +749,31 @@ renderUrlsView = function()
             DomainLabel.Text = domain
             DomainLabel.Parent = DomainPill
 
-            -- URL Display Label
-            local UrlLabel = Instance.new("TextLabel")
-            UrlLabel.Size = UDim2.new(1, -260, 0, 20)
-            UrlLabel.Position = UDim2.new(0, DomainPill.Size.X.Offset + 18, 0, 10)
-            UrlLabel.BackgroundTransparency = 1
-            UrlLabel.Font = Enum.Font.GothamMedium
-            UrlLabel.TextSize = 11
-            UrlLabel.TextColor3 = Color3.fromRGB(230, 235, 245)
-            UrlLabel.TextXAlignment = Enum.TextXAlignment.Left
-            UrlLabel.TextTruncate = Enum.TextTruncate.AtEnd
-            UrlLabel.Text = entry.name and (entry.name .. " (" .. u .. ")") or (shortFile ~= "" and (shortFile .. " (" .. u .. ")") or u)
-            UrlLabel.Parent = Card
+            local TitleLabel = Instance.new("TextLabel")
+            TitleLabel.Name = "TitleLabel"
+            TitleLabel.LayoutOrder = 2
+            TitleLabel.Size = UDim2.new(0, 0, 1, 0)
+            TitleLabel.AutomaticSize = Enum.AutomaticSize.X
+            TitleLabel.BackgroundTransparency = 1
+            TitleLabel.Font = Enum.Font.GothamBold
+            TitleLabel.TextSize = 12
+            TitleLabel.TextColor3 = Color3.fromRGB(240, 245, 255)
+            TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+            TitleLabel.Text = entry.name or shortFile or domain
+            TitleLabel.Parent = TopLeft
+
+            local UrlPreview = Instance.new("TextLabel")
+            UrlPreview.Name = "UrlPreview"
+            UrlPreview.LayoutOrder = 3
+            UrlPreview.Size = UDim2.new(1, 0, 1, 0)
+            UrlPreview.BackgroundTransparency = 1
+            UrlPreview.Font = Enum.Font.Gotham
+            UrlPreview.TextSize = 10
+            UrlPreview.TextColor3 = Color3.fromRGB(110, 125, 145)
+            UrlPreview.TextXAlignment = Enum.TextXAlignment.Left
+            UrlPreview.TextTruncate = Enum.TextTruncate.AtEnd
+            UrlPreview.Text = "(" .. u .. ")"
+            UrlPreview.Parent = TopLeft
 
             -- Auto-Update Status Badge & Toggle Button
             local isAuto = (entry.auto_update == true)
@@ -840,9 +875,9 @@ renderUrlsView = function()
             SigChip.TextSize = 10
             SigChip.TextColor3 = Color3.fromRGB(130, 195, 255)
             if subCount > 0 then
-                SigChip.Text = string.format("🧩 %d Signatures (1 Primary + %d Subs) 🔍", totalSigs, subCount)
+                SigChip.Text = string.format("🔒 %d Signatures (%d Subs) ➔", totalSigs, subCount)
             else
-                SigChip.Text = string.format("🧩 %d Signature (Primary Only) 🔍", totalSigs)
+                SigChip.Text = "🔒 1 Signature (Primary) ➔"
             end
             SigChip.Parent = Card
 
@@ -863,47 +898,50 @@ renderUrlsView = function()
 
             -- Hash Label & Copy
             local HashLabel = Instance.new("TextLabel")
-            HashLabel.Size = UDim2.new(0, 360, 0, 16)
-            HashLabel.Position = UDim2.new(0, 12, 0, 38)
+            HashLabel.Size = UDim2.new(1, -265, 0, 16)
+            HashLabel.Position = UDim2.new(0, 10, 0, 36)
             HashLabel.BackgroundTransparency = 1
             HashLabel.Font = Enum.Font.Code
             HashLabel.TextSize = 10
             HashLabel.TextColor3 = Color3.fromRGB(140, 160, 190)
             HashLabel.TextXAlignment = Enum.TextXAlignment.Left
+            HashLabel.TextTruncate = Enum.TextTruncate.AtEnd
             local shortH = (h and #h >= 16) and (h:sub(1, 14) .. "..." .. h:sub(-8)) or (h or "N/A")
             HashLabel.Text = "SHA-256: " .. shortH
             HashLabel.Parent = Card
 
             -- Cache File Info & Timestamps
             local CacheLabel = Instance.new("TextLabel")
-            CacheLabel.Size = UDim2.new(0, 360, 0, 16)
-            CacheLabel.Position = UDim2.new(0, 12, 0, 56)
+            CacheLabel.Size = UDim2.new(1, -265, 0, 16)
+            CacheLabel.Position = UDim2.new(0, 10, 0, 54)
             CacheLabel.BackgroundTransparency = 1
             CacheLabel.Font = Enum.Font.Gotham
             CacheLabel.TextSize = 10
             CacheLabel.TextColor3 = Color3.fromRGB(110, 125, 145)
             CacheLabel.TextXAlignment = Enum.TextXAlignment.Left
+            CacheLabel.TextTruncate = Enum.TextTruncate.AtEnd
             local fileExists = localFile ~= "" and isfile and isfile(localFile)
             local fileStat = fileExists and "✓ Cached on disk" or "⚠️ Cache missing"
             CacheLabel.Text = string.format("Cache: %s (%s)", localFile ~= "" and localFile or "None", fileStat)
             CacheLabel.Parent = Card
 
             local TimeLabel = Instance.new("TextLabel")
-            TimeLabel.Size = UDim2.new(0, 360, 0, 16)
-            TimeLabel.Position = UDim2.new(0, 12, 0, 74)
+            TimeLabel.Size = UDim2.new(1, -265, 0, 16)
+            TimeLabel.Position = UDim2.new(0, 10, 0, 72)
             TimeLabel.BackgroundTransparency = 1
             TimeLabel.Font = Enum.Font.Gotham
             TimeLabel.TextSize = 10
             TimeLabel.TextColor3 = Color3.fromRGB(100, 115, 135)
             TimeLabel.TextXAlignment = Enum.TextXAlignment.Left
+            TimeLabel.TextTruncate = Enum.TextTruncate.AtEnd
             TimeLabel.Text = string.format("First Trusted: %s | Last Updated: %s", formatTimestamp(entry.first_trusted), formatTimestamp(entry.last_updated))
             TimeLabel.Parent = Card
 
             -- Check Upstream Button
             local CheckBtn = Instance.new("TextButton")
             CheckBtn.Name = "CheckBtn"
-            CheckBtn.Size = UDim2.new(0, 130, 0, 22)
-            CheckBtn.Position = UDim2.new(1, -225, 0, 70)
+            CheckBtn.Size = UDim2.new(0, 145, 0, 24)
+            CheckBtn.Position = UDim2.new(1, -245, 0, 70)
             CheckBtn.BackgroundColor3 = Color3.fromRGB(30, 38, 54)
             CheckBtn.BorderSizePixel = 0
             CheckBtn.Font = Enum.Font.GothamBold
@@ -970,7 +1008,7 @@ renderUrlsView = function()
             -- Copy URL Button
             local CopyBtn = Instance.new("TextButton")
             CopyBtn.Name = "CopyBtn"
-            CopyBtn.Size = UDim2.new(0, 80, 0, 22)
+            CopyBtn.Size = UDim2.new(0, 80, 0, 24)
             CopyBtn.Position = UDim2.new(1, -90, 0, 70)
             CopyBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 44)
             CopyBtn.BorderSizePixel = 0
@@ -1162,21 +1200,43 @@ renderHashesView = function()
             HeaderCorner.CornerRadius = UDim.new(0, 8)
             HeaderCorner.Parent = HeaderBar
 
-            -- Domain Pill
-            local pillWidth = math.min(#grp.domain * 7 + 14, 150)
+            -- Left Cluster: Domain Pill, Script Title, Signatures Badge (Automatic horizontal flow)
+            local HeaderLeft = Instance.new("Frame")
+            HeaderLeft.Name = "HeaderLeft"
+            HeaderLeft.Size = UDim2.new(1, -260, 1, 0)
+            HeaderLeft.Position = UDim2.new(0, 10, 0, 0)
+            HeaderLeft.BackgroundTransparency = 1
+            HeaderLeft.Parent = HeaderBar
+
+            local LeftLayout = Instance.new("UIListLayout")
+            LeftLayout.FillDirection = Enum.FillDirection.Horizontal
+            LeftLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+            LeftLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            LeftLayout.Padding = UDim.new(0, 8)
+            LeftLayout.Parent = HeaderLeft
+
+            -- 1. Domain Pill
             local DomainPill = Instance.new("Frame")
-            DomainPill.Size = UDim2.new(0, pillWidth, 0, 20)
-            DomainPill.Position = UDim2.new(0, 10, 0, 12)
+            DomainPill.Name = "DomainPill"
+            DomainPill.LayoutOrder = 1
+            DomainPill.Size = UDim2.new(0, 0, 0, 20)
+            DomainPill.AutomaticSize = Enum.AutomaticSize.X
             DomainPill.BackgroundColor3 = Color3.fromRGB(28, 38, 56)
             DomainPill.BorderSizePixel = 0
-            DomainPill.Parent = HeaderBar
+            DomainPill.Parent = HeaderLeft
 
             local DomainCorner = Instance.new("UICorner")
             DomainCorner.CornerRadius = UDim.new(0, 4)
             DomainCorner.Parent = DomainPill
 
+            local DomainPadding = Instance.new("UIPadding")
+            DomainPadding.PaddingLeft = UDim.new(0, 8)
+            DomainPadding.PaddingRight = UDim.new(0, 8)
+            DomainPadding.Parent = DomainPill
+
             local DomainLabel = Instance.new("TextLabel")
-            DomainLabel.Size = UDim2.new(1, 0, 1, 0)
+            DomainLabel.Size = UDim2.new(0, 0, 1, 0)
+            DomainLabel.AutomaticSize = Enum.AutomaticSize.X
             DomainLabel.BackgroundTransparency = 1
             DomainLabel.Font = Enum.Font.GothamBold
             DomainLabel.TextSize = 10
@@ -1184,38 +1244,46 @@ renderHashesView = function()
             DomainLabel.Text = grp.domain
             DomainLabel.Parent = DomainPill
 
-            -- Script Title
+            -- 2. Script Title
             local TitleLabel = Instance.new("TextLabel")
-            TitleLabel.Size = UDim2.new(0, 200, 0, 20)
-            TitleLabel.Position = UDim2.new(0, pillWidth + 18, 0, 12)
+            TitleLabel.Name = "TitleLabel"
+            TitleLabel.LayoutOrder = 2
+            TitleLabel.Size = UDim2.new(0, 0, 1, 0)
+            TitleLabel.AutomaticSize = Enum.AutomaticSize.X
             TitleLabel.BackgroundTransparency = 1
             TitleLabel.Font = Enum.Font.GothamBold
             TitleLabel.TextSize = 12
             TitleLabel.TextColor3 = Color3.fromRGB(240, 245, 255)
             TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-            TitleLabel.TextTruncate = Enum.TextTruncate.AtEnd
             TitleLabel.Text = grp.name
-            TitleLabel.Parent = HeaderBar
+            TitleLabel.Parent = HeaderLeft
 
-            -- Signatures Total Badge
+            -- 3. Signatures Total Badge
             local sigPillText = subCount > 0
-                and string.format("🔒 %d Signatures (1 Primary + %d Subs)", totalSigs, subCount)
+                and string.format("🔒 %d Signatures (%d Subs)", totalSigs, subCount)
                 or "🔒 1 Signature (Primary Only)"
-            local sigPillWidth = math.min(#sigPillText * 6 + 16, 230)
 
             local SigPill = Instance.new("Frame")
-            SigPill.Size = UDim2.new(0, sigPillWidth, 0, 20)
-            SigPill.Position = UDim2.new(0, pillWidth + 22 + TitleLabel.Size.X.Offset, 0, 12)
+            SigPill.Name = "SigPill"
+            SigPill.LayoutOrder = 3
+            SigPill.Size = UDim2.new(0, 0, 0, 20)
+            SigPill.AutomaticSize = Enum.AutomaticSize.X
             SigPill.BackgroundColor3 = Color3.fromRGB(28, 36, 52)
             SigPill.BorderSizePixel = 0
-            SigPill.Parent = HeaderBar
+            SigPill.Parent = HeaderLeft
 
             local SigCorner = Instance.new("UICorner")
             SigCorner.CornerRadius = UDim.new(0, 4)
             SigCorner.Parent = SigPill
 
+            local SigPadding = Instance.new("UIPadding")
+            SigPadding.PaddingLeft = UDim.new(0, 8)
+            SigPadding.PaddingRight = UDim.new(0, 8)
+            SigPadding.Parent = SigPill
+
             local SigLabel = Instance.new("TextLabel")
-            SigLabel.Size = UDim2.new(1, 0, 1, 0)
+            SigLabel.Size = UDim2.new(0, 0, 1, 0)
+            SigLabel.AutomaticSize = Enum.AutomaticSize.X
             SigLabel.BackgroundTransparency = 1
             SigLabel.Font = Enum.Font.GothamMedium
             SigLabel.TextSize = 10
@@ -1223,21 +1291,44 @@ renderHashesView = function()
             SigLabel.Text = sigPillText
             SigLabel.Parent = SigPill
 
-            -- Right Buttons: Copy All Hashes + Expand/Collapse
+            -- Right Cluster: Copy All Hashes + Expand/Collapse Button (Right-aligned horizontal flow)
+            local HeaderRight = Instance.new("Frame")
+            HeaderRight.Name = "HeaderRight"
+            HeaderRight.Size = UDim2.new(0, 250, 1, 0)
+            HeaderRight.Position = UDim2.new(1, -10, 0, 0)
+            HeaderRight.AnchorPoint = Vector2.new(1, 0)
+            HeaderRight.BackgroundTransparency = 1
+            HeaderRight.Parent = HeaderBar
+
+            local RightLayout = Instance.new("UIListLayout")
+            RightLayout.FillDirection = Enum.FillDirection.Horizontal
+            RightLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+            RightLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+            RightLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            RightLayout.Padding = UDim.new(0, 8)
+            RightLayout.Parent = HeaderRight
+
             local CopyAllBtn = Instance.new("TextButton")
-            CopyAllBtn.Size = UDim2.new(0, 110, 0, 26)
-            CopyAllBtn.Position = UDim2.new(1, subCount > 0 and -270 or -120, 0, 9)
+            CopyAllBtn.Name = "CopyAllBtn"
+            CopyAllBtn.LayoutOrder = 1
+            CopyAllBtn.Size = UDim2.new(0, 0, 0, 26)
+            CopyAllBtn.AutomaticSize = Enum.AutomaticSize.X
             CopyAllBtn.BackgroundColor3 = Color3.fromRGB(30, 40, 58)
             CopyAllBtn.BorderSizePixel = 0
             CopyAllBtn.Font = Enum.Font.GothamMedium
             CopyAllBtn.TextSize = 10
             CopyAllBtn.TextColor3 = Color3.fromRGB(160, 200, 240)
-            CopyAllBtn.Text = "📋 Copy All Hashes"
-            CopyAllBtn.Parent = HeaderBar
+            CopyAllBtn.Text = "📋 Copy All"
+            CopyAllBtn.Parent = HeaderRight
 
             local CopyAllCorner = Instance.new("UICorner")
             CopyAllCorner.CornerRadius = UDim.new(0, 6)
             CopyAllCorner.Parent = CopyAllBtn
+
+            local CopyAllPadding = Instance.new("UIPadding")
+            CopyAllPadding.PaddingLeft = UDim.new(0, 10)
+            CopyAllPadding.PaddingRight = UDim.new(0, 10)
+            CopyAllPadding.Parent = CopyAllBtn
 
             CopyAllBtn.MouseButton1Click:Connect(function()
                 if setclipboard then
@@ -1245,26 +1336,33 @@ renderHashesView = function()
                     if grp.primaryHash then table.insert(allLines, grp.primaryHash) end
                     for _, sH in ipairs(grp.submodules) do table.insert(allLines, sH) end
                     setclipboard(table.concat(allLines, "\n"))
-                    CopyAllBtn.Text = "Copied All!"
-                    task.delay(1.5, function() CopyAllBtn.Text = "📋 Copy All Hashes" end)
+                    CopyAllBtn.Text = "✓ Copied All!"
+                    task.delay(1.5, function() CopyAllBtn.Text = "📋 Copy All" end)
                 end
             end)
 
             if subCount > 0 then
                 local ToggleBtn = Instance.new("TextButton")
-                ToggleBtn.Size = UDim2.new(0, 140, 0, 26)
-                ToggleBtn.Position = UDim2.new(1, -150, 0, 9)
+                ToggleBtn.Name = "ToggleBtn"
+                ToggleBtn.LayoutOrder = 2
+                ToggleBtn.Size = UDim2.new(0, 0, 0, 26)
+                ToggleBtn.AutomaticSize = Enum.AutomaticSize.X
                 ToggleBtn.BackgroundColor3 = isExpanded and Color3.fromRGB(42, 54, 76) or Color3.fromRGB(32, 42, 60)
                 ToggleBtn.BorderSizePixel = 0
                 ToggleBtn.Font = Enum.Font.GothamBold
                 ToggleBtn.TextSize = 10
                 ToggleBtn.TextColor3 = isExpanded and Color3.fromRGB(100, 220, 255) or Color3.fromRGB(160, 195, 230)
                 ToggleBtn.Text = isExpanded and "▲ Hide Submodules" or string.format("▼ View %d Submodules", subCount)
-                ToggleBtn.Parent = HeaderBar
+                ToggleBtn.Parent = HeaderRight
 
                 local ToggleCorner = Instance.new("UICorner")
                 ToggleCorner.CornerRadius = UDim.new(0, 6)
                 ToggleCorner.Parent = ToggleBtn
+
+                local TogglePadding = Instance.new("UIPadding")
+                TogglePadding.PaddingLeft = UDim.new(0, 10)
+                TogglePadding.PaddingRight = UDim.new(0, 10)
+                TogglePadding.Parent = ToggleBtn
 
                 ToggleBtn.MouseButton1Click:Connect(function()
                     expandedScriptGroups[u] = not (expandedScriptGroups[u] == true)
