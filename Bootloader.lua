@@ -1837,7 +1837,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
         localPath = "autoexec/gameloaded/OmniEnhancementSuite.lua",
         name = "OmniEnhancementSuite",
-        sha256 = "4997db6157f797b3265babe30d9c93c3f33ff50e51c6250daf32a1b63489da2d"
+        sha256 = "5636c781dc362015bc54180f1355efdfa3bb0a975043d1279fe32c59f8f48fd3"
     }
 }
 
