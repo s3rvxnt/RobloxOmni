@@ -639,6 +639,7 @@ local function loadTrustedUrlLedger()
                                 end
                                 sanitizedUrls[u] = {
                                     url = u,
+                                    name = (type(entry.name) == "string" and #entry.name > 0) and entry.name or nil,
                                     hash = safeHash:lower(),
                                     local_file = safeLocal,
                                     first_trusted = tonumber(entry.first_trusted) or os.time(),
@@ -1875,7 +1876,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "gameloaded/OmniLoadstringManager.lua",
         localPath = "autoexec/gameloaded/OmniLoadstringManager.lua",
         name = "OmniLoadstringManager",
-        sha256 = "7f2cce3cafc27bbdf0f637612d70f65dc1323e5fdea62495e5f783add60f80e9"
+        sha256 = "3c1760ad1c1cf6d73ca3085f610ea42965b9689082655ebfe4cc83f1333f5f67"
     }
 }
 

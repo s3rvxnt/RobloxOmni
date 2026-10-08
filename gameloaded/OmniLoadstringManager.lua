@@ -89,6 +89,7 @@ local function loadLedger()
                                 end
                                 sanitizedUrls[u] = {
                                     url = u,
+                                    name = (type(entry.name) == "string" and #entry.name > 0) and entry.name or nil,
                                     hash = safeHash:lower(),
                                     local_file = entry.local_file,
                                     first_trusted = tonumber(entry.first_trusted) or os.time(),
@@ -157,16 +158,40 @@ local function formatTimestamp(ts)
     return string.format("%04d-%02d-%02d %02d:%02d", dt.year, dt.month, dt.day, dt.hour, dt.min)
 end
 
--- Extract Domain & Short Path
-local function getUrlDisplayName(url)
-    if not url then return "Unknown Script" end
+-- Extract Domain & Distinct Script Identity
+local function getUrlDisplayName(url, customName)
+    if customName and type(customName) == "string" and #customName > 0 then
+        local domain = (url and url:match("^https?://([^/]+)")) or "custom"
+        return domain, customName
+    end
+    if not url then return "Unknown Script", "Direct Content" end
     local withoutProto = url:gsub("^https?://", "")
     local domain, path = withoutProto:match("^([^/]+)/(.*)$")
     domain = domain or withoutProto
     path = path or ""
+
+    local lowerDomain = domain:lower()
+    if lowerDomain:find("luaauth.com") or lowerDomain:find("luaarmor") then
+        local token = path:match("([^/]+)$") or path
+        local shortToken = #token > 12 and (token:sub(1, 10) .. "...") or token
+        return domain, "LuaArmor (" .. shortToken .. ")"
+    end
+
+    if lowerDomain:find("githubusercontent.com") then
+        local owner, repo, filename = path:match("^([^/]+)/([^/]+)/.-/([^/]+)$")
+        if repo and filename then
+            return domain, repo .. ": " .. filename
+        end
+    end
+
+    if lowerDomain:find("pastebin.com") then
+        local pid = path:match("([^/]+)$") or path
+        return domain, "Pastebin (" .. pid .. ")"
+    end
+
     local filename = path:match("([^/]+)$") or path
-    if #filename > 35 then
-        filename = "..." .. filename:sub(-32)
+    if #filename > 28 then
+        filename = filename:sub(1, 25) .. "..."
     end
     return domain, filename
 end
@@ -659,9 +684,9 @@ renderUrlsView = function()
         local u = entry.url
         local h = entry.hash or ""
         local localFile = entry.local_file or ""
-        local domain, shortFile = getUrlDisplayName(u)
+        local domain, shortFile = getUrlDisplayName(u, entry.name)
 
-        if query == "" or u:lower():find(query, 1, true) or h:lower():find(query, 1, true) or domain:lower():find(query, 1, true) then
+        if query == "" or u:lower():find(query, 1, true) or h:lower():find(query, 1, true) or domain:lower():find(query, 1, true) or shortFile:lower():find(query, 1, true) or (entry.name and entry.name:lower():find(query, 1, true)) then
             matches = matches + 1
 
             local Card = Instance.new("Frame")
@@ -711,7 +736,7 @@ renderUrlsView = function()
             UrlLabel.TextColor3 = Color3.fromRGB(230, 235, 245)
             UrlLabel.TextXAlignment = Enum.TextXAlignment.Left
             UrlLabel.TextTruncate = Enum.TextTruncate.AtEnd
-            UrlLabel.Text = shortFile ~= "" and (shortFile .. " (" .. u .. ")") or u
+            UrlLabel.Text = entry.name and (entry.name .. " (" .. u .. ")") or (shortFile ~= "" and (shortFile .. " (" .. u .. ")") or u)
             UrlLabel.Parent = Card
 
             -- Auto-Update Status Badge & Toggle Button
@@ -830,7 +855,8 @@ renderUrlsView = function()
             SigChipStroke.Parent = SigChip
 
             SigChip.MouseButton1Click:Connect(function()
-                SearchBox.Text = domain
+                local filterToken = entry.name or u:match("([^/]+)$") or u
+                SearchBox.Text = filterToken
                 switchTab("hashes")
             end)
 
@@ -1060,11 +1086,17 @@ renderHashesView = function()
     for idx, h in ipairs(hashList) do
         local hLower = h:lower()
         local linkedUrl = hashToUrl[hLower]
-        local domain = linkedUrl and (getUrlDisplayName(linkedUrl)) or nil
+        local urlEntry = linkedUrl and currentLedger.urls and currentLedger.urls[linkedUrl]
+        local customName = urlEntry and urlEntry.name
+        local domain, scriptId = getUrlDisplayName(linkedUrl, customName)
+        local scriptTarget = customName or scriptId
+
         local matchesQuery = (query == "")
             or hLower:find(query, 1, true)
             or (linkedUrl and linkedUrl:lower():find(query, 1, true))
+            or (scriptId and scriptId:lower():find(query, 1, true))
             or (domain and domain:lower():find(query, 1, true))
+            or (customName and customName:lower():find(query, 1, true))
 
         if matchesQuery then
             matches = matches + 1
@@ -1122,10 +1154,10 @@ renderHashesView = function()
 
             if role == "primary" then
                 RelLabel.TextColor3 = Color3.fromRGB(100, 230, 130)
-                RelLabel.Text = "★ Primary Entrypoint"
+                RelLabel.Text = "★ Primary: " .. tostring(scriptTarget)
             elseif role == "submodule" then
                 RelLabel.TextColor3 = Color3.fromRGB(180, 195, 255)
-                RelLabel.Text = "🧩 Submodule of " .. domText
+                RelLabel.Text = "🧩 Submodule of " .. tostring(scriptTarget)
             else
                 RelLabel.TextColor3 = Color3.fromRGB(150, 165, 185)
                 RelLabel.Text = "⚡ Standalone / Dynamic Hash"
