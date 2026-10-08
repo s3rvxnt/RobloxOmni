@@ -623,6 +623,7 @@ local currentLedger = { version = 1, urls = {}, hashes = {} }
 
 local renderUrlsView = nil
 local renderHashesView = nil
+local expandedScriptGroups = {}
 
 local function switchTab(tab)
     currentTab = tab
@@ -1034,7 +1035,7 @@ renderHashesView = function()
     local hashList = {}
     for h, val in pairs(currentLedger.hashes or {}) do
         if val ~= nil and val ~= false then
-            table.insert(hashList, h)
+            table.insert(hashList, h:lower())
         end
     end
     table.sort(hashList)
@@ -1049,184 +1050,526 @@ renderHashesView = function()
     end
     UrlsTabBtn.Text = string.format("🔗 Authorized URLs (%d)", totalUrls)
 
-    -- Map hashes to URLs and roles
-    local hashToUrl = {}
-    local hashRole = {} -- "primary", "submodule", "standalone"
+    -- 1. Organize into Structured Script Groups
+    local scriptGroups = {}
+    local scriptGroupOrder = {}
+    local knownScriptHashes = {}
 
-    -- 1. Register all primary entry hashes and submodules from authorized URLs
     for u, entry in pairs(currentLedger.urls or {}) do
-        if entry.hash then
-            local pHash = entry.hash:lower()
-            hashToUrl[pHash] = u
-            hashRole[pHash] = "primary"
-        end
+        local customName = entry.name
+        local domain, scriptId = getUrlDisplayName(u, customName)
+        local scriptTarget = customName or scriptId
+
+        local primaryHash = entry.hash and entry.hash:lower() or nil
+        local subs = {}
         if type(entry.submodules) == "table" then
             for _, sH in ipairs(entry.submodules) do
                 local sHLower = sH:lower()
-                hashToUrl[sHLower] = u
-                if not hashRole[sHLower] then
-                    hashRole[sHLower] = "submodule"
-                end
+                table.insert(subs, sHLower)
+                knownScriptHashes[sHLower] = u
             end
+        end
+        if primaryHash then
+            knownScriptHashes[primaryHash] = u
+        end
+
+        local group = {
+            url = u,
+            name = scriptTarget,
+            domain = domain,
+            primaryHash = primaryHash,
+            submodules = subs,
+            autoUpdate = (entry.auto_update == true),
+            lastUpdated = entry.last_updated or 0
+        }
+        scriptGroups[u] = group
+        table.insert(scriptGroupOrder, u)
+    end
+
+    table.sort(scriptGroupOrder, function(a, b)
+        return (scriptGroups[a].lastUpdated or 0) > (scriptGroups[b].lastUpdated or 0)
+    end)
+
+    -- 2. Identify Standalone / Dynamic Hashes
+    local standaloneHashes = {}
+    for _, h in ipairs(hashList) do
+        if not knownScriptHashes[h] then
+            table.insert(standaloneHashes, h)
         end
     end
 
-    -- 2. Any remaining hashes are standalone
-    for h, val in pairs(currentLedger.hashes or {}) do
-        local hLower = h:lower()
-        if type(val) == "string" and #val > 0 and not hashToUrl[hLower] then
-            hashToUrl[hLower] = val
-            hashRole[hLower] = "submodule"
-        elseif not hashRole[hLower] then
-            hashRole[hLower] = "standalone"
-        end
-    end
+    local totalRenderedCards = 0
 
-    local matches = 0
-    for idx, h in ipairs(hashList) do
-        local hLower = h:lower()
-        local linkedUrl = hashToUrl[hLower]
-        local urlEntry = linkedUrl and currentLedger.urls and currentLedger.urls[linkedUrl]
-        local customName = urlEntry and urlEntry.name
-        local domain, scriptId = getUrlDisplayName(linkedUrl, customName)
-        local scriptTarget = customName or scriptId
+    -- 3. Render Grouped Script Containers
+    for grpIdx, u in ipairs(scriptGroupOrder) do
+        local grp = scriptGroups[u]
+        local subCount = #grp.submodules
+        local totalSigs = (grp.primaryHash and 1 or 0) + subCount
 
-        local matchesQuery = (query == "")
-            or hLower:find(query, 1, true)
-            or (linkedUrl and linkedUrl:lower():find(query, 1, true))
-            or (scriptId and scriptId:lower():find(query, 1, true))
-            or (domain and domain:lower():find(query, 1, true))
-            or (customName and customName:lower():find(query, 1, true))
+        local matchesPrimary = (grp.primaryHash and grp.primaryHash:find(query, 1, true))
+        local matchesMeta = (query == "")
+            or grp.name:lower():find(query, 1, true)
+            or grp.domain:lower():find(query, 1, true)
+            or u:lower():find(query, 1, true)
+            or matchesPrimary
 
-        if matchesQuery then
-            matches = matches + 1
-
-            local Row = Instance.new("Frame")
-            Row.Name = "HashRow_" .. idx
-            Row.Size = UDim2.new(1, 0, 0, 50)
-            Row.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
-            Row.BorderSizePixel = 0
-            Row.Parent = HashesScroll
-
-            local RowCorner = Instance.new("UICorner")
-            RowCorner.CornerRadius = UDim.new(0, 6)
-            RowCorner.Parent = Row
-
-            local RowStroke = Instance.new("UIStroke")
-            RowStroke.Thickness = 1
-            RowStroke.Color = Color3.fromRGB(34, 44, 62)
-            RowStroke.Parent = Row
-
-            local role = hashRole[hLower] or "standalone"
-            local domText = domain or "Direct Content"
-
-            -- Line 1: Domain Pill
-            local Pill = Instance.new("Frame")
-            local pillWidth = math.min(#domText * 7 + 14, 160)
-            Pill.Size = UDim2.new(0, pillWidth, 0, 18)
-            Pill.Position = UDim2.new(0, 10, 0, 6)
-            Pill.BackgroundColor3 = linkedUrl and Color3.fromRGB(28, 38, 56) or Color3.fromRGB(42, 36, 26)
-            Pill.BorderSizePixel = 0
-            Pill.Parent = Row
-
-            local PillCorner = Instance.new("UICorner")
-            PillCorner.CornerRadius = UDim.new(0, 4)
-            PillCorner.Parent = Pill
-
-            local PillLabel = Instance.new("TextLabel")
-            PillLabel.Size = UDim2.new(1, 0, 1, 0)
-            PillLabel.BackgroundTransparency = 1
-            PillLabel.Font = Enum.Font.GothamBold
-            PillLabel.TextSize = 10
-            PillLabel.TextColor3 = linkedUrl and Color3.fromRGB(64, 196, 255) or Color3.fromRGB(255, 190, 80)
-            PillLabel.Text = domText
-            PillLabel.Parent = Pill
-
-            -- Line 1: Relationship Badge
-            local RelLabel = Instance.new("TextLabel")
-            RelLabel.Size = UDim2.new(1, -pillWidth - 170, 0, 18)
-            RelLabel.Position = UDim2.new(0, pillWidth + 18, 0, 6)
-            RelLabel.BackgroundTransparency = 1
-            RelLabel.Font = Enum.Font.GothamMedium
-            RelLabel.TextSize = 10
-            RelLabel.TextXAlignment = Enum.TextXAlignment.Left
-            RelLabel.TextTruncate = Enum.TextTruncate.AtEnd
-
-            if role == "primary" then
-                RelLabel.TextColor3 = Color3.fromRGB(100, 230, 130)
-                RelLabel.Text = "★ Primary: " .. tostring(scriptTarget)
-            elseif role == "submodule" then
-                RelLabel.TextColor3 = Color3.fromRGB(180, 195, 255)
-                RelLabel.Text = "🧩 Submodule of " .. tostring(scriptTarget)
-            else
-                RelLabel.TextColor3 = Color3.fromRGB(150, 165, 185)
-                RelLabel.Text = "⚡ Standalone / Dynamic Hash"
+        local matchedSubmodules = {}
+        for sIdx, sH in ipairs(grp.submodules) do
+            if query == "" or matchesMeta or sH:find(query, 1, true) then
+                table.insert(matchedSubmodules, { index = sIdx, hash = sH })
             end
-            RelLabel.Parent = Row
+        end
 
-            -- Line 2: Monospace SHA-256 Hash
-            local HashText = Instance.new("TextLabel")
-            HashText.Size = UDim2.new(1, -165, 0, 18)
-            HashText.Position = UDim2.new(0, 10, 0, 27)
-            HashText.BackgroundTransparency = 1
-            HashText.Font = Enum.Font.Code
-            HashText.TextSize = 11
-            HashText.TextColor3 = Color3.fromRGB(200, 215, 240)
-            HashText.TextXAlignment = Enum.TextXAlignment.Left
-            HashText.TextTruncate = Enum.TextTruncate.AtEnd
-            HashText.Text = hLower
-            HashText.Parent = Row
+        if matchesMeta or #matchedSubmodules > 0 then
+            totalRenderedCards = totalRenderedCards + 1
 
-            -- Buttons on Right
-            local CopyHashBtn = Instance.new("TextButton")
-            CopyHashBtn.Size = UDim2.new(0, 65, 0, 26)
-            CopyHashBtn.Position = UDim2.new(1, -145, 0, 12)
-            CopyHashBtn.BackgroundColor3 = Color3.fromRGB(28, 36, 50)
-            CopyHashBtn.BorderSizePixel = 0
-            CopyHashBtn.Font = Enum.Font.GothamMedium
-            CopyHashBtn.TextSize = 10
-            CopyHashBtn.TextColor3 = Color3.fromRGB(160, 185, 215)
-            CopyHashBtn.Text = "📋 Copy"
-            CopyHashBtn.Parent = Row
+            local isExpanded = (query ~= "") or (expandedScriptGroups[u] == true)
 
-            local CopyCorner = Instance.new("UICorner")
-            CopyCorner.CornerRadius = UDim.new(0, 5)
-            CopyCorner.Parent = CopyHashBtn
+            local GroupCard = Instance.new("Frame")
+            GroupCard.Name = "ScriptGroupCard_" .. grpIdx
+            GroupCard.Size = UDim2.new(1, 0, 0, 0)
+            GroupCard.AutomaticSize = Enum.AutomaticSize.Y
+            GroupCard.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
+            GroupCard.BorderSizePixel = 0
+            GroupCard.Parent = HashesScroll
 
-            CopyHashBtn.MouseButton1Click:Connect(function()
+            local GroupCorner = Instance.new("UICorner")
+            GroupCorner.CornerRadius = UDim.new(0, 8)
+            GroupCorner.Parent = GroupCard
+
+            local GroupStroke = Instance.new("UIStroke")
+            GroupStroke.Thickness = 1
+            GroupStroke.Color = Color3.fromRGB(36, 46, 66)
+            GroupStroke.Parent = GroupCard
+
+            local GroupLayout = Instance.new("UIListLayout")
+            GroupLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            GroupLayout.Padding = UDim.new(0, 0)
+            GroupLayout.Parent = GroupCard
+
+            -- ==================================================================
+            -- SECTION A: CARD HEADER BAR
+            -- ==================================================================
+            local HeaderBar = Instance.new("Frame")
+            HeaderBar.Name = "HeaderBar"
+            HeaderBar.LayoutOrder = 1
+            HeaderBar.Size = UDim2.new(1, 0, 0, 44)
+            HeaderBar.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+            HeaderBar.BorderSizePixel = 0
+            HeaderBar.Parent = GroupCard
+
+            local HeaderCorner = Instance.new("UICorner")
+            HeaderCorner.CornerRadius = UDim.new(0, 8)
+            HeaderCorner.Parent = HeaderBar
+
+            -- Domain Pill
+            local pillWidth = math.min(#grp.domain * 7 + 14, 150)
+            local DomainPill = Instance.new("Frame")
+            DomainPill.Size = UDim2.new(0, pillWidth, 0, 20)
+            DomainPill.Position = UDim2.new(0, 10, 0, 12)
+            DomainPill.BackgroundColor3 = Color3.fromRGB(28, 38, 56)
+            DomainPill.BorderSizePixel = 0
+            DomainPill.Parent = HeaderBar
+
+            local DomainCorner = Instance.new("UICorner")
+            DomainCorner.CornerRadius = UDim.new(0, 4)
+            DomainCorner.Parent = DomainPill
+
+            local DomainLabel = Instance.new("TextLabel")
+            DomainLabel.Size = UDim2.new(1, 0, 1, 0)
+            DomainLabel.BackgroundTransparency = 1
+            DomainLabel.Font = Enum.Font.GothamBold
+            DomainLabel.TextSize = 10
+            DomainLabel.TextColor3 = Color3.fromRGB(64, 196, 255)
+            DomainLabel.Text = grp.domain
+            DomainLabel.Parent = DomainPill
+
+            -- Script Title
+            local TitleLabel = Instance.new("TextLabel")
+            TitleLabel.Size = UDim2.new(0, 200, 0, 20)
+            TitleLabel.Position = UDim2.new(0, pillWidth + 18, 0, 12)
+            TitleLabel.BackgroundTransparency = 1
+            TitleLabel.Font = Enum.Font.GothamBold
+            TitleLabel.TextSize = 12
+            TitleLabel.TextColor3 = Color3.fromRGB(240, 245, 255)
+            TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+            TitleLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            TitleLabel.Text = grp.name
+            TitleLabel.Parent = HeaderBar
+
+            -- Signatures Total Badge
+            local sigPillText = subCount > 0
+                and string.format("🔒 %d Signatures (1 Primary + %d Subs)", totalSigs, subCount)
+                or "🔒 1 Signature (Primary Only)"
+            local sigPillWidth = math.min(#sigPillText * 6 + 16, 230)
+
+            local SigPill = Instance.new("Frame")
+            SigPill.Size = UDim2.new(0, sigPillWidth, 0, 20)
+            SigPill.Position = UDim2.new(0, pillWidth + 22 + TitleLabel.Size.X.Offset, 0, 12)
+            SigPill.BackgroundColor3 = Color3.fromRGB(28, 36, 52)
+            SigPill.BorderSizePixel = 0
+            SigPill.Parent = HeaderBar
+
+            local SigCorner = Instance.new("UICorner")
+            SigCorner.CornerRadius = UDim.new(0, 4)
+            SigCorner.Parent = SigPill
+
+            local SigLabel = Instance.new("TextLabel")
+            SigLabel.Size = UDim2.new(1, 0, 1, 0)
+            SigLabel.BackgroundTransparency = 1
+            SigLabel.Font = Enum.Font.GothamMedium
+            SigLabel.TextSize = 10
+            SigLabel.TextColor3 = Color3.fromRGB(130, 195, 255)
+            SigLabel.Text = sigPillText
+            SigLabel.Parent = SigPill
+
+            -- Right Buttons: Copy All Hashes + Expand/Collapse
+            local CopyAllBtn = Instance.new("TextButton")
+            CopyAllBtn.Size = UDim2.new(0, 110, 0, 26)
+            CopyAllBtn.Position = UDim2.new(1, subCount > 0 and -270 or -120, 0, 9)
+            CopyAllBtn.BackgroundColor3 = Color3.fromRGB(30, 40, 58)
+            CopyAllBtn.BorderSizePixel = 0
+            CopyAllBtn.Font = Enum.Font.GothamMedium
+            CopyAllBtn.TextSize = 10
+            CopyAllBtn.TextColor3 = Color3.fromRGB(160, 200, 240)
+            CopyAllBtn.Text = "📋 Copy All Hashes"
+            CopyAllBtn.Parent = HeaderBar
+
+            local CopyAllCorner = Instance.new("UICorner")
+            CopyAllCorner.CornerRadius = UDim.new(0, 6)
+            CopyAllCorner.Parent = CopyAllBtn
+
+            CopyAllBtn.MouseButton1Click:Connect(function()
                 if setclipboard then
-                    setclipboard(hLower)
-                    CopyHashBtn.Text = "Copied!"
-                    task.delay(1.5, function() CopyHashBtn.Text = "📋 Copy" end)
+                    local allLines = {}
+                    if grp.primaryHash then table.insert(allLines, grp.primaryHash) end
+                    for _, sH in ipairs(grp.submodules) do table.insert(allLines, sH) end
+                    setclipboard(table.concat(allLines, "\n"))
+                    CopyAllBtn.Text = "Copied All!"
+                    task.delay(1.5, function() CopyAllBtn.Text = "📋 Copy All Hashes" end)
                 end
             end)
 
-            local RevokeHashBtn = Instance.new("TextButton")
-            RevokeHashBtn.Size = UDim2.new(0, 65, 0, 26)
-            RevokeHashBtn.Position = UDim2.new(1, -75, 0, 12)
-            RevokeHashBtn.BackgroundColor3 = Color3.fromRGB(42, 28, 34)
-            RevokeHashBtn.BorderSizePixel = 0
-            RevokeHashBtn.Font = Enum.Font.GothamBold
-            RevokeHashBtn.TextSize = 10
-            RevokeHashBtn.TextColor3 = Color3.fromRGB(255, 110, 110)
-            RevokeHashBtn.Text = "Revoke"
-            RevokeHashBtn.Parent = Row
+            if subCount > 0 then
+                local ToggleBtn = Instance.new("TextButton")
+                ToggleBtn.Size = UDim2.new(0, 140, 0, 26)
+                ToggleBtn.Position = UDim2.new(1, -150, 0, 9)
+                ToggleBtn.BackgroundColor3 = isExpanded and Color3.fromRGB(42, 54, 76) or Color3.fromRGB(32, 42, 60)
+                ToggleBtn.BorderSizePixel = 0
+                ToggleBtn.Font = Enum.Font.GothamBold
+                ToggleBtn.TextSize = 10
+                ToggleBtn.TextColor3 = isExpanded and Color3.fromRGB(100, 220, 255) or Color3.fromRGB(160, 195, 230)
+                ToggleBtn.Text = isExpanded and "▲ Hide Submodules" or string.format("▼ View %d Submodules", subCount)
+                ToggleBtn.Parent = HeaderBar
 
-            local RevokeCorner = Instance.new("UICorner")
-            RevokeCorner.CornerRadius = UDim.new(0, 5)
-            RevokeCorner.Parent = RevokeHashBtn
+                local ToggleCorner = Instance.new("UICorner")
+                ToggleCorner.CornerRadius = UDim.new(0, 6)
+                ToggleCorner.Parent = ToggleBtn
 
-            RevokeHashBtn.MouseButton1Click:Connect(function()
-                currentLedger.hashes[h] = nil
-                currentLedger.hashes[hLower] = nil
-                saveLedger(currentLedger)
-                showToast("Revoked signature hash " .. hLower:sub(1, 10) .. "...", false)
-                renderHashesView()
-            end)
+                ToggleBtn.MouseButton1Click:Connect(function()
+                    expandedScriptGroups[u] = not (expandedScriptGroups[u] == true)
+                    renderHashesView()
+                end)
+            end
+
+            -- ==================================================================
+            -- SECTION B: PRIMARY ENTRYPOINT ROW
+            -- ==================================================================
+            if grp.primaryHash then
+                local PrimRow = Instance.new("Frame")
+                PrimRow.Name = "PrimaryRow"
+                PrimRow.LayoutOrder = 2
+                PrimRow.Size = UDim2.new(1, 0, 0, 36)
+                PrimRow.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+                PrimRow.BorderSizePixel = 0
+                PrimRow.Parent = GroupCard
+
+                local PrimBadge = Instance.new("TextLabel")
+                PrimBadge.Size = UDim2.new(0, 140, 1, 0)
+                PrimBadge.Position = UDim2.new(0, 12, 0, 0)
+                PrimBadge.BackgroundTransparency = 1
+                PrimBadge.Font = Enum.Font.GothamBold
+                PrimBadge.TextSize = 10
+                PrimBadge.TextColor3 = Color3.fromRGB(100, 230, 130)
+                PrimBadge.TextXAlignment = Enum.TextXAlignment.Left
+                PrimBadge.Text = "★ Primary Entrypoint"
+                PrimBadge.Parent = PrimRow
+
+                local PrimHash = Instance.new("TextLabel")
+                PrimHash.Size = UDim2.new(1, -230, 1, 0)
+                PrimHash.Position = UDim2.new(0, 155, 0, 0)
+                PrimHash.BackgroundTransparency = 1
+                PrimHash.Font = Enum.Font.Code
+                PrimHash.TextSize = 11
+                PrimHash.TextColor3 = Color3.fromRGB(220, 235, 250)
+                PrimHash.TextXAlignment = Enum.TextXAlignment.Left
+                PrimHash.TextTruncate = Enum.TextTruncate.AtEnd
+                PrimHash.Text = grp.primaryHash
+                PrimHash.Parent = PrimRow
+
+                local PrimCopyBtn = Instance.new("TextButton")
+                PrimCopyBtn.Size = UDim2.new(0, 60, 0, 22)
+                PrimCopyBtn.Position = UDim2.new(1, -72, 0, 7)
+                PrimCopyBtn.BackgroundColor3 = Color3.fromRGB(26, 34, 48)
+                PrimCopyBtn.BorderSizePixel = 0
+                PrimCopyBtn.Font = Enum.Font.GothamMedium
+                PrimCopyBtn.TextSize = 10
+                PrimCopyBtn.TextColor3 = Color3.fromRGB(160, 185, 215)
+                PrimCopyBtn.Text = "Copy"
+                PrimCopyBtn.Parent = PrimRow
+
+                local PrimCopyCorner = Instance.new("UICorner")
+                PrimCopyCorner.CornerRadius = UDim.new(0, 4)
+                PrimCopyCorner.Parent = PrimCopyBtn
+
+                PrimCopyBtn.MouseButton1Click:Connect(function()
+                    if setclipboard then
+                        setclipboard(grp.primaryHash)
+                        PrimCopyBtn.Text = "Copied!"
+                        task.delay(1.5, function() PrimCopyBtn.Text = "Copy" end)
+                    end
+                end)
+            end
+
+            -- ==================================================================
+            -- SECTION C: SUBMODULES ACCORDION DRAWER
+            -- ==================================================================
+            if subCount > 0 and isExpanded then
+                local Drawer = Instance.new("Frame")
+                Drawer.Name = "SubmodulesDrawer"
+                Drawer.LayoutOrder = 3
+                Drawer.Size = UDim2.new(1, 0, 0, 0)
+                Drawer.AutomaticSize = Enum.AutomaticSize.Y
+                Drawer.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
+                Drawer.BorderSizePixel = 0
+                Drawer.Parent = GroupCard
+
+                local DrawerLayout = Instance.new("UIListLayout")
+                DrawerLayout.SortOrder = Enum.SortOrder.LayoutOrder
+                DrawerLayout.Padding = UDim.new(0, 2)
+                DrawerLayout.Parent = Drawer
+
+                local DrawerPadding = Instance.new("UIPadding")
+                DrawerPadding.PaddingTop = UDim.new(0, 6)
+                DrawerPadding.PaddingBottom = UDim.new(0, 8)
+                DrawerPadding.PaddingLeft = UDim.new(0, 10)
+                DrawerPadding.PaddingRight = UDim.new(0, 10)
+                DrawerPadding.Parent = Drawer
+
+                local DrawerHeader = Instance.new("Frame")
+                DrawerHeader.LayoutOrder = 1
+                DrawerHeader.Size = UDim2.new(1, 0, 0, 22)
+                DrawerHeader.BackgroundTransparency = 1
+                DrawerHeader.Parent = Drawer
+
+                local DrawerTitle = Instance.new("TextLabel")
+                DrawerTitle.Size = UDim2.new(1, 0, 1, 0)
+                DrawerTitle.BackgroundTransparency = 1
+                DrawerTitle.Font = Enum.Font.GothamBold
+                DrawerTitle.TextSize = 10
+                DrawerTitle.TextColor3 = Color3.fromRGB(130, 150, 180)
+                DrawerTitle.TextXAlignment = Enum.TextXAlignment.Left
+                DrawerTitle.Text = string.format("🧩 OBFUSCATED CHILD CHUNKS (%d VERIFIED AT RUNTIME)", #matchedSubmodules)
+                DrawerTitle.Parent = DrawerHeader
+
+                for subIdx, item in ipairs(matchedSubmodules) do
+                    local sH = item.hash
+                    local sNum = item.index
+
+                    local SubRow = Instance.new("Frame")
+                    SubRow.Name = "SubRow_" .. sNum
+                    SubRow.LayoutOrder = subIdx + 1
+                    SubRow.Size = UDim2.new(1, 0, 0, 24)
+                    SubRow.BackgroundColor3 = (subIdx % 2 == 0) and Color3.fromRGB(18, 23, 34) or Color3.fromRGB(14, 18, 26)
+                    SubRow.BorderSizePixel = 0
+                    SubRow.Parent = Drawer
+
+                    local SubRowCorner = Instance.new("UICorner")
+                    SubRowCorner.CornerRadius = UDim.new(0, 4)
+                    SubRowCorner.Parent = SubRow
+
+                    local IndexLabel = Instance.new("TextLabel")
+                    IndexLabel.Size = UDim2.new(0, 32, 1, 0)
+                    IndexLabel.Position = UDim2.new(0, 6, 0, 0)
+                    IndexLabel.BackgroundTransparency = 1
+                    IndexLabel.Font = Enum.Font.GothamMedium
+                    IndexLabel.TextSize = 10
+                    IndexLabel.TextColor3 = Color3.fromRGB(100, 120, 145)
+                    IndexLabel.TextXAlignment = Enum.TextXAlignment.Left
+                    IndexLabel.Text = string.format("#%02d", sNum)
+                    IndexLabel.Parent = SubRow
+
+                    local HashLabel = Instance.new("TextLabel")
+                    HashLabel.Size = UDim2.new(1, -110, 1, 0)
+                    HashLabel.Position = UDim2.new(0, 42, 0, 0)
+                    HashLabel.BackgroundTransparency = 1
+                    HashLabel.Font = Enum.Font.Code
+                    HashLabel.TextSize = 10
+                    HashLabel.TextColor3 = Color3.fromRGB(190, 205, 230)
+                    HashLabel.TextXAlignment = Enum.TextXAlignment.Left
+                    HashLabel.TextTruncate = Enum.TextTruncate.AtEnd
+                    HashLabel.Text = sH
+                    HashLabel.Parent = SubRow
+
+                    local SubCopyBtn = Instance.new("TextButton")
+                    SubCopyBtn.Size = UDim2.new(0, 48, 0, 18)
+                    SubCopyBtn.Position = UDim2.new(1, -54, 0, 3)
+                    SubCopyBtn.BackgroundColor3 = Color3.fromRGB(24, 32, 46)
+                    SubCopyBtn.BorderSizePixel = 0
+                    SubCopyBtn.Font = Enum.Font.GothamMedium
+                    SubCopyBtn.TextSize = 9
+                    SubCopyBtn.TextColor3 = Color3.fromRGB(140, 170, 205)
+                    SubCopyBtn.Text = "Copy"
+                    SubCopyBtn.Parent = SubRow
+
+                    local SubCopyCorner = Instance.new("UICorner")
+                    SubCopyCorner.CornerRadius = UDim.new(0, 3)
+                    SubCopyCorner.Parent = SubCopyBtn
+
+                    SubCopyBtn.MouseButton1Click:Connect(function()
+                        if setclipboard then
+                            setclipboard(sH)
+                            SubCopyBtn.Text = "✓"
+                            task.delay(1.2, function() SubCopyBtn.Text = "Copy" end)
+                        end
+                    end)
+                end
+            end
         end
     end
 
-    if matches == 0 then
+    -- 4. Render Standalone / Dynamic Hashes Section (if any exist)
+    if #standaloneHashes > 0 then
+        local matchedStandalone = {}
+        for _, sH in ipairs(standaloneHashes) do
+            if query == "" or sH:find(query, 1, true) then
+                table.insert(matchedStandalone, sH)
+            end
+        end
+
+        if #matchedStandalone > 0 then
+            totalRenderedCards = totalRenderedCards + 1
+
+            local StandaloneCard = Instance.new("Frame")
+            StandaloneCard.Name = "StandaloneHashesCard"
+            StandaloneCard.Size = UDim2.new(1, 0, 0, 0)
+            StandaloneCard.AutomaticSize = Enum.AutomaticSize.Y
+            StandaloneCard.BackgroundColor3 = Color3.fromRGB(28, 22, 24)
+            StandaloneCard.BorderSizePixel = 0
+            StandaloneCard.Parent = HashesScroll
+
+            local StandaloneCorner = Instance.new("UICorner")
+            StandaloneCorner.CornerRadius = UDim.new(0, 8)
+            StandaloneCorner.Parent = StandaloneCard
+
+            local StandaloneStroke = Instance.new("UIStroke")
+            StandaloneStroke.Thickness = 1
+            StandaloneStroke.Color = Color3.fromRGB(68, 38, 44)
+            StandaloneStroke.Parent = StandaloneCard
+
+            local StandaloneLayout = Instance.new("UIListLayout")
+            StandaloneLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            StandaloneLayout.Padding = UDim.new(0, 4)
+            StandaloneLayout.Parent = StandaloneCard
+
+            local StandalonePadding = Instance.new("UIPadding")
+            StandalonePadding.PaddingTop = UDim.new(0, 8)
+            StandalonePadding.PaddingBottom = UDim.new(0, 10)
+            StandalonePadding.PaddingLeft = UDim.new(0, 10)
+            StandalonePadding.PaddingRight = UDim.new(0, 10)
+            StandalonePadding.Parent = StandaloneCard
+
+            local StandaloneHeader = Instance.new("Frame")
+            StandaloneHeader.LayoutOrder = 1
+            StandaloneHeader.Size = UDim2.new(1, 0, 0, 26)
+            StandaloneHeader.BackgroundTransparency = 1
+            StandaloneHeader.Parent = StandaloneCard
+
+            local SHeaderLabel = Instance.new("TextLabel")
+            SHeaderLabel.Size = UDim2.new(1, 0, 1, 0)
+            SHeaderLabel.BackgroundTransparency = 1
+            SHeaderLabel.Font = Enum.Font.GothamBold
+            SHeaderLabel.TextSize = 11
+            SHeaderLabel.TextColor3 = Color3.fromRGB(255, 170, 90)
+            SHeaderLabel.TextXAlignment = Enum.TextXAlignment.Left
+            SHeaderLabel.Text = string.format("⚡ Standalone & Dynamic Hashes (%d)", #matchedStandalone)
+            SHeaderLabel.Parent = StandaloneHeader
+
+            for sIdx, sH in ipairs(matchedStandalone) do
+                local sRow = Instance.new("Frame")
+                sRow.Name = "StandaloneRow_" .. sIdx
+                sRow.LayoutOrder = sIdx + 1
+                sRow.Size = UDim2.new(1, 0, 0, 28)
+                sRow.BackgroundColor3 = Color3.fromRGB(36, 26, 30)
+                sRow.BorderSizePixel = 0
+                sRow.Parent = StandaloneCard
+
+                local sRowCorner = Instance.new("UICorner")
+                sRowCorner.CornerRadius = UDim.new(0, 4)
+                sRowCorner.Parent = sRow
+
+                local sHashText = Instance.new("TextLabel")
+                sHashText.Size = UDim2.new(1, -140, 1, 0)
+                sHashText.Position = UDim2.new(0, 8, 0, 0)
+                sHashText.BackgroundTransparency = 1
+                sHashText.Font = Enum.Font.Code
+                sHashText.TextSize = 10
+                sHashText.TextColor3 = Color3.fromRGB(255, 215, 215)
+                sHashText.TextXAlignment = Enum.TextXAlignment.Left
+                sHashText.TextTruncate = Enum.TextTruncate.AtEnd
+                sHashText.Text = sH
+                sHashText.Parent = sRow
+
+                local sCopyBtn = Instance.new("TextButton")
+                sCopyBtn.Size = UDim2.new(0, 55, 0, 20)
+                sCopyBtn.Position = UDim2.new(1, -125, 0, 4)
+                sCopyBtn.BackgroundColor3 = Color3.fromRGB(48, 36, 42)
+                sCopyBtn.BorderSizePixel = 0
+                sCopyBtn.Font = Enum.Font.GothamMedium
+                sCopyBtn.TextSize = 9
+                sCopyBtn.TextColor3 = Color3.fromRGB(230, 190, 200)
+                sCopyBtn.Text = "Copy"
+                sCopyBtn.Parent = sRow
+
+                local sCopyCorner = Instance.new("UICorner")
+                sCopyCorner.CornerRadius = UDim.new(0, 3)
+                sCopyCorner.Parent = sCopyBtn
+
+                sCopyBtn.MouseButton1Click:Connect(function()
+                    if setclipboard then
+                        setclipboard(sH)
+                        sCopyBtn.Text = "✓"
+                        task.delay(1.2, function() sCopyBtn.Text = "Copy" end)
+                    end
+                end)
+
+                local sRevokeBtn = Instance.new("TextButton")
+                sRevokeBtn.Size = UDim2.new(0, 60, 0, 20)
+                sRevokeBtn.Position = UDim2.new(1, -65, 0, 4)
+                sRevokeBtn.BackgroundColor3 = Color3.fromRGB(58, 24, 28)
+                sRevokeBtn.BorderSizePixel = 0
+                sRevokeBtn.Font = Enum.Font.GothamBold
+                sRevokeBtn.TextSize = 9
+                sRevokeBtn.TextColor3 = Color3.fromRGB(255, 110, 110)
+                sRevokeBtn.Text = "Revoke"
+                sRevokeBtn.Parent = sRow
+
+                local sRevokeCorner = Instance.new("UICorner")
+                sRevokeCorner.CornerRadius = UDim.new(0, 3)
+                sRevokeCorner.Parent = sRevokeBtn
+
+                sRevokeBtn.MouseButton1Click:Connect(function()
+                    currentLedger.hashes[sH] = nil
+                    saveLedger(currentLedger)
+                    showToast("Revoked standalone hash " .. sH:sub(1, 10) .. "...", false)
+                    renderHashesView()
+                end)
+            end
+        end
+    end
+
+    -- 5. Empty View Fallback
+    if totalRenderedCards == 0 then
         local EmptyNotice = Instance.new("Frame")
         EmptyNotice.Size = UDim2.new(1, 0, 0, 60)
         EmptyNotice.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
@@ -1246,7 +1589,7 @@ renderHashesView = function()
         if #hashList == 0 then
             EmptyLabel.Text = "No return hashes recorded yet."
         elseif query ~= "" then
-            EmptyLabel.Text = "No approved hashes match your filter."
+            EmptyLabel.Text = "No return hashes match your search filter."
         else
             EmptyLabel.Text = "No return hashes found."
         end
