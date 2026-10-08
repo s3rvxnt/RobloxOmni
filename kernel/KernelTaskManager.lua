@@ -33,6 +33,14 @@
 
 if not game or not game.GetService then return end
 
+-- Watchdog: Set engine script timeout to abort infinite/unyielding loops (e.g., anti-tamper traps)
+pcall(function()
+    local s = (setfflag or setfastflag)
+    if s then
+        s("DFIntScriptTimeoutSeconds", "2")
+    end
+end)
+
 local rawGame = (workspace and workspace.Parent) or game
 if not getgenv()._KernelOrigGame then
     getgenv()._KernelOrigGame = rawGame
@@ -399,6 +407,7 @@ local Events = {
         tasks = {},
         taskOrder = {},
         deferredQueue = {},
+        needsSort = false,
     },
     Stepped = {
         name = "Stepped",
@@ -408,6 +417,7 @@ local Events = {
         tasks = {},
         taskOrder = {},
         deferredQueue = {},
+        needsSort = false,
     },
     RenderStepped = {
         name = "RenderStepped",
@@ -417,6 +427,7 @@ local Events = {
         tasks = {},
         taskOrder = {},
         deferredQueue = {},
+        needsSort = false,
     },
     SuperStep = {
         name = "SuperStep",
@@ -425,6 +436,7 @@ local Events = {
         tasks = {},
         taskOrder = {},
         deferredQueue = {},
+        needsSort = false,
     },
 }
 
@@ -545,6 +557,47 @@ local function getNumericTaskPriority(t)
     return tonumber(p) or 50
 end
 
+local sortingEventTasks = nil
+local function eventTaskOrderComparator(aId, bId)
+    local tA = sortingEventTasks[aId]
+    local tB = sortingEventTasks[bId]
+    local priA = getNumericTaskPriority(tA)
+    local priB = getNumericTaskPriority(tB)
+    if priA ~= priB then return priA > priB end
+    local soA = (tA and tA.sortOrder) or 9999
+    local soB = (tB and tB.sortOrder) or 9999
+    if soA ~= soB then return soA < soB end
+    local intA = (tA and tA.interval) or 1
+    local intB = (tB and tB.interval) or 1
+    if intA ~= intB then return intA < intB end
+    return ((tA and tA.recentAvgMs) or 0) < ((tB and tB.recentAvgMs) or 0)
+end
+
+local function sortEventTasks(eventState)
+    sortingEventTasks = eventState.tasks
+    table.sort(eventState.taskOrder, eventTaskOrderComparator)
+    sortingEventTasks = nil
+    eventState.needsSort = false
+end
+
+local function taskObjSortComparator(a, b)
+    local priA = getNumericTaskPriority(a)
+    local priB = getNumericTaskPriority(b)
+    if priA ~= priB then return priA > priB end
+    local soA = (a and a.sortOrder) or 9999
+    local soB = (b and b.sortOrder) or 9999
+    if soA ~= soB then return soA < soB end
+    local intA = (a and a.interval) or 1
+    local intB = (b and b.interval) or 1
+    if intA ~= intB then return intA < intB end
+    return ((a and a.recentAvgMs) or 0) < ((b and b.recentAvgMs) or 0)
+end
+
+-- Pre-allocated static scratch buffers for zero-allocation processFrame execution
+local frameWorkQueue = {}
+local frameQueuedSet = {}
+local frameTaskOrderSnapshot = {}
+
 local nextTaskId = 0
 local taskStaggerCounter = 0
 local teardownConnections = {}
@@ -641,6 +694,8 @@ local function runTask(taskObj, ...)
                     taskObj.priorityBand = "Idle"
                     taskObj.priority = 5
                 end
+                local ev = Events[taskObj.event]
+                if ev then ev.needsSort = true end
             end
         elseif durationMs < lightRecoveryMs and ((taskObj.recentAvgMs or 0) < (lightRecoveryMs * 1.25)) then
             taskObj.lightStreak = (taskObj.lightStreak or 0) + 1
@@ -669,6 +724,8 @@ local function runTask(taskObj, ...)
                     taskObj.priorityBand = "Idle"
                     taskObj.priority = 5
                 end
+                local ev = Events[taskObj.event]
+                if ev then ev.needsSort = true end
             end
         end
     end
@@ -743,108 +800,79 @@ local function processFrame(eventState, ...)
         end
     end
 
-    -- Snapshot taskOrder to prevent element skipping if tasks are added or disconnected during iteration
-    local taskOrderSnapshot = table.clone(eventState.taskOrder)
+    if eventState.needsSort then
+        sortEventTasks(eventState)
+    end
+    local superState = Events.SuperStep
+    if superState and superState.needsSort then
+        sortEventTasks(superState)
+    end
 
-    -- Build unified frame work queue ordered strictly by continuous priority spectrum:
-    -- 0. SuperStep tasks (physics/CFrame locking, run across Stepped, RenderStepped, Heartbeat)
-    -- 1. Deferred tasks from previous frame (prevents starvation)
-    -- 2. Eligible tasks scheduled for this frame along the continuous spectrum
-    local workQueue = {}
-    local queuedSet = {}
+    -- Snapshot taskOrder into pre-allocated buffer to prevent element skipping if tasks are added or disconnected during iteration
+    table.clear(frameTaskOrderSnapshot)
+    local taskOrderCount = #eventState.taskOrder
+    if taskOrderCount > 0 then
+        table.move(eventState.taskOrder, 1, taskOrderCount, 1, frameTaskOrderSnapshot)
+    end
+
+    -- Reset pre-allocated scratch buffers
+    table.clear(frameWorkQueue)
+    table.clear(frameQueuedSet)
 
     -- 0. SuperStep tasks: executed at the top of each engine simulation phase
-    local superState = Events.SuperStep
     if superState and #superState.taskOrder > 0 then
         if #superState.deferredQueue > 0 then
             for _, taskId in ipairs(superState.deferredQueue) do
                 local taskObj = superState.tasks[taskId]
-                if taskObj and taskObj.connected and not taskObj.paused and not queuedSet[taskId] then
-                    table.insert(workQueue, taskObj)
-                    queuedSet[taskId] = true
+                if taskObj and taskObj.connected and not taskObj.paused and not frameQueuedSet[taskId] then
+                    table.insert(frameWorkQueue, taskObj)
+                    frameQueuedSet[taskId] = true
                 end
             end
-            superState.deferredQueue = {}
+            table.clear(superState.deferredQueue)
         end
 
-        local superSnapshot = table.clone(superState.taskOrder)
-        for _, taskId in ipairs(superSnapshot) do
+        for _, taskId in ipairs(superState.taskOrder) do
             local taskObj = superState.tasks[taskId]
-            if taskObj and taskObj.connected and not taskObj.paused and not queuedSet[taskId] then
+            if taskObj and taskObj.connected and not taskObj.paused and not frameQueuedSet[taskId] then
                 local intv = taskObj.interval or 1
                 if intv <= 1 or ((frameNum + (taskObj.offset or 0)) % intv == 0) then
-                    table.insert(workQueue, taskObj)
-                    queuedSet[taskId] = true
+                    table.insert(frameWorkQueue, taskObj)
+                    frameQueuedSet[taskId] = true
                 end
             end
         end
     end
 
     -- 1. Prioritize tasks deferred from previous frame
-    for _, taskId in ipairs(eventState.deferredQueue) do
-        local taskObj = eventState.tasks[taskId]
-        if taskObj and taskObj.connected and not taskObj.paused and not queuedSet[taskId] then
-            table.insert(workQueue, taskObj)
-            queuedSet[taskId] = true
+    if #eventState.deferredQueue > 0 then
+        for _, taskId in ipairs(eventState.deferredQueue) do
+            local taskObj = eventState.tasks[taskId]
+            if taskObj and taskObj.connected and not taskObj.paused and not frameQueuedSet[taskId] then
+                table.insert(frameWorkQueue, taskObj)
+                frameQueuedSet[taskId] = true
+            end
         end
+        table.clear(eventState.deferredQueue)
     end
-    eventState.deferredQueue = {}
 
     -- 2. Schedule eligible tasks for this frame along the continuous spectrum
-    local eligibleTasks = {}
-    for _, taskId in ipairs(taskOrderSnapshot) do
+    for i = 1, taskOrderCount do
+        local taskId = frameTaskOrderSnapshot[i]
         local taskObj = eventState.tasks[taskId]
-        if taskObj and taskObj.connected and not taskObj.paused and not queuedSet[taskId] then
+        if taskObj and taskObj.connected and not taskObj.paused and not frameQueuedSet[taskId] then
             local intv = taskObj.interval or 1
             if intv <= 1 or ((frameNum + (taskObj.offset or 0)) % intv == 0) then
-                table.insert(eligibleTasks, taskObj)
+                table.insert(frameWorkQueue, taskObj)
+                frameQueuedSet[taskId] = true
             end
         end
     end
 
-    -- Sort eligible tasks: highest priority first (descending 100 -> 1); tie-break on sortOrder, then lower interval, then lower recentAvgMs
-    table.sort(eligibleTasks, function(a, b)
-        local priA = getNumericTaskPriority(a)
-        local priB = getNumericTaskPriority(b)
-        if priA ~= priB then
-            return priA > priB
-        end
-        local soA = tonumber(a.sortOrder) or 9999
-        local soB = tonumber(b.sortOrder) or 9999
-        if soA ~= soB then
-            return soA < soB
-        end
-        local intA = a.interval or 1
-        local intB = b.interval or 1
-        if intA ~= intB then
-            return intA < intB
-        end
-        return (a.recentAvgMs or 0) < (b.recentAvgMs or 0)
-    end)
-
-    for _, taskObj in ipairs(eligibleTasks) do
-        table.insert(workQueue, taskObj)
-        queuedSet[taskObj.id] = true
+    -- Sort combined work queue using static comparator (zero closure allocations)
+    if #frameWorkQueue > 1 then
+        table.sort(frameWorkQueue, taskObjSortComparator)
     end
-
-    table.sort(workQueue, function(a, b)
-        local priA = getNumericTaskPriority(a)
-        local priB = getNumericTaskPriority(b)
-        if priA ~= priB then
-            return priA > priB
-        end
-        local soA = tonumber(a.sortOrder) or 9999
-        local soB = tonumber(b.sortOrder) or 9999
-        if soA ~= soB then
-            return soA < soB
-        end
-        local intA = a.interval or 1
-        local intB = b.interval or 1
-        if intA ~= intB then
-            return intA < intB
-        end
-        return (a.recentAvgMs or 0) < (b.recentAvgMs or 0)
-    end)
 
     -- Execute tasks within strict adaptive frame budget (capped at currentBudgetSec)
     -- Guarantees total executor execution time per frame NEVER exceeds the budget window!
@@ -856,8 +884,7 @@ local function processFrame(eventState, ...)
 
     local phaseStart = os.clock()
     local phaseMinBudgetSec = currentBudgetSec * 0.25 -- Guaranteed 25% minimum budget share
-    local deferredThisFrame = {}
-    for i, taskObj in ipairs(workQueue) do
+    for i, taskObj in ipairs(frameWorkQueue) do
         if taskObj.connected and not taskObj.paused then
             if taskObj.isIngested and taskObj.nativeConn and taskObj.nativeConn.Connected == false then
                 if taskObj.connection and taskObj.connection.Disconnect then
@@ -871,8 +898,8 @@ local function processFrame(eventState, ...)
             local phaseElapsed = os.clock() - phaseStart
             local totalElapsed = frameSpentSec + phaseElapsed
             if totalElapsed >= currentBudgetSec and phaseElapsed >= phaseMinBudgetSec then
-                for j = i, #workQueue do
-                    local remainingObj = workQueue[j]
+                for j = i, #frameWorkQueue do
+                    local remainingObj = frameWorkQueue[j]
                     if remainingObj and remainingObj.connected and not remainingObj.paused then
                         if remainingObj.isHardRealTime or remainingObj.isIngested then
                             -- HARD REAL-TIME: Ingested game engine callbacks must NEVER be deferred!
@@ -886,7 +913,7 @@ local function processFrame(eventState, ...)
                         elseif remainingObj.event == "SuperStep" then
                             table.insert(Events.SuperStep.deferredQueue, remainingObj.id)
                         else
-                            table.insert(deferredThisFrame, remainingObj.id)
+                            table.insert(eventState.deferredQueue, remainingObj.id)
                         end
                     end
                 end
@@ -917,7 +944,6 @@ local function processFrame(eventState, ...)
         end
     end
     frameSpentSec = frameSpentSec + (os.clock() - phaseStart)
-    eventState.deferredQueue = deferredThisFrame
 end
 
 -- Connect engine frame hooks to raw signals forwarding all arguments (...)
@@ -1243,17 +1269,7 @@ local function ThrottledConnect(arg1, arg2, arg3, arg4, arg5)
     connection.Task = taskObj
     table.insert(eventState.taskOrder, taskId)
 
-    table.sort(eventState.taskOrder, function(a, b)
-        local tA = eventState.tasks[a]
-        local tB = eventState.tasks[b]
-        local priA = getNumericTaskPriority(tA)
-        local priB = getNumericTaskPriority(tB)
-        if priA ~= priB then return priA > priB end
-        local soA = (tA and tA.sortOrder) or 9999
-        local soB = (tB and tB.sortOrder) or 9999
-        if soA ~= soB then return soA < soB end
-        return ((tA and tA.name) or ""):lower() < ((tB and tB.name) or ""):lower()
-    end)
+    sortEventTasks(eventState)
 
     function connection:Disconnect()
         if not self.Connected then return end
@@ -1303,11 +1319,7 @@ local function ThrottledConnect(arg1, arg2, arg3, arg4, arg5)
         self.PriorityBand = band
         local ev = Events[taskObj.event]
         if ev and ev.taskOrder then
-            table.sort(ev.taskOrder, function(a, b)
-                local tA = ev.tasks[a]
-                local tB = ev.tasks[b]
-                return getNumericTaskPriority(tA) > getNumericTaskPriority(tB)
-            end)
+            sortEventTasks(ev)
         end
         emitProfile()
     end
@@ -3951,17 +3963,7 @@ local function SetSchedulerTaskPriority(identifier, newPriority, newSortOrder)
         end
         local ev = Events[taskObj.event]
         if ev and ev.taskOrder then
-            table.sort(ev.taskOrder, function(a, b)
-                local tA = ev.tasks[a]
-                local tB = ev.tasks[b]
-                local priA = getNumericTaskPriority(tA)
-                local priB = getNumericTaskPriority(tB)
-                if priA ~= priB then return priA > priB end
-                local soA = (tA and tA.sortOrder) or 9999
-                local soB = (tB and tB.sortOrder) or 9999
-                if soA ~= soB then return soA < soB end
-                return a < b
-            end)
+            sortEventTasks(ev)
         end
         emitProfile()
         saveSchedulerOverrides()

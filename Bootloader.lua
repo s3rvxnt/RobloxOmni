@@ -14,6 +14,14 @@
     - Telemetry: Emits Bootloader_Status.json with per-script timing and status
 ]]
 
+-- Watchdog: Set engine script timeout to abort infinite/unyielding loops (e.g., anti-tamper traps)
+pcall(function()
+    local s = (setfflag or setfastflag)
+    if s then
+        s("DFIntScriptTimeoutSeconds", "2")
+    end
+end)
+
 -- ==============================================================================
 -- STEP 2: ANTI-HOOKING EXECUTOR PRIMITIVE CLONING (Unhookable C-Closures)
 -- ==============================================================================
@@ -1822,7 +1830,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "9826dfe26ba32122d18642a6201bc551bfbe3720159965cd264acd830eac03f0"
+        sha256 = "ad281c0b44e90b5d34044f1d50bfda9e67370b57b93378fc226a79262c217d19"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
@@ -3294,7 +3302,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "9826dfe26ba32122d18642a6201bc551bfbe3720159965cd264acd830eac03f0"
+                    sha256 = "ad281c0b44e90b5d34044f1d50bfda9e67370b57b93378fc226a79262c217d19"
                 }
             }
         end
