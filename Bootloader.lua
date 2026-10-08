@@ -1000,7 +1000,10 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             end
 
             if isObf then
+                local curThread = coroutine.running()
+                _exemptObfuscatedThreads[curThread] = os.clock() + 120.0
                 _lastApprovedObfuscatedExecTime = os.clock()
+
                 if chunk and type(chunk) == "string" and chunk ~= "" then
                     local cleanChunk = sanitizeCallerChunk(chunk)
                     if cleanChunk ~= "" then
@@ -1010,16 +1013,10 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
                 if type(compiledFn) == "function" then
                     _exemptObfuscatedClosures[compiledFn] = true
-                    local rawCompiled = compiledFn
-                    local wrappedFn = function(...)
-                        local curThread = coroutine.running()
-                        _exemptObfuscatedThreads[curThread] = os.clock() + 60.0
-                        _lastApprovedObfuscatedExecTime = os.clock()
-                        return rawCompiled(...)
-                    end
-                    _exemptObfuscatedClosures[wrappedFn] = true
-                    return wrappedFn
                 end
+
+                print(string.format("[Omni Security Gate]: Obfuscated execution lease granted for %s", tostring(chunk or "Dynamic Script")))
+                return compiledFn
             end
 
             return compiledFn
@@ -1045,8 +1042,19 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 return origLoadstring(src, chunkname)
             end
 
-            -- 1. Thread-Level Exemption Check (Instantaneous 0ms lookup)
             local curThread = coroutine.running()
+
+            -- 0. Universal Temporal Unpack Pass-Through
+            -- When an approved obfuscated script (LuaAuth, Luraph, LuaArmor) executes, its multi-stage
+            -- VM unpackers dynamically call loadstring across various worker threads/coroutines.
+            -- To prevent watchdog timeout freezes and avoid polluting the call stack or popping UI modals,
+            -- any dynamic loadstring called within 60 seconds of approved execution passes straight through!
+            if (os.clock() - _lastApprovedObfuscatedExecTime < 60.0) then
+                _exemptObfuscatedThreads[curThread] = os.clock() + 60.0
+                return origLoadstring(src, chunkname)
+            end
+
+            -- 1. Thread-Level Exemption Check (Instantaneous 0ms lookup)
             if _exemptObfuscatedThreads[curThread] and (os.clock() < _exemptObfuscatedThreads[curThread]) then
                 return origLoadstring(src, chunkname)
             end
@@ -1063,7 +1071,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                     end
                 end
                 if not isCallerExempt then
-                    for lvl = 2, 20 do
+                    for lvl = 2, 25 do
                         local okF, cFunc = pcall(debug.info, lvl, "f")
                         if okF and cFunc and _exemptObfuscatedClosures[cFunc] then
                             isCallerExempt = true
@@ -1099,26 +1107,11 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 end
             end
 
-            -- 3. Temporal Unpack Lease (Dynamic loadstrings within 15 seconds of approved obfuscated script run)
-            if not isCallerExempt and (os.clock() - _lastApprovedObfuscatedExecTime < 15.0) then
-                local chunkLow = (chunkname and type(chunkname) == "string") and chunkname:lower() or ""
-                if chunkLow:find("luraph", 1, true)
-                    or chunkLow:find("luaauth", 1, true)
-                    or chunkLow:find("luarmor", 1, true)
-                    or chunkLow:find("luaarmor", 1, true)
-                    or chunkLow:find("moonsec", 1, true)
-                    or chunkLow:find("ironbrew", 1, true)
-                    or _exemptObfuscatedCallers[sanitizeCallerChunk(chunkname)]
-                    or isObfuscatedCode(src, chunkname) then
-                    isCallerExempt = true
-                    isCallerObfuscatedExempt = true
-                end
-            end
-
             -- If internal Omni caller or approved obfuscated script, bypass security gate directly with authentic loadstring
             if isCallerExempt then
                 if isCallerObfuscatedExempt then
-                    _exemptObfuscatedThreads[curThread] = os.clock() + 60.0
+                    _exemptObfuscatedThreads[curThread] = os.clock() + 120.0
+                    _lastApprovedObfuscatedExecTime = os.clock()
                 end
                 return origLoadstring(src, chunkname)
             end
@@ -1176,7 +1169,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                                 _exemptObfuscatedCallers[sanitizeCallerChunk(trustedEntry.local_file)] = true
                             end
                         end
-                        return compileExecutableChunk(src, effectiveChunk, isObf)
+                        return compileExecutableChunk(src, chunkname, isObf)
                     else
                         -- Content was updated by the author!
                         local localCopy = (trustedEntry.local_file and isfile(trustedEntry.local_file) and readfile(trustedEntry.local_file)) or ""
@@ -1205,6 +1198,9 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                             end
                             trustedEntry.hash = srcHash
                             trustedEntry.last_updated = os.time()
+                            if not ledger.hashes then ledger.hashes = {} end
+                            ledger.hashes[srcHash] = true
+                            ledger.hashes[normSrcHash] = true
                             saveTrustedUrlLedger(ledger)
                             local effectiveChunk = chunkname or ("@" .. targetUrl)
                             local isObf = isObfuscatedCode(src, effectiveChunk)
@@ -1214,7 +1210,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                                     _exemptObfuscatedCallers[sanitizeCallerChunk(trustedEntry.local_file)] = true
                                 end
                             end
-                            return compileExecutableChunk(src, effectiveChunk, isObf)
+                            return compileExecutableChunk(src, chunkname, isObf)
                         elseif decision == "run_previous" then
                             if localCopy and localCopy ~= "" then
                                 local effectiveChunk = chunkname or ("@" .. targetUrl)
@@ -1225,7 +1221,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                                         _exemptObfuscatedCallers[sanitizeCallerChunk(trustedEntry.local_file)] = true
                                     end
                                 end
-                                return compileExecutableChunk(localCopy, effectiveChunk, isObf)
+                                return compileExecutableChunk(localCopy, chunkname, isObf)
                             else
                                 return nil, "Omni Security Gate: No previous safe version found on disk"
                             end
@@ -1265,6 +1261,9 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                             first_trusted = os.time(),
                             last_updated = os.time()
                         }
+                        if not ledger.hashes then ledger.hashes = {} end
+                        ledger.hashes[srcHash] = true
+                        ledger.hashes[normSrcHash] = true
                         saveTrustedUrlLedger(ledger)
                         local effectiveChunk = chunkname or ("@" .. targetUrl)
                         local isObf = isObfuscatedCode(src, effectiveChunk)
@@ -1272,7 +1271,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                             _exemptObfuscatedCallers[sanitizeCallerChunk(targetUrl)] = true
                             _exemptObfuscatedCallers[sanitizeCallerChunk(filename)] = true
                         end
-                        return compileExecutableChunk(src, effectiveChunk, isObf)
+                        return compileExecutableChunk(src, chunkname, isObf)
                     else
                         return nil, "Omni Security Gate: Execution blocked by user"
                     end
