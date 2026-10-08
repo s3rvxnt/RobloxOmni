@@ -109,6 +109,15 @@ end)
 
 ---
 
+### Remote Safety Fail-Safe
+
+Omni includes an open, transparent safety switch checked via `manifest.json` on boot:
+* **Zero Remote Disconnects**: Omni **never** terminates your game session or disconnects your client. Your gameplay is never interrupted.
+* **Fail-Safe Protection**: If an unexpected Roblox engine update or detection vector is identified, the safety flag simply instructs Omni to stand down and decline to load its hooks and rings for that session, protecting your account.
+* **Complete Transparency**: You can inspect `manifest.json` directly on GitHub at any time. When active, Omni logs an honest advisory to the console and provides update options via the Update Gate (`Shift + F7`).
+
+---
+
 ### License
 
 Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).  

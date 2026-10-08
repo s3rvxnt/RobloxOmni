@@ -1810,13 +1810,13 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "67f2ea77f805c22f66dd61006feb9aae805646e51988030cce966297dda0d8b5"
+        sha256 = "14e90828d3129d159b402bb37b8748559c39d092bd94453a1be25527f5210567"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
         localPath = "autoexec/gameloaded/OmniEnhancementSuite.lua",
         name = "OmniEnhancementSuite",
-        sha256 = "8a4d8eeb657b8d72bea417f3d943c8787f193604a1003442d95845d6d2ca2a83"
+        sha256 = "4997db6157f797b3265babe30d9c93c3f33ff50e51c6250daf32a1b63489da2d"
     }
 }
 
@@ -3282,7 +3282,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "67f2ea77f805c22f66dd61006feb9aae805646e51988030cce966297dda0d8b5"
+                    sha256 = "14e90828d3129d159b402bb37b8748559c39d092bd94453a1be25527f5210567"
                 }
             }
         end
@@ -3418,14 +3418,8 @@ initUpdateGate = function(guiParent, UpdateBadge)
     end
 
     local isDefcon1Lockdown = false
-    local defcon1UnlockTime = 0
-    local defcon1CountdownThread = nil
 
     openUpdateModal = function(lockdownFlag, lockdownMsg)
-        if defcon1CountdownThread then
-            task.cancel(defcon1CountdownThread)
-            defcon1CountdownThread = nil
-        end
         if forceInstallResetThread then
             task.cancel(forceInstallResetThread)
             forceInstallResetThread = nil
@@ -3433,12 +3427,9 @@ initUpdateGate = function(guiParent, UpdateBadge)
         forceInstallConfirmActive = false
         isObfuscatedUpdateDetected = false
 
-        -- Defcon 1 is sticky: once engaged or if flagged or global lockdown is active, it cannot be downgraded
+        -- Safety advisory flag
         if lockdownFlag == true or getgenv()._OmniLockdownActive == true then
             isDefcon1Lockdown = true
-            if defcon1UnlockTime == 0 or os.clock() >= defcon1UnlockTime then
-                defcon1UnlockTime = os.clock() + 5.0
-            end
         else
             if not isDefcon1Lockdown then
                 isDefcon1Lockdown = false
@@ -3461,16 +3452,16 @@ initUpdateGate = function(guiParent, UpdateBadge)
             }
         end
 
-        -- Configure visual presentation based on Defcon 1 Lockdown status
+        -- Configure visual presentation based on Safety Advisory status
         if isDefcon1Lockdown then
-            ModalTitle.Text = "🚨 DEFCON 1 SECURITY LOCKDOWN"
-            ModalTitle.TextColor3 = Color3.fromRGB(255, 65, 65)
-            ModalSubtitle.Text = "AIR-GAP ACTIVE: Client disconnected from server to prevent anti-cheat detection telemetry"
-            ModalSubtitle.TextColor3 = Color3.fromRGB(255, 140, 140)
-            ApplyUpdateBtn.Text = "🛡️ Inspecting Security Diff (5s)..."
-            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(130, 40, 40)
-            DiffCard.BackgroundColor3 = Color3.fromRGB(38, 18, 22)
-            DiffStroke.Color = Color3.fromRGB(180, 45, 45)
+            ModalTitle.Text = "🛡️ OMNI SAFETY ADVISORY"
+            ModalTitle.TextColor3 = Color3.fromRGB(255, 170, 60)
+            ModalSubtitle.Text = "Core components paused to protect your account • Review details below"
+            ModalSubtitle.TextColor3 = Color3.fromRGB(200, 200, 200)
+            ApplyUpdateBtn.Text = "🛡️ Apply Verified Update"
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(210, 100, 35)
+            DiffCard.BackgroundColor3 = Color3.fromRGB(32, 24, 20)
+            DiffStroke.Color = Color3.fromRGB(180, 110, 45)
         else
             ModalTitle.Text = "⚡ OMNI UPDATE & SECURITY GATE"
             ModalTitle.TextColor3 = Color3.fromRGB(64, 196, 255)
@@ -3498,35 +3489,11 @@ initUpdateGate = function(guiParent, UpdateBadge)
             end
         end
 
+        ApplyUpdateBtn.Active = true
         if isDefcon1Lockdown then
-            local remaining = defcon1UnlockTime - os.clock()
-            if remaining > 0 then
-                ApplyUpdateBtn.Active = false
-                ApplyUpdateBtn.Text = string.format("🛡️ Inspecting Security Diff (%ds)...", math.max(1, math.ceil(remaining)))
-                ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(130, 40, 40)
-                defcon1CountdownThread = task.spawn(function()
-                    while os.clock() < defcon1UnlockTime do
-                        task.wait(0.2)
-                        if not isDefcon1Lockdown or not ModalBackdrop.Visible then break end
-                        local rem = defcon1UnlockTime - os.clock()
-                        if rem > 0 then
-                            ApplyUpdateBtn.Text = string.format("🛡️ Inspecting Security Diff (%ds)...", math.max(1, math.ceil(rem)))
-                        end
-                    end
-                    if isDefcon1Lockdown and ModalBackdrop.Visible and os.clock() >= defcon1UnlockTime then
-                        ApplyUpdateBtn.Active = true
-                        ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(210, 35, 35)
-                        ApplyUpdateBtn.Text = "🛡️ Apply Critical Security Patch"
-                    end
-                    defcon1CountdownThread = nil
-                end)
-            else
-                ApplyUpdateBtn.Active = true
-                ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(210, 35, 35)
-                ApplyUpdateBtn.Text = "🛡️ Apply Critical Security Patch"
-            end
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(210, 100, 35)
+            ApplyUpdateBtn.Text = "🛡️ Apply Verified Update"
         else
-            ApplyUpdateBtn.Active = true
             refreshApplyButtonUI()
         end
 
@@ -3538,10 +3505,9 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
         local changelogItems = {}
         if isDefcon1Lockdown then
-            table.insert(changelogItems, "🚨 [DEFCON 1 LOCKDOWN ACTIVE]: " .. tostring(lockdownMsg or "Core exploit detection alert"))
-            table.insert(changelogItems, "🛡️ Client has been air-gapped from game server to prevent telemetry detection.")
-            table.insert(changelogItems, "⚠️ All core rings and autoexec scripts are completely halted.")
-            table.insert(changelogItems, "🔍 Inspect the verified code diff below before applying the security patch.")
+            table.insert(changelogItems, "🛡️ [SAFETY ADVISORY]: " .. tostring(lockdownMsg or "Core components paused"))
+            table.insert(changelogItems, "ℹ️ Omni declined to load its modules to protect your account. Your game session is unaffected.")
+            table.insert(changelogItems, "🔍 Review the verified changes below before applying.")
         end
         if currentUpdateData.changelog then
             for _, note in ipairs(currentUpdateData.changelog) do
@@ -3598,10 +3564,6 @@ initUpdateGate = function(guiParent, UpdateBadge)
         end
         if userConsentCallback then
             userConsentCallback(false)
-        end
-        if defcon1CountdownThread then
-            task.cancel(defcon1CountdownThread)
-            defcon1CountdownThread = nil
         end
         if forceInstallResetThread then
             task.cancel(forceInstallResetThread)
@@ -3725,15 +3687,6 @@ initUpdateGate = function(guiParent, UpdateBadge)
         end
         if not currentUpdateData then return end
 
-        -- Defcon 1 Panic Click Guard: Strictly reject clicks while mandatory inspection countdown is running
-        if isDefcon1Lockdown and defcon1CountdownThread ~= nil then
-            warn("[Bootloader | UPDATE GATE]: Inspection countdown active. Please review the security diff before applying.")
-            return
-        end
-        if isDefcon1Lockdown and os.clock() < defcon1UnlockTime then
-            warn("[Bootloader | UPDATE GATE]: Inspection countdown active. Please review the security diff before applying.")
-            return
-        end
 
         -- Option B: Two-click confirmation for obfuscated updates
         if isObfuscatedUpdateDetected and not forceInstallConfirmActive then
@@ -4261,54 +4214,13 @@ local function checkDefcon1Lockdown()
     end
 
     if parsed.lockdown == true then
-        local lockdownMsg = parsed.lockdown_message or "Omni Defcon 1 Security Lockdown: Core exploit detection alert. Client air-gapped from server to prevent anti-cheat telemetry. Please review and apply the security patch."
+        local lockdownMsg = parsed.lockdown_message or "Omni remote safety advisory: Core components are paused to protect against detected game/engine changes."
 
         warn("=====================================================================")
-        warn("[Bootloader | DEFCON 1 SECURITY LOCKDOWN ENGAGED]")
-        warn(lockdownMsg)
+        warn("[Omni Safety Fail-Safe]: Remote safety advisory active.")
+        warn("[Omni Safety Fail-Safe]: " .. tostring(lockdownMsg))
+        warn("[Omni Safety Fail-Safe]: Core rings declined to load. Your game session is unaffected.")
         warn("=====================================================================")
-
-        -- Air-gap client from game server: call LocalPlayer:Kick with appropriate safety checks/waits
-        local function airGapClient(msg)
-            local Players = nil
-            pcall(function() Players = game:GetService("Players") end)
-            if not Players then
-                pcall(function() Players = game:FindService("Players") end)
-            end
-            local lp = Players and Players.LocalPlayer
-            if lp then
-                pcall(function() lp:Kick(msg) end)
-                return
-            end
-            task.spawn(function()
-                local kicked = false
-                if Players then
-                    pcall(function()
-                        local conn
-                        conn = Players:GetPropertyChangedSignal("LocalPlayer"):Connect(function()
-                            if Players.LocalPlayer and not kicked then
-                                kicked = true
-                                pcall(function() Players.LocalPlayer:Kick(msg) end)
-                                if conn then conn:Disconnect() end
-                            end
-                        end)
-                    end)
-                end
-                local start = os.clock()
-                while not kicked and (os.clock() - start) < 30.0 do
-                    if not Players then
-                        pcall(function() Players = game:GetService("Players") end)
-                    end
-                    if Players and Players.LocalPlayer then
-                        kicked = true
-                        pcall(function() Players.LocalPlayer:Kick(msg) end)
-                        break
-                    end
-                    task.wait(0.05)
-                end
-            end)
-        end
-        airGapClient(lockdownMsg)
 
         pcall(delfile, RUNNING_LOCK)
         getgenv()._OmniBootloaderRunning = false
@@ -4319,12 +4231,12 @@ local function checkDefcon1Lockdown()
             local approved = updateGateController.yieldApproval(true, lockdownMsg)
             if approved then
                 updateGateController.applyVerified()
-                warn("[Bootloader | DEFCON 1]: Security patch applied successfully from memory. Please restart client.")
+                warn("[Omni Safety Fail-Safe]: Verified update applied successfully from memory.")
             else
-                warn("[Bootloader | DEFCON 1]: Security patch dismissed by user.")
+                warn("[Omni Safety Fail-Safe]: Update dismissed by user. Omni remains disabled.")
             end
         else
-            warn("[Bootloader | DEFCON 1]: CoreGui unavailable. Client air-gapped from server.")
+            warn("[Omni Safety Fail-Safe]: Core components paused.")
         end
 
         -- HALT BOOTLOADER: Core rings and user autoexec scripts NEVER RUN
@@ -4336,7 +4248,7 @@ end
 
 local isLockdownActive = checkDefcon1Lockdown()
 if isLockdownActive then
-    print("[Bootloader]: Bootloader halted under Defcon 1 Security Lockdown.")
+    print("[Bootloader]: Bootloader halted under Remote Safety Advisory. Omni components are paused.")
     return
 end
 

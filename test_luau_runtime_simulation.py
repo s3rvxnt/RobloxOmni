@@ -23,7 +23,7 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
             cls.bootloader_source = f.read()
 
     def test_01_lockdown_true_kicks_and_halts(self):
-        """Simulate Defcon 1 lockdown=true in Luau: assert LocalPlayer:Kick is called and rings halt."""
+        """Simulate Remote Safety Advisory lockdown=true in Luau: assert LocalPlayer is NOT kicked and rings halt cleanly."""
         simulation_script = """
         -- Mock Roblox environment
         local kickedMessage = nil
@@ -48,7 +48,7 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
                 return {
                     version = "1.0.0",
                     lockdown = true,
-                    lockdown_message = "EMERGENCY_LOCKDOWN_TEST"
+                    lockdown_message = "SAFETY_ADVISORY_TEST"
                 }
             end
         }
@@ -68,7 +68,7 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
         local _genv = {}
         local function getgenv() return _genv end
         local function isfile(path) return true end
-        local function readfile(path) return '{"lockdown": true, "lockdown_message": "EMERGENCY_LOCKDOWN_TEST"}' end
+        local function readfile(path) return '{"lockdown": true, "lockdown_message": "SAFETY_ADVISORY_TEST"}' end
         local function delfile(path) return true end
         local function writefile(path, content) return true end
         local function isfolder(path) return true end
@@ -98,20 +98,14 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
         }
         local updateGateController = updateGateMock
 
-        -- The exact checkDefcon1Lockdown logic
+        -- The exact checkDefcon1Lockdown logic (honest fail-safe, no remote kicking)
         local function checkDefcon1Lockdown()
             local rawManifest = readfile("manifest.json")
             local ok, parsed = pcall(function() return HttpService:JSONDecode(rawManifest) end)
             if not ok or type(parsed) ~= "table" then return false end
 
             if parsed.lockdown == true then
-                local lockdownMsg = parsed.lockdown_message or "Omni Defcon 1 Security Lockdown"
-                local function airGapClient(msg)
-                    local Players = game:GetService("Players")
-                    local lp = Players and Players.LocalPlayer
-                    if lp then pcall(function() lp:Kick(msg) end) end
-                end
-                airGapClient(lockdownMsg)
+                local lockdownMsg = parsed.lockdown_message or "Omni remote safety advisory"
                 getgenv()._OmniLockdownActive = true
 
                 if updateGateController and updateGateController.yieldApproval then
@@ -141,7 +135,7 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
             res = subprocess.run([LUAU_PATH, temp_file], capture_output=True, text=True)
             self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
             output = res.stdout
-            self.assertIn("KICKED:EMERGENCY_LOCKDOWN_TEST", output)
+            self.assertIn("KICKED:nil", output)
             self.assertIn("HALTED:true", output)
             self.assertIn("UI_RENDERED:true", output)
             self.assertIn("RING0:false", output)

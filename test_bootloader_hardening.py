@@ -126,7 +126,7 @@ class TestBootloaderHardening(unittest.TestCase):
         self.assertIn("_clonedLoadstring(lastCode, \"@KernelTaskManager\")", self.bootloader_source)
 
     def test_06_step1_defcon1_kill_switch_manifest_structure(self):
-        """Verify manifest.json contains lockdown fields and SHA-256 for stages."""
+        """Verify manifest.json contains lockdown fields and accurate SHA-256 matching real stage files."""
         self.assertIn("lockdown", self.manifest_data)
         self.assertIn("lockdown_message", self.manifest_data)
         self.assertIsInstance(self.manifest_data["lockdown"], bool)
@@ -136,19 +136,31 @@ class TestBootloaderHardening(unittest.TestCase):
         for stage in self.manifest_data["stages"]:
             self.assertIn("sha256", stage, f"Stage {stage.get('name')} missing sha256 hash in manifest!")
             self.assertEqual(len(stage["sha256"]), 64, f"Stage {stage.get('name')} sha256 hash is invalid length!")
+            
+            # Compute actual LF SHA-256 of stage file on disk
+            stage_path = os.path.join(os.path.dirname(__file__), stage["repoPath"])
+            self.assertTrue(os.path.isfile(stage_path), f"Stage file {stage_path} must exist on disk!")
+            with open(stage_path, "rb") as f:
+                content = f.read().replace(b"\r\n", b"\n")
+            actual_sha = hashlib.sha256(content).hexdigest()
+            self.assertEqual(stage["sha256"].lower(), actual_sha.lower(), 
+                             f"Manifest SHA-256 for {stage.get('name')} must match actual file hash on disk!")
+            self.assertIn(actual_sha.lower(), self.bootloader_source.lower(),
+                          f"Bootloader.lua must embed the correct actual hash for {stage.get('name')}!")
 
     def test_07_step1_defcon1_kill_switch_airgap_and_halt(self):
-        """Verify Defcon 1 halts core rings and air-gaps via LocalPlayer:Kick."""
+        """Verify Remote Safety Fail-Safe halts core rings without kicking the player."""
         self.assertIn("checkDefcon1Lockdown", self.bootloader_source)
         self.assertIn("parsed.lockdown == true", self.bootloader_source)
-        self.assertIn("lp:Kick(msg)", self.bootloader_source)
-        self.assertIn("Players.LocalPlayer:Kick(msg)", self.bootloader_source)
+        # Ensure no remote kicking / session termination:
+        self.assertNotIn("lp:Kick", self.bootloader_source)
+        self.assertNotIn("Players.LocalPlayer:Kick", self.bootloader_source)
         self.assertIn("getgenv()._OmniLockdownActive = true", self.bootloader_source)
 
         # Verify immediate halt before Ring 0
         self.assertIn("local isLockdownActive = checkDefcon1Lockdown()", self.bootloader_source)
         self.assertIn("if isLockdownActive then", self.bootloader_source)
-        self.assertIn("print(\"[Bootloader]: Bootloader halted under Defcon 1 Security Lockdown.\")", self.bootloader_source)
+        self.assertIn("print(\"[Bootloader]: Bootloader halted under Remote Safety Advisory. Omni components are paused.\")", self.bootloader_source)
         self.assertIn("return", self.bootloader_source)
 
     def test_08_step4_zero_trust_consent_synchronous_yield(self):
@@ -185,12 +197,11 @@ class TestBootloaderHardening(unittest.TestCase):
         self.assertIn("Discarding poisoned clone primitive", self.bootloader_source)
 
     def test_11_defcon1_panic_click_countdown_invariants(self):
-        """Verify Defcon 1 panic click-through countdown, code tab default, and click rejection invariants."""
-        self.assertIn("local defcon1CountdownThread = nil", self.bootloader_source)
-        self.assertIn("ApplyUpdateBtn.Active = false", self.bootloader_source)
-        self.assertIn("Inspecting Security Diff", self.bootloader_source)
-        self.assertIn("isDefcon1Lockdown and defcon1CountdownThread ~= nil", self.bootloader_source)
-        self.assertIn("switchTab(\"Code\")", self.bootloader_source)
+        """Verify Safety Advisory modal configuration and immediate button availability without forced countdowns."""
+        self.assertIn("ModalTitle.Text = \"🛡️ OMNI SAFETY ADVISORY\"", self.bootloader_source)
+        self.assertIn("ApplyUpdateBtn.Text = \"🛡️ Apply Verified Update\"", self.bootloader_source)
+        self.assertIn("ApplyUpdateBtn.Active = true", self.bootloader_source)
+        self.assertNotIn("defcon1CountdownThread", self.bootloader_source)
 
     def test_12_unicode_smuggling_and_trojan_source_invariants(self):
         """Verify Zero-Width Unicode, Trojan Source BiDi, and homoglyph detection and diff sanitization."""
@@ -236,10 +247,10 @@ class TestBootloaderHardening(unittest.TestCase):
         self.assertIn("workspace/manifest.json", self.bootloader_source)
 
     def test_18_monotonic_clock_defcon1_lockdown_invariants(self):
-        """Verify monotonic clock Defcon 1 countdown and sticky lockdown state."""
-        self.assertIn("local defcon1UnlockTime = 0", self.bootloader_source)
-        self.assertIn("os.clock() < defcon1UnlockTime", self.bootloader_source)
+        """Verify sticky Safety Advisory state and component halt without remote kicking."""
+        self.assertIn("getgenv()._OmniLockdownActive = true", self.bootloader_source)
         self.assertIn("getgenv()._OmniLockdownActive == true", self.bootloader_source)
+        self.assertNotIn("defcon1UnlockTime", self.bootloader_source)
 
     def test_19_url_ledger_and_network_interception_invariants(self):
         """Verify remote script URL ledger, network capture, and Windows-safe file persistence invariants."""
