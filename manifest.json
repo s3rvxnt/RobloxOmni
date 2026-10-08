@@ -9,7 +9,8 @@
     "Kernel Task Manager HUD and adaptive loop governor with per-task CPU telemetry (Shift + F8)",
     "Zero-trust update transparency gate with line-by-line diff inspection and security scanner (Shift + F7)",
     "Real-time game connection ingestion, priority bands, and instant hot-reloading",
-    "Omni Enhancement Suite: Streamer mode, Personal Space Bubble, Player ESP, Anti-AFK, and native ESC settings"
+    "Omni Enhancement Suite: Streamer mode, Personal Space Bubble, Player ESP, Anti-AFK, and native ESC settings",
+    "Omni Loadstring & Trust Manager: Manage authorized script URLs, return hashes, and per-script auto-updates (Shift + F6)"
   ],
   "stages": [
     {
@@ -27,6 +28,14 @@
       "name": "OmniEnhancementSuite",
       "desc": "Omni Enhancement Suite (Streamer Mode, Space Bubble, Player ESP, Anti-AFK)",
       "sha256": "5636c781dc362015bc54180f1355efdfa3bb0a975043d1279fe32c59f8f48fd3"
+    },
+    {
+      "repoPath": "gameloaded/OmniLoadstringManager.lua",
+      "localPath": "autoexec/gameloaded/OmniLoadstringManager.lua",
+      "stage": "GameLoaded",
+      "name": "OmniLoadstringManager",
+      "desc": "Omni Loadstring & Trust Manager (Shift + F6)",
+      "sha256": "41c24af70c9182180c79098292a0071ece15297c0ab7c573b16b0931c70e9319"
     }
   ]
 }

@@ -634,7 +634,8 @@ local function loadTrustedUrlLedger()
                                     hash = safeHash:lower(),
                                     local_file = safeLocal,
                                     first_trusted = tonumber(entry.first_trusted) or os.time(),
-                                    last_updated = tonumber(entry.last_updated) or os.time()
+                                    last_updated = tonumber(entry.last_updated) or os.time(),
+                                    auto_update = (entry.auto_update == true)
                                 }
                             end
                         end
@@ -1258,22 +1259,29 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                         -- Content was updated by the author!
                         local localCopy = (trustedEntry.local_file and isfile(trustedEntry.local_file) and readfile(trustedEntry.local_file)) or ""
 
-                        if not promptRemoteScriptSecurity and ensureUpdateGateController then
-                            ensureUpdateGateController()
-                        end
-
-                        local decision = "block"
-                        if promptRemoteScriptSecurity then
-                            decision = promptRemoteScriptSecurity({
-                                mode = "script_update",
-                                url = targetUrl,
-                                oldCode = localCopy,
-                                newCode = src,
-                                chunkname = chunkname,
-                                badges = auditScriptContent(src)
-                            })
+                        local isAutoUpdate = (trustedEntry.auto_update == true)
+                        local decision = nil
+                        if isAutoUpdate then
+                            print(string.format("[Omni Loadstring Manager]: Auto-Update active for %s - applying upstream update...", tostring(targetUrl)))
+                            decision = "approve"
                         else
-                            warn("[Omni Security Gate]: GUI unavailable to review update for " .. tostring(targetUrl) .. "; blocking execution for safety.")
+                            if not promptRemoteScriptSecurity and ensureUpdateGateController then
+                                ensureUpdateGateController()
+                            end
+
+                            if promptRemoteScriptSecurity then
+                                decision = promptRemoteScriptSecurity({
+                                    mode = "script_update",
+                                    url = targetUrl,
+                                    oldCode = localCopy,
+                                    newCode = src,
+                                    chunkname = chunkname,
+                                    badges = auditScriptContent(src)
+                                })
+                            else
+                                warn("[Omni Security Gate]: GUI unavailable to review update for " .. tostring(targetUrl) .. "; blocking execution for safety.")
+                                decision = "block"
+                            end
                         end
 
                         if decision == "approve" then
@@ -1839,6 +1847,12 @@ local BOOTSTRAP_STAGES = {
         localPath = "autoexec/gameloaded/OmniEnhancementSuite.lua",
         name = "OmniEnhancementSuite",
         sha256 = "5636c781dc362015bc54180f1355efdfa3bb0a975043d1279fe32c59f8f48fd3"
+    },
+    {
+        repoPath = "gameloaded/OmniLoadstringManager.lua",
+        localPath = "autoexec/gameloaded/OmniLoadstringManager.lua",
+        name = "OmniLoadstringManager",
+        sha256 = "41c24af70c9182180c79098292a0071ece15297c0ab7c573b16b0931c70e9319"
     }
 }
 
@@ -3387,6 +3401,11 @@ initUpdateGate = function(guiParent, UpdateBadge)
                             local fn, errComp = _clonedLoadstring(remoteContent, "@OmniEnhancementSuite")
                             if fn then pcall(fn) else warn("[OmniUpdater]: Compilation error: " .. tostring(errComp)) end
                         end)
+                    elseif localPath:find("OmniLoadstringManager") then
+                        task.spawn(function()
+                            local fn, errComp = _clonedLoadstring(remoteContent, "@OmniLoadstringManager")
+                            if fn then pcall(fn) else warn("[OmniUpdater]: Compilation error: " .. tostring(errComp)) end
+                        end)
                     end
                 else
                     warn("[OmniUpdater]: Failed writing " .. localPath .. ": " .. tostring(err))
@@ -3697,17 +3716,22 @@ initUpdateGate = function(guiParent, UpdateBadge)
         UpdateBadge.MouseButton1Click:Connect(function() openUpdateModal(false) end)
     end
 
-    -- Keybind: Shift + F7 to toggle Update Gate (Shift + F8 toggles Task Manager HUD)
+    -- Keybinds:
+    -- Shift + F6 toggles Loadstring & Trust Manager
+    -- Shift + F7 toggles Update Gate
+    -- Shift + F8 toggles Task Manager HUD
     local inputConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if UserInputService:GetFocusedTextBox() then return end
-        if input.KeyCode == Enum.KeyCode.F7 then
-            local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-            if isShift then
-                if ModalBackdrop.Visible then
-                    closeUpdateModal()
-                else
-                    openUpdateModal(false)
-                end
+        local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+        if input.KeyCode == Enum.KeyCode.F7 and isShift then
+            if ModalBackdrop.Visible then
+                closeUpdateModal()
+            else
+                openUpdateModal(false)
+            end
+        elseif input.KeyCode == Enum.KeyCode.F6 and isShift then
+            if type(getgenv().ToggleOmniLoadstringManager) == "function" then
+                getgenv().ToggleOmniLoadstringManager()
             end
         end
     end)
