@@ -530,78 +530,46 @@ local function recordFetch(url, body)
     end
 end
 
--- Network Interception: Transparently record all remote script downloads
-if _rawHttpGet then
-    local function interceptedHttpGet(self, url, ...)
-        local targetSelf = self
-        local targetUrl = url
-        if type(targetSelf) == "string" and targetUrl == nil then
-            targetUrl = targetSelf
-            targetSelf = game
-        end
-        local body = nil
-        if _clonedHttpGet then
-            if _isGameHttpGet then
-                body = _clonedHttpGet(targetSelf or game, targetUrl, ...)
-            else
-                body = _clonedHttpGet(targetUrl, ...)
-            end
-        end
-        if type(body) == "string" and type(targetUrl) == "string" then
-            recordFetch(targetUrl, body)
-        end
-        return body
+-- Network Interception: Record remote script downloads without hooking low-level C primitives
+-- We preserve authentic C-closures on request and game.__namecall to prevent triggering
+-- anti-HttpSpy anti-tamper freeze routines in commercial obfuscators (Luraph, LuaArmor).
+local interceptedHttpGet = function(self, url, ...)
+    local targetSelf = self
+    local targetUrl = url
+    if type(targetSelf) == "string" and targetUrl == nil then
+        targetUrl = targetSelf
+        targetSelf = game
     end
-
-    if hookfunction and type(hookfunction) == "function" then
-        pcall(hookfunction, _rawHttpGet, interceptedHttpGet)
+    local body = nil
+    if _clonedHttpGet then
+        if _isGameHttpGet then
+            body = _clonedHttpGet(targetSelf or game, targetUrl, ...)
+        else
+            body = _clonedHttpGet(targetUrl, ...)
+        end
     end
+    if type(body) == "string" and type(targetUrl) == "string" then
+        recordFetch(targetUrl, body)
+    end
+    return body
 end
 
-pcall(function()
-    if hookmetamethod and type(hookmetamethod) == "function" and game then
-        local oldNamecall
-        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-            local method = getnamecallmethod()
-            if method == "HttpGet" or method == "httpget" or method == "HttpGetAsync" then
-                local url = ...
-                local body = nil
-                if _clonedHttpGet then
-                    if _isGameHttpGet then
-                        body = _clonedHttpGet(self, url)
-                    else
-                        body = _clonedHttpGet(url)
-                    end
-                end
-                if type(body) == "string" and type(url) == "string" then
-                    recordFetch(url, body)
-                end
-                return body
-            end
-            return oldNamecall(self, ...)
-        end)
-    end
-end)
-
-if type(_request) == "function" then
-    local function interceptedRequest(options, ...)
-        local res = _request(options, ...)
-        if type(options) == "table" and type(options.Url) == "string" and type(res) == "table" and type(res.Body) == "string" then
-            local method = options.Method and string.upper(tostring(options.Method)) or "GET"
-            if method == "GET" then
-                recordFetch(options.Url, res.Body)
-            end
+local interceptedRequest = function(options, ...)
+    if not _request then return nil end
+    local res = _request(options, ...)
+    if type(options) == "table" and type(options.Url) == "string" and type(res) == "table" and type(res.Body) == "string" then
+        local method = options.Method and string.upper(tostring(options.Method)) or "GET"
+        if method == "GET" then
+            recordFetch(options.Url, res.Body)
         end
-        return res
     end
-    if hookfunction then
-        pcall(hookfunction, _request, interceptedRequest)
-    end
-    getgenv().request = interceptedRequest
-    getgenv().http_request = interceptedRequest
-    if syn and type(syn) == "table" then
-        syn.request = interceptedRequest
-    end
+    return res
+end
+
+-- Safely expose non-invasive global helper without overriding authentic C-closures
+-- (Note: method == "HttpGet" is handled natively without hooking __namecall)
+if type(getgenv().HttpGet) == "function" and getgenv().HttpGet ~= _rawHttpGet then
+    getgenv().HttpGet = (newcclosure and newcclosure(interceptedHttpGet)) or interceptedHttpGet
 end
 
 -- Windows-Safe Filename Sanitizer for Cached Trusted Scripts
@@ -1172,6 +1140,16 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
             local ledger = loadTrustedUrlLedger()
 
+            -- If targetUrl not identified yet, check if this exact script content hash was already trusted in ledger
+            if not targetUrl and ledger.urls then
+                for u, entry in pairs(ledger.urls) do
+                    if entry.hash == srcHash or entry.hash == normSrcHash then
+                        targetUrl = u
+                        break
+                    end
+                end
+            end
+
             if targetUrl then
                 local trustedEntry = ledger.urls[targetUrl]
                 if trustedEntry then
@@ -1388,56 +1366,8 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             getgenv().dofile = (newcclosure and newcclosure(dofileShim)) or dofileShim
         end
 
-        -- Metatable Guard: Prevent third-party scripts from unhooking or overriding loadstring/loadfile/dofile
-        local genvMt = getrawmetatable and getrawmetatable(getgenv())
-        if genvMt and setreadonly and isreadonly then
-            pcall(function()
-                local oldRo = isreadonly(genvMt)
-                setreadonly(genvMt, false)
-                local oldNewIndex = genvMt.__newindex
-                genvMt.__newindex = newcclosure(function(t, k, v)
-                    if k == "loadstring" and v ~= wrappedLoadstring then
-                        warn("[Omni Security Gate]: Blocked attempt to hijack getgenv().loadstring!")
-                        return
-                    end
-                    if k == "loadfile" or k == "dofile" then
-                        warn("[Omni Security Gate]: Blocked attempt to hijack getgenv()." .. tostring(k))
-                        return
-                    end
-                    if k == "_KernelOrigLoadstring" then
-                        warn("[Omni Security Gate]: Blocked attempt to access or set _KernelOrigLoadstring")
-                        return
-                    end
-                    if oldNewIndex then
-                        return oldNewIndex(t, k, v)
-                    else
-                        rawset(t, k, v)
-                    end
-                end)
-                setreadonly(genvMt, oldRo)
-            end)
-        end
-
-        -- Anti-Hook Protection: Prevent third-party scripts from hooking loadstring/loadfile/dofile via hookfunction
-        if _hookfunction then
-            local function safeHookfunction(target, replacement, ...)
-                if target == wrappedLoadstring or target == _clonedLoadstring then
-                    warn("[Omni Security Gate]: Blocked attempt to hook loadstring via hookfunction!")
-                    return target
-                end
-                if (origLoadfile and target == origLoadfile) or (getgenv and target == getgenv().loadfile) then
-                    warn("[Omni Security Gate]: Blocked attempt to hook loadfile via hookfunction!")
-                    return target
-                end
-                if (origDofile and target == origDofile) or (getgenv and target == getgenv().dofile) then
-                    warn("[Omni Security Gate]: Blocked attempt to hook dofile via hookfunction!")
-                    return target
-                end
-                return _hookfunction(target, replacement, ...)
-            end
-            pcall(_hookfunction, hookfunction, safeHookfunction)
-            getgenv().hookfunction = (newcclosure and newcclosure(safeHookfunction)) or safeHookfunction
-        end
+        -- Passive Integrity: Watchdog ensures loadstring / loadfile remain bound without hooking metatables or C closures
+        -- (Preserves native getgenv() metatable and authentic hookfunction C-closure for Luraph / LuaArmor anti-tamper)
 
         -- Background Watchdog: Re-assert loadstring integrity if tampered with via rawset
         task.spawn(function()
