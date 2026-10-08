@@ -2,7 +2,7 @@
 """
 Deep Luau Runtime Simulation Test.
 Executes actual Luau scripts with mock environments using luau.exe to verify:
-- Defcon 1 kill switch kicks LocalPlayer and halts execution
+- Safety advisory halts execution of core rings without remote kicking
 - Manifest lockdown=false allows execution to proceed
 - Primitives cloned via clonefunction resist global hijacking
 - SHA-256 integrity verification blocks tampered code
@@ -98,8 +98,8 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
         }
         local updateGateController = updateGateMock
 
-        -- The exact checkDefcon1Lockdown logic (honest fail-safe, no remote kicking)
-        local function checkDefcon1Lockdown()
+        -- The exact checkRemoteSafetyAdvisory logic (honest fail-safe, no remote kicking)
+        local function checkRemoteSafetyAdvisory()
             local rawManifest = readfile("manifest.json")
             local ok, parsed = pcall(function() return HttpService:JSONDecode(rawManifest) end)
             if not ok or type(parsed) ~= "table" then return false end
@@ -116,13 +116,13 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
             return false
         end
 
-        local isLockdown = checkDefcon1Lockdown()
-        if not isLockdown then
+        local isSafetyAdvisoryActive = checkRemoteSafetyAdvisory()
+        if not isSafetyAdvisoryActive then
             ring0Executed = true
         end
 
         print("KICKED:" .. tostring(kickedMessage))
-        print("HALTED:" .. tostring(isLockdown))
+        print("HALTED:" .. tostring(isSafetyAdvisoryActive))
         print("UI_RENDERED:" .. tostring(uiRendered))
         print("RING0:" .. tostring(ring0Executed))
         """
@@ -170,23 +170,23 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
         local HttpService = mockHttpService
         local function readfile(path) return '{"lockdown": false}' end
 
-        local function checkDefcon1Lockdown()
+        local function checkRemoteSafetyAdvisory()
             local rawManifest = readfile("manifest.json")
             local ok, parsed = pcall(function() return HttpService:JSONDecode(rawManifest) end)
             if ok and parsed.lockdown == true then
-                mockLocalPlayer:Kick(parsed.lockdown_message)
+                getgenv()._OmniLockdownActive = true
                 return true
             end
             return false
         end
 
-        local isLockdown = checkDefcon1Lockdown()
-        if not isLockdown then
+        local isSafetyAdvisoryActive = checkRemoteSafetyAdvisory()
+        if not isSafetyAdvisoryActive then
             ring0Executed = true
         end
 
         print("KICKED:" .. tostring(kickedMessage))
-        print("HALTED:" .. tostring(isLockdown))
+        print("HALTED:" .. tostring(isSafetyAdvisoryActive))
         print("RING0:" .. tostring(ring0Executed))
         """
 
@@ -670,44 +670,34 @@ class TestLuauRuntimeSimulation(unittest.TestCase):
             if os.path.exists(temp_file):
                 os.remove(temp_file)
 
-    def test_12_defcon1_click_blocker_simulation(self):
-        """Simulate Defcon 1 panic click-through rejection while countdown active."""
+    def test_12_safety_advisory_immediate_responsiveness_simulation(self):
+        """Simulate Safety Advisory immediate responsiveness: button is active immediately without forced countdown."""
         harness = """
         local applied = false
-        local isDefcon1Lockdown = true
-        local defcon1CountdownThread = {} -- Active countdown thread representation
+        local isSafetyAdvisoryActive = true
+        local buttonActive = true
 
         local function onApplyClicked()
-            if isDefcon1Lockdown and defcon1CountdownThread ~= nil then
-                -- Rejected!
+            if not buttonActive then
                 return false
             end
             applied = true
             return true
         end
 
-        local attempt1 = onApplyClicked()
-        print("ATTEMPT_1_BLOCKED:" .. tostring(not attempt1))
-        print("APPLIED_1:" .. tostring(applied))
-
-        -- Countdown finishes
-        defcon1CountdownThread = nil
-
-        local attempt2 = onApplyClicked()
-        print("ATTEMPT_2_ALLOWED:" .. tostring(attempt2))
-        print("APPLIED_2:" .. tostring(applied))
+        local attempt = onApplyClicked()
+        print("ATTEMPT_ALLOWED:" .. tostring(attempt))
+        print("APPLIED:" .. tostring(applied))
         """
-        temp_file = "sim_defcon1_click.luau"
+        temp_file = "sim_safety_advisory_click.luau"
         with open(temp_file, "w", encoding="utf-8") as f:
             f.write(harness)
 
         try:
             res = subprocess.run([LUAU_PATH, temp_file], capture_output=True, text=True)
             self.assertEqual(res.returncode, 0, f"Error: {res.stderr}")
-            self.assertIn("ATTEMPT_1_BLOCKED:true", res.stdout)
-            self.assertIn("APPLIED_1:false", res.stdout)
-            self.assertIn("ATTEMPT_2_ALLOWED:true", res.stdout)
-            self.assertIn("APPLIED_2:true", res.stdout)
+            self.assertIn("ATTEMPT_ALLOWED:true", res.stdout)
+            self.assertIn("APPLIED:true", res.stdout)
         finally:
             if os.path.exists(temp_file):
                 os.remove(temp_file)

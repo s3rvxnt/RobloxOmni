@@ -3268,7 +3268,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
         end
     end
 
-    local isDefcon1Lockdown = false
+    local isSafetyAdvisoryActive = false
     local userConsentCallback = nil
     local closeUpdateModal = nil
     local openUpdateModal = nil
@@ -3378,8 +3378,8 @@ initUpdateGate = function(guiParent, UpdateBadge)
         if anySuccess then
             getgenv()._OmniUpdateDismissed = true
             getgenv()._OmniUpdateAvailable = false
-            if isDefcon1Lockdown then
-                ApplyUpdateBtn.Text = "✓ Security Patch Applied! Please restart Roblox."
+            if isSafetyAdvisoryActive then
+                ApplyUpdateBtn.Text = "✓ Verified Update Applied! Please restart Roblox."
                 ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 80)
                 ApplyUpdateBtn.Active = false
                 DismissBtn.Text = "Close"
@@ -3417,8 +3417,6 @@ initUpdateGate = function(guiParent, UpdateBadge)
         end
     end
 
-    local isDefcon1Lockdown = false
-
     openUpdateModal = function(lockdownFlag, lockdownMsg)
         if forceInstallResetThread then
             task.cancel(forceInstallResetThread)
@@ -3429,10 +3427,10 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
         -- Safety advisory flag
         if lockdownFlag == true or getgenv()._OmniLockdownActive == true then
-            isDefcon1Lockdown = true
+            isSafetyAdvisoryActive = true
         else
-            if not isDefcon1Lockdown then
-                isDefcon1Lockdown = false
+            if not isSafetyAdvisoryActive then
+                isSafetyAdvisoryActive = false
             end
         end
 
@@ -3453,7 +3451,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
         end
 
         -- Configure visual presentation based on Safety Advisory status
-        if isDefcon1Lockdown then
+        if isSafetyAdvisoryActive then
             ModalTitle.Text = "🛡️ OMNI SAFETY ADVISORY"
             ModalTitle.TextColor3 = Color3.fromRGB(255, 170, 60)
             ModalSubtitle.Text = "Core components paused to protect your account • Review details below"
@@ -3490,7 +3488,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
         end
 
         ApplyUpdateBtn.Active = true
-        if isDefcon1Lockdown then
+        if isSafetyAdvisoryActive then
             ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(210, 100, 35)
             ApplyUpdateBtn.Text = "🛡️ Apply Verified Update"
         else
@@ -3504,7 +3502,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
         DiffDate.Text = tostring(currentUpdateData.releaseDate or "Latest")
 
         local changelogItems = {}
-        if isDefcon1Lockdown then
+        if isSafetyAdvisoryActive then
             table.insert(changelogItems, "🛡️ [SAFETY ADVISORY]: " .. tostring(lockdownMsg or "Core components paused"))
             table.insert(changelogItems, "ℹ️ Omni declined to load its modules to protect your account. Your game session is unaffected.")
             table.insert(changelogItems, "🔍 Review the verified changes below before applying.")
@@ -3517,7 +3515,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
         populateChangelog(changelogItems)
         setupStageBar()
         renderStageDiff(1)
-        if isDefcon1Lockdown then
+        if isSafetyAdvisoryActive then
             switchTab("Code")
         else
             switchTab("Changelog")
@@ -3584,7 +3582,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
             userConsentCallback(false)
         end
         closeUpdateModal()
-        if not getgenv()._OmniUpdateDismissed and currentUpdateData and not isDefcon1Lockdown then
+        if not getgenv()._OmniUpdateDismissed and currentUpdateData and not isSafetyAdvisoryActive then
             PillToast.Visible = true
         end
     end)
@@ -4168,16 +4166,16 @@ initUpdateGate = function(guiParent, UpdateBadge)
 end
 
 -- ==============================================================================
--- ROOT OF TRUST: UPDATE GATE INSTANTIATION & DEFCON 1 KILL SWITCH
+-- ROOT OF TRUST: UPDATE GATE INSTANTIATION & REMOTE SAFETY ADVISORY
 -- ==============================================================================
 if not updateGateController and ensureUpdateGateController then
     updateGateController = ensureUpdateGateController()
 end
 
 -- ==============================================================================
--- STEP 1: DEFCON 1 SECURITY LOCKDOWN & AIR-GAP KILL SWITCH
+-- STEP 1: REMOTE SAFETY ADVISORY & COMPONENT FAIL-SAFE
 -- ==============================================================================
-local function checkDefcon1Lockdown()
+local function checkRemoteSafetyAdvisory()
     -- Check manifest.json (GitHub raw or local check) for lockdown (bool) & lockdown_message (string)
     local rawManifest = fetchGithubScript(MANIFEST_URL .. "?v=" .. tostring(os.time()))
     if not rawManifest and isfile then
@@ -4246,8 +4244,8 @@ local function checkDefcon1Lockdown()
     return false
 end
 
-local isLockdownActive = checkDefcon1Lockdown()
-if isLockdownActive then
+local isSafetyAdvisoryActive = checkRemoteSafetyAdvisory()
+if isSafetyAdvisoryActive then
     print("[Bootloader]: Bootloader halted under Remote Safety Advisory. Omni components are paused.")
     return
 end

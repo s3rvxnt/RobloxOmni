@@ -2,7 +2,7 @@
 """
 Comprehensive Hardening Verification Test Suite for Bootloader.lua.
 Tests all 4 steps of the 'Order of Business':
-1. Defcon 1 Kill Switch driven by manifest.json
+1. Remote Safety Advisory driven by manifest.json
 2. Anti-Hooking Primitive Cloning
 3. TOCTOU Defense & Memory-Only Execution with SHA-256 Integrity
 4. Zero-Trust Consent (Synchronous Yield) & 6.0ms Frame Budget Integrity
@@ -81,7 +81,7 @@ class TestBootloaderHardening(unittest.TestCase):
             "",
             "hello world",
             "The quick brown fox jumps over the lazy dog",
-            "Omni Defcon 1 Security Lockdown",
+            "Omni Remote Safety Advisory",
             string.rep("a", 1000)
         }}
 
@@ -102,7 +102,7 @@ class TestBootloaderHardening(unittest.TestCase):
                 b"",
                 b"hello world",
                 b"The quick brown fox jumps over the lazy dog",
-                b"Omni Defcon 1 Security Lockdown",
+                b"Omni Remote Safety Advisory",
                 b"a" * 1000
             ]
             expected_hashes = [hashlib.sha256(t).hexdigest() for t in expected_tests]
@@ -125,7 +125,7 @@ class TestBootloaderHardening(unittest.TestCase):
         self.assertIn("_clonedLoadstring(remoteContent, \"@OmniEnhancementSuite\")", self.bootloader_source)
         self.assertIn("_clonedLoadstring(lastCode, \"@KernelTaskManager\")", self.bootloader_source)
 
-    def test_06_step1_defcon1_kill_switch_manifest_structure(self):
+    def test_06_step1_safety_advisory_manifest_structure(self):
         """Verify manifest.json contains lockdown fields and accurate SHA-256 matching real stage files."""
         self.assertIn("lockdown", self.manifest_data)
         self.assertIn("lockdown_message", self.manifest_data)
@@ -148,9 +148,9 @@ class TestBootloaderHardening(unittest.TestCase):
             self.assertIn(actual_sha.lower(), self.bootloader_source.lower(),
                           f"Bootloader.lua must embed the correct actual hash for {stage.get('name')}!")
 
-    def test_07_step1_defcon1_kill_switch_airgap_and_halt(self):
+    def test_07_step1_safety_advisory_and_halt(self):
         """Verify Remote Safety Fail-Safe halts core rings without kicking the player."""
-        self.assertIn("checkDefcon1Lockdown", self.bootloader_source)
+        self.assertIn("checkRemoteSafetyAdvisory", self.bootloader_source)
         self.assertIn("parsed.lockdown == true", self.bootloader_source)
         # Ensure no remote kicking / session termination:
         self.assertNotIn("lp:Kick", self.bootloader_source)
@@ -158,8 +158,8 @@ class TestBootloaderHardening(unittest.TestCase):
         self.assertIn("getgenv()._OmniLockdownActive = true", self.bootloader_source)
 
         # Verify immediate halt before Ring 0
-        self.assertIn("local isLockdownActive = checkDefcon1Lockdown()", self.bootloader_source)
-        self.assertIn("if isLockdownActive then", self.bootloader_source)
+        self.assertIn("local isSafetyAdvisoryActive = checkRemoteSafetyAdvisory()", self.bootloader_source)
+        self.assertIn("if isSafetyAdvisoryActive then", self.bootloader_source)
         self.assertIn("print(\"[Bootloader]: Bootloader halted under Remote Safety Advisory. Omni components are paused.\")", self.bootloader_source)
         self.assertIn("return", self.bootloader_source)
 
@@ -196,7 +196,7 @@ class TestBootloaderHardening(unittest.TestCase):
         self.assertIn("SafeModeReason = \"ClonefunctionPoisoning\"", self.bootloader_source)
         self.assertIn("Discarding poisoned clone primitive", self.bootloader_source)
 
-    def test_11_defcon1_panic_click_countdown_invariants(self):
+    def test_11_safety_advisory_immediate_button_invariants(self):
         """Verify Safety Advisory modal configuration and immediate button availability without forced countdowns."""
         self.assertIn("ModalTitle.Text = \"🛡️ OMNI SAFETY ADVISORY\"", self.bootloader_source)
         self.assertIn("ApplyUpdateBtn.Text = \"🛡️ Apply Verified Update\"", self.bootloader_source)
@@ -246,7 +246,7 @@ class TestBootloaderHardening(unittest.TestCase):
         self.assertIn("raw%.githubusercontent%.com/s3rvxnt/RobloxOmni/", self.bootloader_source)
         self.assertIn("workspace/manifest.json", self.bootloader_source)
 
-    def test_18_monotonic_clock_defcon1_lockdown_invariants(self):
+    def test_18_sticky_safety_advisory_invariants(self):
         """Verify sticky Safety Advisory state and component halt without remote kicking."""
         self.assertIn("getgenv()._OmniLockdownActive = true", self.bootloader_source)
         self.assertIn("getgenv()._OmniLockdownActive == true", self.bootloader_source)
