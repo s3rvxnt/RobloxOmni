@@ -1109,17 +1109,30 @@ RefreshBtn.MouseButton1Click:Connect(refreshData)
 
 -- Open & Close Window
 local isOpen = false
+local isAnimating = false
+local lastToggleTime = 0
+local DEBOUNCE_DELAY = 0.35 -- 350ms debounce threshold to prevent double-firing
 
 local function openManager()
+    if isOpen or isAnimating then return end
+    local now = os.clock()
+    if now - lastToggleTime < DEBOUNCE_DELAY then return end
+    lastToggleTime = now
+    isAnimating = true
     isOpen = true
+
     currentLedger = loadLedger()
     Backdrop.Visible = true
     Window.Position = UDim2.new(0.5, -360, 0.45, -280)
     Window.BackgroundTransparency = 0.2
-    TweenService:Create(Window, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+    local tween = TweenService:Create(Window, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         Position = UDim2.new(0.5, -360, 0.5, -280),
         BackgroundTransparency = 0
-    }):Play()
+    })
+    tween:Play()
+    tween.Completed:Connect(function()
+        isAnimating = false
+    end)
     if currentTab == "urls" then
         renderUrlsView()
     else
@@ -1128,13 +1141,20 @@ local function openManager()
 end
 
 local function closeManager()
+    if not isOpen or isAnimating then return end
+    local now = os.clock()
+    if now - lastToggleTime < DEBOUNCE_DELAY then return end
+    lastToggleTime = now
+    isAnimating = true
     isOpen = false
+
     local tween = TweenService:Create(Window, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
         Position = UDim2.new(0.5, -360, 0.55, -280),
         BackgroundTransparency = 1
     })
     tween:Play()
     tween.Completed:Connect(function()
+        isAnimating = false
         if not isOpen then
             Backdrop.Visible = false
         end
@@ -1142,6 +1162,8 @@ local function closeManager()
 end
 
 local function toggleManager()
+    local now = os.clock()
+    if isAnimating or (now - lastToggleTime < DEBOUNCE_DELAY) then return end
     if isOpen then
         closeManager()
     else
@@ -1151,15 +1173,12 @@ end
 
 CloseBtn.MouseButton1Click:Connect(closeManager)
 
--- Keyboard Shortcut Listener (Shift + F6 / Escape)
+-- Keyboard Shortcut Listener (F6 / Shift + F6 / Escape)
 local inputConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if UserInputService:GetFocusedTextBox() then return end
 
     if input.KeyCode == Enum.KeyCode.F6 then
-        local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-        if isShift then
-            toggleManager()
-        end
+        toggleManager()
     elseif input.KeyCode == Enum.KeyCode.Escape and isOpen then
         closeManager()
     end
@@ -1201,4 +1220,4 @@ getgenv()._OmniLoadstringManagerCleanUp = function()
     if ScreenGui then pcall(function() ScreenGui:Destroy() end) end
 end
 
-print("[OmniLoadstringManager]: Initialized successfully. Press Shift + F6 to manage authorized loadstrings.")
+print("[OmniLoadstringManager]: Initialized successfully. Press F6 (or Shift + F6) to manage authorized loadstrings.")

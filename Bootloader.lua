@@ -1852,7 +1852,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "gameloaded/OmniLoadstringManager.lua",
         localPath = "autoexec/gameloaded/OmniLoadstringManager.lua",
         name = "OmniLoadstringManager",
-        sha256 = "41c24af70c9182180c79098292a0071ece15297c0ab7c573b16b0931c70e9319"
+        sha256 = "ab9471b02c86f860df045f85051add149460febb0bfa451a83f042eb978bf077"
     }
 }
 
@@ -3717,9 +3717,9 @@ initUpdateGate = function(guiParent, UpdateBadge)
     end
 
     -- Keybinds:
-    -- Shift + F6 toggles Loadstring & Trust Manager
     -- Shift + F7 toggles Update Gate
     -- Shift + F8 toggles Task Manager HUD
+    -- Shift + F6 / F6 toggles Loadstring Manager (handled in OmniLoadstringManager.lua)
     local inputConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if UserInputService:GetFocusedTextBox() then return end
         local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
@@ -3728,10 +3728,6 @@ initUpdateGate = function(guiParent, UpdateBadge)
                 closeUpdateModal()
             else
                 openUpdateModal(false)
-            end
-        elseif input.KeyCode == Enum.KeyCode.F6 and isShift then
-            if type(getgenv().ToggleOmniLoadstringManager) == "function" then
-                getgenv().ToggleOmniLoadstringManager()
             end
         end
     end)
