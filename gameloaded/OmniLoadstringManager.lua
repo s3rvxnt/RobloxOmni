@@ -79,13 +79,22 @@ local function loadLedger()
                         if type(u) == "string" and u:match("^https?://") and type(entry) == "table" then
                             local safeHash = entry.hash
                             if type(safeHash) == "string" and #safeHash == 64 and safeHash:match("^%x+$") then
+                                local safeSubs = {}
+                                if type(entry.submodules) == "table" then
+                                    for _, sH in ipairs(entry.submodules) do
+                                        if type(sH) == "string" and #sH == 64 and sH:match("^%x+$") then
+                                            table.insert(safeSubs, sH:lower())
+                                        end
+                                    end
+                                end
                                 sanitizedUrls[u] = {
                                     url = u,
                                     hash = safeHash:lower(),
                                     local_file = entry.local_file,
                                     first_trusted = tonumber(entry.first_trusted) or os.time(),
                                     last_updated = tonumber(entry.last_updated) or os.time(),
-                                    auto_update = (entry.auto_update == true)
+                                    auto_update = (entry.auto_update == true),
+                                    submodules = safeSubs
                                 }
                             end
                         end
@@ -95,7 +104,15 @@ local function loadLedger()
                 if type(data.hashes) == "table" then
                     for h, val in pairs(data.hashes) do
                         if type(h) == "string" and #h == 64 and h:match("^%x+$") and (val == true or type(val) == "string") then
-                            sanitizedHashes[h:lower()] = val
+                            sanitizedHashes[h:lower()] = true
+                        end
+                    end
+                end
+                for _, uEntry in pairs(sanitizedUrls) do
+                    if uEntry.hash then sanitizedHashes[uEntry.hash:lower()] = true end
+                    if type(uEntry.submodules) == "table" then
+                        for _, sH in ipairs(uEntry.submodules) do
+                            sanitizedHashes[sH:lower()] = true
                         end
                     end
                 end
@@ -629,6 +646,14 @@ renderUrlsView = function()
 
     UrlsTabBtn.Text = string.format("🔗 Authorized URLs (%d)", #urlList)
 
+    local totalHashes = 0
+    if currentLedger.hashes then
+        for _ in pairs(currentLedger.hashes) do
+            totalHashes = totalHashes + 1
+        end
+    end
+    HashesTabBtn.Text = string.format("🛡️ Return Hashes (%d)", totalHashes)
+
     local matches = 0
     for idx, entry in ipairs(urlList) do
         local u = entry.url
@@ -762,11 +787,9 @@ renderUrlsView = function()
                     if entry.hash and currentLedger.hashes then
                         currentLedger.hashes[entry.hash] = nil
                     end
-                    if currentLedger.hashes then
-                        for hK, val in pairs(currentLedger.hashes) do
-                            if val == u or val == entry.hash then
-                                currentLedger.hashes[hK] = nil
-                            end
+                    if type(entry.submodules) == "table" and currentLedger.hashes then
+                        for _, sH in ipairs(entry.submodules) do
+                            currentLedger.hashes[sH] = nil
                         end
                     end
                     saveLedger(currentLedger)
@@ -777,15 +800,8 @@ renderUrlsView = function()
 
             -- Submodules & Signatures Attribution Chip (Clickable, switches to filtered Hashes view)
             local primaryHash = entry.hash and entry.hash:lower() or nil
-            local subCount = 0
-            for hK, val in pairs(currentLedger.hashes or {}) do
-                local hKLower = hK:lower()
-                if val == u or (primaryHash and val == primaryHash) then
-                    if hKLower ~= primaryHash then
-                        subCount = subCount + 1
-                    end
-                end
-            end
+            local submodules = (type(entry.submodules) == "table" and entry.submodules) or {}
+            local subCount = #submodules
             local totalSigs = (primaryHash and 1 or 0) + subCount
 
             local SigChip = Instance.new("TextButton")
@@ -999,27 +1015,42 @@ renderHashesView = function()
 
     HashesTabBtn.Text = string.format("🛡️ Return Hashes (%d)", #hashList)
 
+    local totalUrls = 0
+    if currentLedger.urls then
+        for _ in pairs(currentLedger.urls) do
+            totalUrls = totalUrls + 1
+        end
+    end
+    UrlsTabBtn.Text = string.format("🔗 Authorized URLs (%d)", totalUrls)
+
     -- Map hashes to URLs and roles
     local hashToUrl = {}
     local hashRole = {} -- "primary", "submodule", "standalone"
 
-    -- 1. Register all primary entry hashes from URLs
+    -- 1. Register all primary entry hashes and submodules from authorized URLs
     for u, entry in pairs(currentLedger.urls or {}) do
         if entry.hash then
             local pHash = entry.hash:lower()
             hashToUrl[pHash] = u
             hashRole[pHash] = "primary"
         end
+        if type(entry.submodules) == "table" then
+            for _, sH in ipairs(entry.submodules) do
+                local sHLower = sH:lower()
+                hashToUrl[sHLower] = u
+                if not hashRole[sHLower] then
+                    hashRole[sHLower] = "submodule"
+                end
+            end
+        end
     end
 
-    -- 2. Register submodule hashes (where val is a URL string)
+    -- 2. Any remaining hashes are standalone
     for h, val in pairs(currentLedger.hashes or {}) do
         local hLower = h:lower()
-        if type(val) == "string" and #val > 0 then
+        if type(val) == "string" and #val > 0 and not hashToUrl[hLower] then
             hashToUrl[hLower] = val
-            if not hashRole[hLower] then
-                hashRole[hLower] = "submodule"
-            end
+            hashRole[hLower] = "submodule"
         elseif not hashRole[hLower] then
             hashRole[hLower] = "standalone"
         end
@@ -1194,29 +1225,21 @@ end
 -- Purge Orphan Hashes
 PurgeOrphansBtn.MouseButton1Click:Connect(function()
     local activeUrls = currentLedger.urls or {}
-    local activePrimaryHashes = {}
+    local activeHashes = {}
     for u, entry in pairs(activeUrls) do
         if entry.hash then
-            activePrimaryHashes[entry.hash:lower()] = true
+            activeHashes[entry.hash:lower()] = true
+        end
+        if type(entry.submodules) == "table" then
+            for _, sH in ipairs(entry.submodules) do
+                activeHashes[sH:lower()] = true
+            end
         end
     end
 
     local purgedCount = 0
-    for h, val in pairs(currentLedger.hashes or {}) do
-        local isOrphan = false
-        if type(val) == "string" and #val > 0 then
-            -- Submodule: orphan if its parent URL is no longer registered in activeUrls
-            if not activeUrls[val] then
-                isOrphan = true
-            end
-        else
-            -- Standalone / legacy: orphan if not matching any active URL's primary hash
-            if not activePrimaryHashes[h:lower()] then
-                isOrphan = true
-            end
-        end
-
-        if isOrphan then
+    for h, _ in pairs(currentLedger.hashes or {}) do
+        if not activeHashes[h:lower()] then
             currentLedger.hashes[h] = nil
             purgedCount = purgedCount + 1
         end
@@ -1349,14 +1372,13 @@ end
 getgenv().RevokeOmniUrlTrust = function(targetUrl)
     local l = loadLedger()
     if l.urls and l.urls[targetUrl] then
-        local h = l.urls[targetUrl].hash
+        local entry = l.urls[targetUrl]
+        local h = entry.hash
         l.urls[targetUrl] = nil
         if h and l.hashes then l.hashes[h] = nil end
-        if l.hashes then
-            for hashKey, val in pairs(l.hashes) do
-                if val == targetUrl or val == h then
-                    l.hashes[hashKey] = nil
-                end
+        if type(entry.submodules) == "table" and l.hashes then
+            for _, sH in ipairs(entry.submodules) do
+                l.hashes[sH] = nil
             end
         end
         saveLedger(l)

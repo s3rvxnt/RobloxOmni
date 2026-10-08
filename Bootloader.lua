@@ -629,13 +629,22 @@ local function loadTrustedUrlLedger()
                             end
                             local safeHash = entry.hash
                             if type(safeHash) == "string" and #safeHash == 64 and safeHash:match("^%x+$") then
+                                local safeSubs = {}
+                                if type(entry.submodules) == "table" then
+                                    for _, sH in ipairs(entry.submodules) do
+                                        if type(sH) == "string" and #sH == 64 and sH:match("^%x+$") then
+                                            table.insert(safeSubs, sH:lower())
+                                        end
+                                    end
+                                end
                                 sanitizedUrls[u] = {
                                     url = u,
                                     hash = safeHash:lower(),
                                     local_file = safeLocal,
                                     first_trusted = tonumber(entry.first_trusted) or os.time(),
                                     last_updated = tonumber(entry.last_updated) or os.time(),
-                                    auto_update = (entry.auto_update == true)
+                                    auto_update = (entry.auto_update == true),
+                                    submodules = safeSubs
                                 }
                             end
                         end
@@ -645,7 +654,15 @@ local function loadTrustedUrlLedger()
                 if type(data.hashes) == "table" then
                     for h, val in pairs(data.hashes) do
                         if type(h) == "string" and #h == 64 and h:match("^%x+$") and (val == true or type(val) == "string") then
-                            sanitizedHashes[h:lower()] = val
+                            sanitizedHashes[h:lower()] = true
+                        end
+                    end
+                end
+                for _, uEntry in pairs(sanitizedUrls) do
+                    if uEntry.hash then sanitizedHashes[uEntry.hash:lower()] = true end
+                    if type(uEntry.submodules) == "table" then
+                        for _, sH in ipairs(uEntry.submodules) do
+                            sanitizedHashes[sH:lower()] = true
                         end
                     end
                 end
@@ -1301,8 +1318,8 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                             trustedEntry.hash = srcHash
                             trustedEntry.last_updated = os.time()
                             if not ledger.hashes then ledger.hashes = {} end
-                            ledger.hashes[srcHash] = targetUrl
-                            ledger.hashes[normSrcHash] = targetUrl
+                            ledger.hashes[srcHash] = true
+                            ledger.hashes[normSrcHash] = true
                             saveTrustedUrlLedger(ledger)
                             local effectiveChunk = chunkname or ("@" .. targetUrl)
                             local isObf = isObfuscatedCode(src, effectiveChunk)
@@ -1369,8 +1386,8 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                             last_updated = os.time()
                         }
                         if not ledger.hashes then ledger.hashes = {} end
-                        ledger.hashes[srcHash] = targetUrl
-                        ledger.hashes[normSrcHash] = targetUrl
+                        ledger.hashes[srcHash] = true
+                        ledger.hashes[normSrcHash] = true
                         saveTrustedUrlLedger(ledger)
                         local effectiveChunk = chunkname or ("@" .. targetUrl)
                         local isObf = isObfuscatedCode(src, effectiveChunk)
@@ -1858,7 +1875,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "gameloaded/OmniLoadstringManager.lua",
         localPath = "autoexec/gameloaded/OmniLoadstringManager.lua",
         name = "OmniLoadstringManager",
-        sha256 = "546019e7b478b15e5c43648ea2ea8383e83599d0333b87fb223e3d316ab0e601"
+        sha256 = "7f2cce3cafc27bbdf0f637612d70f65dc1323e5fdea62495e5f783add60f80e9"
     }
 }
 
