@@ -142,6 +142,18 @@ local _isGameHttpGet = (game and type(game.HttpGet) == "function")
 local _rawHttpGet  = (_isGameHttpGet and game.HttpGet) or (type(httpget) == "function" and httpget)
 local _clonedHttpGet = _capturePrimitive(_rawHttpGet, "HttpGet")
 
+-- Capture pristine task.wait and wait C-closures at Frame 0 before any third-party hooks
+local _rawTaskWait = (task and type(task.wait) == "function" and task.wait) or nil
+local _rawWait = (type(wait) == "function" and wait) or nil
+local _clonedTaskWait = _capturePrimitive(_rawTaskWait, "task.wait")
+local _clonedWait = _capturePrimitive(_rawWait, "wait")
+if not getgenv()._KernelOrigTaskWait and _clonedTaskWait then
+    getgenv()._KernelOrigTaskWait = _clonedTaskWait
+end
+if not getgenv()._KernelOrigWait and _clonedWait then
+    getgenv()._KernelOrigWait = _clonedWait
+end
+
 -- Authenticate and capture native crypto primitives at Frame 0
 local _capturedCryptHash = (type(crypt) == "table" and type(crypt.hash) == "function" and _isAuthenticCClosure(crypt.hash) and _safeClone(crypt.hash)) or nil
 local _capturedCryptSha256 = (type(crypt) == "table" and type(crypt.sha256) == "function" and _isAuthenticCClosure(crypt.sha256) and _safeClone(crypt.sha256)) or nil
@@ -347,7 +359,7 @@ end
 if not getgenv()._KernelExemptScripts then
     getgenv()._KernelExemptScripts = {}
 end
-getgenv()._OmniEnableWaitHooks = false
+getgenv()._OmniEnableWaitHooks = true
 getgenv()._OmniEnableMetamethodHooks = false
 
 local function isObfuscatedCode(src, chunkname)
@@ -1810,7 +1822,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "14e90828d3129d159b402bb37b8748559c39d092bd94453a1be25527f5210567"
+        sha256 = "9826dfe26ba32122d18642a6201bc551bfbe3720159965cd264acd830eac03f0"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
@@ -3282,7 +3294,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "14e90828d3129d159b402bb37b8748559c39d092bd94453a1be25527f5210567"
+                    sha256 = "9826dfe26ba32122d18642a6201bc551bfbe3720159965cd264acd830eac03f0"
                 }
             }
         end

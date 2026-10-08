@@ -2835,6 +2835,7 @@ local loopOrder = getgenv()._OmniLoopOrder or {}
 getgenv()._OmniLoopOrder = loopOrder
 local ignoredThreads = getgenv()._OmniIgnoredThreads or setmetatable({}, { __mode = "k" })
 getgenv()._OmniIgnoredThreads = ignoredThreads
+local activeWaitThreads = setmetatable({}, { __mode = "k" })
 local loopIdCounter = getgenv()._OmniLoopIdCounter or 0
 local loopsPausedAll = false
 
@@ -3155,30 +3156,47 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
 end
 
 local function hookedTaskWait(duration)
-    local waitFn = origTaskWait or rawTaskWait
-    local isCallerExec = (checkcaller and checkcaller()) or false
-
     local curThread = coroutine.running()
+    local waitFn = getgenv()._KernelOrigTaskWait or origTaskWait or rawTaskWait
+
+    -- 0. Absolute Re-Entrancy Guard: prevent recursive hook cycles on same thread
+    if activeWaitThreads[curThread] then
+        return waitFn(duration)
+    end
 
     if ignoredThreads[curThread] then
         return waitFn(duration)
     end
 
-    local loop = loopRegistry[curThread]
-    if not loop then
-        local caller = getCallingContext(2)
-        if isSelfOrKernel(caller) then
-            ignoredThreads[curThread] = true
-            return waitFn(duration)
-        elseif not caller then
-            return waitFn(duration)
-        end
-        local isExec = isExecutorOrigin(caller, caller, isCallerExec)
-        loop = registerOrUpdateLoop(curThread, caller, duration, isExec)
-    else
-        registerOrUpdateLoop(curThread, loop.caller, duration, loop.isExecutor)
+    -- Fast exemption for approved obfuscated threads
+    local exemptThreads = getgenv()._exemptObfuscatedThreads
+    if exemptThreads and exemptThreads[curThread] and (os.clock() < exemptThreads[curThread]) then
+        ignoredThreads[curThread] = true
+        return waitFn(duration)
     end
 
+    activeWaitThreads[curThread] = true
+    local ok, res = pcall(function()
+        local loop = loopRegistry[curThread]
+        if not loop then
+            local caller = getCallingContext(2)
+            if isSelfOrKernel(caller) then
+                ignoredThreads[curThread] = true
+                return nil
+            elseif not caller then
+                return nil
+            end
+            local isCallerExec = (checkcaller and checkcaller()) or false
+            local isExec = isExecutorOrigin(caller, caller, isCallerExec)
+            loop = registerOrUpdateLoop(curThread, caller, duration, isExec)
+        else
+            registerOrUpdateLoop(curThread, loop.caller, duration, loop.isExecutor)
+        end
+        return loop
+    end)
+    activeWaitThreads[curThread] = nil
+
+    local loop = (ok and res) or loopRegistry[curThread]
     if not loop then
         return waitFn(duration)
     end
@@ -3207,33 +3225,50 @@ local function hookedTaskWait(duration)
 end
 
 local function hookedWait(duration)
-    local waitFn = origWait or rawWait or origTaskWait or rawTaskWait
-    local isCallerExec = (checkcaller and checkcaller()) or false
-
     local curThread = coroutine.running()
+    local waitFn = getgenv()._KernelOrigWait or origWait or rawWait or getgenv()._KernelOrigTaskWait or origTaskWait or rawTaskWait
+
+    -- 0. Absolute Re-Entrancy Guard: prevent recursive hook cycles on same thread
+    if activeWaitThreads[curThread] then
+        local d, t = waitFn(duration)
+        return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
+    end
 
     if ignoredThreads[curThread] then
         local d, t = waitFn(duration)
         return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
     end
 
-    local loop = loopRegistry[curThread]
-    if not loop then
-        local caller = getCallingContext(2)
-        if isSelfOrKernel(caller) then
-            ignoredThreads[curThread] = true
-            local d, t = waitFn(duration)
-            return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
-        elseif not caller then
-            local d, t = waitFn(duration)
-            return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
-        end
-        local isExec = isExecutorOrigin(caller, caller, isCallerExec)
-        loop = registerOrUpdateLoop(curThread, caller, duration, isExec)
-    else
-        registerOrUpdateLoop(curThread, loop.caller, duration, loop.isExecutor)
+    -- Fast exemption for approved obfuscated threads
+    local exemptThreads = getgenv()._exemptObfuscatedThreads
+    if exemptThreads and exemptThreads[curThread] and (os.clock() < exemptThreads[curThread]) then
+        ignoredThreads[curThread] = true
+        local d, t = waitFn(duration)
+        return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
     end
 
+    activeWaitThreads[curThread] = true
+    local ok, res = pcall(function()
+        local loop = loopRegistry[curThread]
+        if not loop then
+            local caller = getCallingContext(2)
+            if isSelfOrKernel(caller) then
+                ignoredThreads[curThread] = true
+                return nil
+            elseif not caller then
+                return nil
+            end
+            local isCallerExec = (checkcaller and checkcaller()) or false
+            local isExec = isExecutorOrigin(caller, caller, isCallerExec)
+            loop = registerOrUpdateLoop(curThread, caller, duration, isExec)
+        else
+            registerOrUpdateLoop(curThread, loop.caller, duration, loop.isExecutor)
+        end
+        return loop
+    end)
+    activeWaitThreads[curThread] = nil
+
+    local loop = (ok and res) or loopRegistry[curThread]
     if not loop then
         local d, t = waitFn(duration)
         return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
@@ -3382,11 +3417,11 @@ local function ClearLoopRegistry()
     return true
 end
 
--- Install task.wait and wait hooks safely with dynamic delegation trampoline (Disabled by default to prevent tripping commercial obfuscator anti-hooks)
+-- Install task.wait and wait hooks safely with dynamic delegation trampoline
 getgenv()._OmniActiveHookedTaskWait = hookedTaskWait
 getgenv()._OmniActiveHookedWait = hookedWait
 
-if hookfunction and getgenv()._OmniEnableWaitHooks == true then
+if hookfunction and getgenv()._OmniEnableWaitHooks ~= false then
     if not getgenv()._OmniWaitTrampolineInstalled then
         if task and task.wait then
             pcall(function()
@@ -3395,13 +3430,16 @@ if hookfunction and getgenv()._OmniEnableWaitHooks == true then
                     if activeHook then
                         return activeHook(...)
                     end
-                    local orig = getgenv()._KernelOrigTaskWait
+                    local orig = getgenv()._KernelOrigTaskWait or origTaskWait
                     if orig then return orig(...) end
                     return ...
                 end
                 local hook = (newcclosure and newcclosure(taskWaitTrampoline)) or taskWaitTrampoline
-                origTaskWait = hookfunction(task.wait, hook)
-                getgenv()._KernelOrigTaskWait = origTaskWait
+                local hookedOrig = hookfunction(task.wait, hook)
+                if not getgenv()._KernelOrigTaskWait then
+                    getgenv()._KernelOrigTaskWait = hookedOrig
+                end
+                origTaskWait = getgenv()._KernelOrigTaskWait
             end)
         else
             origTaskWait = getgenv()._KernelOrigTaskWait or (task and task.wait)
@@ -3414,13 +3452,16 @@ if hookfunction and getgenv()._OmniEnableWaitHooks == true then
                     if activeHook then
                         return activeHook(...)
                     end
-                    local orig = getgenv()._KernelOrigWait
+                    local orig = getgenv()._KernelOrigWait or origWait
                     if orig then return orig(...) end
                     return ...
                 end
                 local hook = (newcclosure and newcclosure(waitTrampoline)) or waitTrampoline
-                origWait = hookfunction(wait, hook)
-                getgenv()._KernelOrigWait = origWait
+                local hookedOrig = hookfunction(wait, hook)
+                if not getgenv()._KernelOrigWait then
+                    getgenv()._KernelOrigWait = hookedOrig
+                end
+                origWait = getgenv()._KernelOrigWait
             end)
         else
             origWait = getgenv()._KernelOrigWait or wait
