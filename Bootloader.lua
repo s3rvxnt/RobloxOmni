@@ -1739,11 +1739,12 @@ local function loadLedger()
             local okDec, data = pcall(function() return HttpService:JSONDecode(raw) end)
             if okDec and type(data) == "table" then
                 data.components = data.components or {}
+                data.auto_update = (data.auto_update == true)
                 return data
             end
         end
     end
-    return { version = CURRENT_OMNI_VERSION, components = {} }
+    return { version = CURRENT_OMNI_VERSION, components = {}, auto_update = false }
 end
 
 local function saveLedger(ledger)
@@ -3575,6 +3576,18 @@ initUpdateGate = function(guiParent, UpdateBadge)
     -- Parameterless globals to eliminate any capability scraping or arbitrary code injection
     getgenv().OpenOmniUpdateGate = function() openUpdateModal(false) end
     getgenv().TestOmniUpdateGate = function() openUpdateModal(false) end
+    getgenv().SetOmniAutoUpdate = function(enabled)
+        local l = loadLedger()
+        l.auto_update = (enabled == true)
+        saveLedger(l)
+        getgenv()._OmniAutoUpdate = (enabled == true)
+        print("[OmniUpdater]: Auto-Update set to: " .. tostring(l.auto_update))
+        return l.auto_update
+    end
+    getgenv().GetOmniAutoUpdate = function()
+        local l = loadLedger()
+        return (l and l.auto_update == true) or (getgenv()._OmniAutoUpdate == true)
+    end
 
     closeUpdateModal = function()
         if isScriptReviewActive and scriptReviewCallback then
@@ -3785,6 +3798,14 @@ initUpdateGate = function(guiParent, UpdateBadge)
                 stages = sanitizeStages(parsed.stages or {}),
                 sha = sha
             }
+
+            -- Headless / Unattended Auto-Update Check:
+            local isAutoUpdate = (ledger and ledger.auto_update == true) or (getgenv()._OmniAutoUpdate == true)
+            if isAutoUpdate and not isSafetyAdvisoryActive and not getgenv()._OmniLockdownActive then
+                print(string.format("[OmniUpdater]: Auto-Update active: applying verified v%s update in background...", tostring(parsed.version)))
+                task.spawn(applyVerifiedUpdateSequence)
+                return
+            end
 
             -- Show TitleBar badge
             getgenv()._OmniUpdateAvailable = true
