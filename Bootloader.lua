@@ -367,8 +367,9 @@ end
 if not getgenv()._KernelExemptScripts then
     getgenv()._KernelExemptScripts = {}
 end
-getgenv()._OmniEnableWaitHooks = true
+getgenv()._OmniEnableWaitHooks = false
 getgenv()._OmniEnableMetamethodHooks = false
+getgenv()._OmniEnableGameProxy = false
 
 local function isObfuscatedCode(src, chunkname)
     if chunkname and type(chunkname) == "string" and chunkname ~= "" then
@@ -1830,7 +1831,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "ad281c0b44e90b5d34044f1d50bfda9e67370b57b93378fc226a79262c217d19"
+        sha256 = "99988219ecdf720840971a57654117f786365188ca303a520ec92c52367d4276"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
@@ -3302,7 +3303,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "ad281c0b44e90b5d34044f1d50bfda9e67370b57b93378fc226a79262c217d19"
+                    sha256 = "99988219ecdf720840971a57654117f786365188ca303a520ec92c52367d4276"
                 }
             }
         end
@@ -4523,7 +4524,7 @@ local function executeScript(meta)
         -- Attach scoped environment to un-obfuscated scripts so game:GetService("RunService") routes to Active Tasks
         local exempt = getgenv()._KernelExemptScripts or {}
         local isExempt = (meta.name and exempt[meta.name:lower()]) or (meta.file and exempt[meta.file:lower()]) or isObfuscatedCode(content or "", meta.name or meta.file)
-        if not isExempt then
+        if not isExempt and getgenv()._OmniEnableGameProxy == true then
             local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
             if gameProxy then
                 local fnEnv = getfenv(compiledFn)
