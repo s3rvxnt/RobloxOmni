@@ -4401,8 +4401,36 @@ end
 -- STEP 1: REMOTE SAFETY ADVISORY & COMPONENT FAIL-SAFE
 -- ==============================================================================
 local function checkRemoteSafetyAdvisory()
+    -- Register local verified manifest.json stages first as local source of truth
+    if type(isfile) == "function" and type(readfile) == "function" then
+        local localRaw = nil
+        if isfile("manifest.json") then
+            local ok, raw = pcall(readfile, "manifest.json")
+            if ok and raw then localRaw = raw end
+        elseif isfile("autoexec/manifest.json") then
+            local ok, raw = pcall(readfile, "autoexec/manifest.json")
+            if ok and raw then localRaw = raw end
+        elseif isfile("workspace/manifest.json") then
+            local ok, raw = pcall(readfile, "workspace/manifest.json")
+            if ok and raw then localRaw = raw end
+        end
+        if localRaw then
+            local okDec, localParsed = pcall(function() return HttpService:JSONDecode(localRaw) end)
+            if okDec and type(localParsed) == "table" and type(localParsed.stages) == "table" then
+                for _, st in ipairs(localParsed.stages) do
+                    registerManifestStage(st)
+                end
+            end
+        end
+    end
+
     -- Check manifest.json (GitHub raw or local check) for lockdown (bool) & lockdown_message (string)
-    local rawManifest = fetchGithubScript(MANIFEST_URL .. "?v=" .. tostring(os.time()))
+    local sha = (type(getLatestCommitSha) == "function" and getLatestCommitSha()) or "main"
+    local commitManifestUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. sha .. "/manifest.json"
+    local rawManifest = fetchGithubScript(commitManifestUrl)
+    if not rawManifest then
+        rawManifest = fetchGithubScript(MANIFEST_URL .. "?v=" .. tostring(os.time()))
+    end
     if not rawManifest and isfile then
         if isfile("manifest.json") then
             local ok, raw = pcall(readfile, "manifest.json")
@@ -4425,10 +4453,13 @@ local function checkRemoteSafetyAdvisory()
         return false
     end
 
-    -- Update manifest stage hash lookup table
+    -- Update manifest stage hash lookup table (only for stages not already locally verified)
     if parsed.stages and type(parsed.stages) == "table" then
         for _, st in ipairs(parsed.stages) do
-            registerManifestStage(st)
+            local existing = lookupManifestStage(st.name, st.localPath)
+            if not existing or not existing.sha256 then
+                registerManifestStage(st)
+            end
         end
     end
 
