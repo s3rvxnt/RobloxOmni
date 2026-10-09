@@ -366,11 +366,11 @@ CloseBtnCorner.Parent = CloseBtn
 
 local CloseIcon = Instance.new("ImageLabel")
 CloseIcon.Name = "CloseIcon"
-CloseIcon.Size = UDim2.new(0, 12, 0, 12)
+CloseIcon.Size = UDim2.new(0, 14, 0, 14)
 CloseIcon.AnchorPoint = Vector2.new(0.5, 0.5)
 CloseIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
 CloseIcon.BackgroundTransparency = 1
-CloseIcon.Image = "rbxasset://textures/DevConsole/Close.png"
+CloseIcon.Image = "rbxasset://textures/StudioSharedUI/close.png"
 CloseIcon.ImageColor3 = Color3.fromRGB(255, 100, 100)
 CloseIcon.Parent = CloseBtn
 
@@ -513,37 +513,38 @@ SearchBox.Parent = SearchFrame
 
 local SearchClearBtn = Instance.new("TextButton")
 SearchClearBtn.Name = "SearchClearBtn"
-SearchClearBtn.Size = UDim2.new(0, 20, 0, 20)
+SearchClearBtn.Size = UDim2.new(0, 24, 0, 24)
 SearchClearBtn.AnchorPoint = Vector2.new(1, 0.5)
-SearchClearBtn.Position = UDim2.new(1, -8, 0.5, 0)
+SearchClearBtn.Position = UDim2.new(1, -6, 0.5, 0)
 SearchClearBtn.BackgroundColor3 = Color3.fromRGB(36, 46, 64)
+SearchClearBtn.BackgroundTransparency = 1
 SearchClearBtn.BorderSizePixel = 0
 SearchClearBtn.Text = ""
 SearchClearBtn.Visible = false
 SearchClearBtn.Parent = SearchFrame
 
 local SearchClearCorner = Instance.new("UICorner")
-SearchClearCorner.CornerRadius = UDim.new(1, 0)
+SearchClearCorner.CornerRadius = UDim.new(0, 5)
 SearchClearCorner.Parent = SearchClearBtn
 
 local ClearIcon = Instance.new("ImageLabel")
 ClearIcon.Name = "ClearIcon"
-ClearIcon.Size = UDim2.new(0, 10, 0, 10)
+ClearIcon.Size = UDim2.new(0, 12, 0, 12)
 ClearIcon.AnchorPoint = Vector2.new(0.5, 0.5)
 ClearIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
 ClearIcon.BackgroundTransparency = 1
-ClearIcon.Image = "rbxasset://textures/DevConsole/Close.png"
-ClearIcon.ImageColor3 = Color3.fromRGB(160, 175, 200)
+ClearIcon.Image = "rbxasset://textures/StudioSharedUI/close.png"
+ClearIcon.ImageColor3 = Color3.fromRGB(120, 135, 160)
 ClearIcon.Parent = SearchClearBtn
 
 SearchClearBtn.MouseEnter:Connect(function()
-    SearchClearBtn.BackgroundColor3 = Color3.fromRGB(52, 68, 92)
-    ClearIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
+    SearchClearBtn.BackgroundTransparency = 0.5
+    ClearIcon.ImageColor3 = Color3.fromRGB(240, 245, 255)
 end)
 
 SearchClearBtn.MouseLeave:Connect(function()
-    SearchClearBtn.BackgroundColor3 = Color3.fromRGB(36, 46, 64)
-    ClearIcon.ImageColor3 = Color3.fromRGB(160, 175, 200)
+    SearchClearBtn.BackgroundTransparency = 1
+    ClearIcon.ImageColor3 = Color3.fromRGB(120, 135, 160)
 end)
 
 SearchClearBtn.MouseButton1Click:Connect(function()
