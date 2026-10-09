@@ -4622,8 +4622,8 @@ end
 local function sortThreadList(threads, colId, ascending)
     table.sort(threads, function(a, b)
         if colId == "Stat" or colId == "Core" then
-            local cA = a.isActor and 1 or 0
-            local cB = b.isActor and 1 or 0
+            local cA = a.isPerformance and 1 or 0
+            local cB = b.isPerformance and 1 or 0
             if cA ~= cB then
                 if ascending then return cA < cB else return cA > cB end
             end
@@ -11128,14 +11128,16 @@ local function renderThreadRow(item, idx)
         aCorner.Parent = actionBtn
 
         actionBtn.MouseButton1Click:Connect(function()
-            local targetMode = item.isActor and "Native" or "Performance"
+            local it = row._item or item
+            local isPerf = it.isPerformance
+            local targetMode = isPerf and "Native" or "Performance"
             if Omni and Omni.SetScriptPolicy then
-                Omni.SetScriptPolicy(item.scr, targetMode)
+                Omni.SetScriptPolicy(it.scr, targetMode)
             elseif getgenv().OmniSetScriptPolicy then
-                getgenv().OmniSetScriptPolicy(item.scr, targetMode)
+                getgenv().OmniSetScriptPolicy(it.scr, targetMode)
             end
             if refreshThreadsTab then
-                refreshThreadsTab()
+                refreshThreadsTab(true)
             end
         end)
 
@@ -11143,6 +11145,7 @@ local function renderThreadRow(item, idx)
         applyRowColumnLayout(row, "Threads")
     end
 
+    row._item = item
     row.LayoutOrder = idx
     row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
 
@@ -11161,7 +11164,7 @@ local function renderThreadRow(item, idx)
     local isEngineCompat = (getgenv()._OmniEngineMode == "Compatibility")
     local coreLbl = coreBadge and coreBadge:FindFirstChild("CoreLbl")
 
-    if item.isActor then
+    if item.isPerformance then
         if dot then dot.BackgroundColor3 = Color3.fromRGB(50, 220, 120) end
         if coreBadge then
             coreBadge.BackgroundColor3 = Color3.fromRGB(18, 48, 32)
@@ -11197,14 +11200,23 @@ end
 
 refreshThreadsTab = function(skipSort)
     local items = {}
-    local primaryWorker = getgenv()._OmniPrimaryWorker
-    if not primaryWorker and pool and pool[1] then
-        primaryWorker = pool[1].actor
-    end
-
     local Players = pcall(function() return game:GetService("Players") end) and game:GetService("Players")
     local lp = Players and Players.LocalPlayer
     local ps = lp and (lp:FindFirstChild("PlayerScripts") or lp:WaitForChild("PlayerScripts", 2))
+
+    local primaryWorker = getgenv()._OmniPrimaryWorker
+    if not primaryWorker and ps then
+        primaryWorker = ps:FindFirstChild("OmniWorker_1")
+        if primaryWorker then
+            getgenv()._OmniPrimaryWorker = primaryWorker
+        end
+    end
+    if not primaryWorker and pool and pool[1] then
+        primaryWorker = pool[1].actor
+        if primaryWorker then
+            getgenv()._OmniPrimaryWorker = primaryWorker
+        end
+    end
 
     local originalParents = getgenv()._OmniOriginalParents or {}
     local discovered = {}
@@ -11239,16 +11251,23 @@ refreshThreadsTab = function(skipSort)
 
     for scr, origParent in pairs(discovered) do
         local h = (Omni and Omni.ComputeScriptHash and Omni.ComputeScriptHash(scr)) or (getgenv()._OmniComputeScriptHash and getgenv()._OmniComputeScriptHash(scr))
-        local isActor = primaryWorker and (scr.Parent == primaryWorker or scr:IsDescendantOf(primaryWorker))
+        local isInActor = primaryWorker and scr:IsDescendantOf(primaryWorker)
         local polEntry = h and scriptPolicies[h]
-        local pol = polEntry and polEntry.mode or (isActor and "Performance" or "Native")
+        local pol = polEntry and polEntry.mode or (isInActor and "Performance" or "Native")
         if pol == "Actor" then pol = "Performance" end
+
+        local isPerformance = false
+        if getgenv()._OmniEngineMode ~= "Compatibility" then
+            if isInActor or pol == "Performance" then
+                isPerformance = true
+            end
+        end
 
         table.insert(items, {
             scr = scr,
             name = scr.Name,
             hash = h or "unknown",
-            isActor = isActor,
+            isPerformance = isPerformance,
             policy = pol,
             origParent = origParent,
         })
@@ -11686,9 +11705,9 @@ end)
 
 BtnAllToActor.MouseButton1Click:Connect(function()
     if Omni and Omni.SetAllScriptsPolicy then
-        Omni.SetAllScriptsPolicy("Actor")
+        Omni.SetAllScriptsPolicy("Performance")
     elseif getgenv().OmniSetAllScriptsPolicy then
-        getgenv().OmniSetAllScriptsPolicy("Actor")
+        getgenv().OmniSetAllScriptsPolicy("Performance")
     end
     BtnAllToActor.Text = "✓ Done"
     if refreshThreadsTab then
@@ -12041,6 +12060,9 @@ local function initOmniParallelEngine()
                 local worker = getOrSpawnWorker(i)
                 if worker then
                     table.insert(pool, worker)
+                    if #pool == 1 and worker.actor then
+                        getgenv()._OmniPrimaryWorker = worker.actor
+                    end
                 end
             end
         end)
