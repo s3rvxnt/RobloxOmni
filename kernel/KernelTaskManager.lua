@@ -11531,6 +11531,71 @@ local function initOmniParallelEngine()
     getgenv().Omni = Omni
     Omni.Parallel = dispatcher
     getgenv().Parallel = dispatcher
+
+    -- ==============================================================================
+    -- Transparent Metamethod Engine Acceleration (Zero-Code Native Offloading)
+    -- ==============================================================================
+    local ACCELERATED_METHODS = {
+        GetDescendants = true,
+        GetPartsInPart = true,
+        GetPartBoundsInBox = true,
+        GetPartBoundsInRadius = true,
+        Raycast = true,
+        Blockcast = true,
+        Spherecast = true,
+        Shapecast = true,
+    }
+
+    local inParallelHook = {}
+
+    local function isCallerObfuscatedFast()
+        local cur = coroutine.running()
+        local exempt = getgenv()._exemptObfuscatedThreads
+        if exempt and exempt[cur] and (os.clock() < exempt[cur]) then
+            return true
+        end
+        if not debug or not debug.info then return false end
+        for lvl = 2, 8 do
+            local s = debug.info(lvl, "s")
+            if not s then break end
+            local l = tostring(s):lower()
+            if l:find("luraph", 1, true) or l:find("lph", 1, true)
+                or l:find("luarmor", 1, true) or l:find("luaarmor", 1, true)
+                or l:find("moonsec", 1, true) or l:find("ironbrew", 1, true)
+                or l:find("luaauth", 1, true) then
+                return true
+            end
+        end
+        return false
+    end
+
+    if hookmetamethod and type(getnamecallmethod) == "function" then
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if ACCELERATED_METHODS[method] and typeof(self) == "Instance" then
+                local curThread = coroutine.running()
+                if not inParallelHook[curThread] then
+                    if not (coroutine.isyieldable and not coroutine.isyieldable()) then
+                        if not isCallerObfuscatedFast() then
+                            inParallelHook[curThread] = true
+                            local ok, res = pcall(dispatch, self, method, ...)
+                            inParallelHook[curThread] = nil
+                            if ok then
+                                return res
+                            end
+                        end
+                    end
+                end
+            end
+            if setnamecallmethod then
+                setnamecallmethod(method)
+            end
+            return oldNamecall(self, ...)
+        end))
+        getgenv()._OmniTransparentOldNamecall = oldNamecall
+    end
+
     return dispatcher
 end
 
