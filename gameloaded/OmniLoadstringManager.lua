@@ -286,26 +286,17 @@ TitleIcon.TextColor3 = Color3.fromRGB(64, 196, 255)
 TitleIcon.Parent = Header
 
 local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(0, 350, 0, 24)
-TitleLabel.Position = UDim2.new(0, 48, 0, 6)
+TitleLabel.Name = "TitleLabel"
+TitleLabel.Size = UDim2.new(0, 380, 0, 24)
+TitleLabel.Position = UDim2.new(0, 48, 0.5, -12)
 TitleLabel.BackgroundTransparency = 1
 TitleLabel.Font = Enum.Font.GothamBold
 TitleLabel.TextSize = 14
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.TextYAlignment = Enum.TextYAlignment.Center
 TitleLabel.TextColor3 = Color3.fromRGB(64, 196, 255)
 TitleLabel.Text = "OMNI LOADSTRING & TRUST MANAGER"
 TitleLabel.Parent = Header
-
-local SubtitleLabel = Instance.new("TextLabel")
-SubtitleLabel.Size = UDim2.new(0, 420, 0, 16)
-SubtitleLabel.Position = UDim2.new(0, 48, 0, 26)
-SubtitleLabel.BackgroundTransparency = 1
-SubtitleLabel.Font = Enum.Font.Gotham
-SubtitleLabel.TextSize = 11
-SubtitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-SubtitleLabel.TextColor3 = Color3.fromRGB(140, 155, 175)
-SubtitleLabel.Text = "Authorized script URLs, cryptographic signatures & per-script auto-updates"
-SubtitleLabel.Parent = Header
 
 -- Keybind Pill in Header
 local KeybindPill = Instance.new("Frame")
