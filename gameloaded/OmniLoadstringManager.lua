@@ -357,15 +357,32 @@ CloseBtn.Size = UDim2.new(0, 28, 0, 28)
 CloseBtn.Position = UDim2.new(1, -30, 0, 10)
 CloseBtn.BackgroundColor3 = Color3.fromRGB(36, 24, 28)
 CloseBtn.BorderSizePixel = 0
-CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.TextSize = 14
-CloseBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-CloseBtn.Text = "X"
+CloseBtn.Text = ""
 CloseBtn.Parent = Header
 
 local CloseBtnCorner = Instance.new("UICorner")
 CloseBtnCorner.CornerRadius = UDim.new(0, 6)
 CloseBtnCorner.Parent = CloseBtn
+
+local CloseIcon = Instance.new("ImageLabel")
+CloseIcon.Name = "CloseIcon"
+CloseIcon.Size = UDim2.new(0, 12, 0, 12)
+CloseIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+CloseIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+CloseIcon.BackgroundTransparency = 1
+CloseIcon.Image = "rbxasset://textures/DevConsole/Close.png"
+CloseIcon.ImageColor3 = Color3.fromRGB(255, 100, 100)
+CloseIcon.Parent = CloseBtn
+
+CloseBtn.MouseEnter:Connect(function()
+    CloseBtn.BackgroundColor3 = Color3.fromRGB(56, 32, 38)
+    CloseIcon.ImageColor3 = Color3.fromRGB(255, 140, 140)
+end)
+
+CloseBtn.MouseLeave:Connect(function()
+    CloseBtn.BackgroundColor3 = Color3.fromRGB(36, 24, 28)
+    CloseIcon.ImageColor3 = Color3.fromRGB(255, 100, 100)
+end)
 
 -- Dragging Functionality for Header
 local dragging = false
@@ -509,27 +526,24 @@ local SearchClearCorner = Instance.new("UICorner")
 SearchClearCorner.CornerRadius = UDim.new(1, 0)
 SearchClearCorner.Parent = SearchClearBtn
 
-local ClearIcon = Instance.new("TextLabel")
+local ClearIcon = Instance.new("ImageLabel")
 ClearIcon.Name = "ClearIcon"
-ClearIcon.Size = UDim2.new(1, 0, 1, 0)
-ClearIcon.Position = UDim2.new(0, 0, 0, -1)
+ClearIcon.Size = UDim2.new(0, 10, 0, 10)
+ClearIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+ClearIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
 ClearIcon.BackgroundTransparency = 1
-ClearIcon.Font = Enum.Font.GothamBold
-ClearIcon.TextSize = 12
-ClearIcon.TextColor3 = Color3.fromRGB(160, 175, 200)
-ClearIcon.Text = "X"
-ClearIcon.TextXAlignment = Enum.TextXAlignment.Center
-ClearIcon.TextYAlignment = Enum.TextYAlignment.Center
+ClearIcon.Image = "rbxasset://textures/DevConsole/Close.png"
+ClearIcon.ImageColor3 = Color3.fromRGB(160, 175, 200)
 ClearIcon.Parent = SearchClearBtn
 
 SearchClearBtn.MouseEnter:Connect(function()
     SearchClearBtn.BackgroundColor3 = Color3.fromRGB(52, 68, 92)
-    ClearIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ClearIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
 end)
 
 SearchClearBtn.MouseLeave:Connect(function()
     SearchClearBtn.BackgroundColor3 = Color3.fromRGB(36, 46, 64)
-    ClearIcon.TextColor3 = Color3.fromRGB(160, 175, 200)
+    ClearIcon.ImageColor3 = Color3.fromRGB(160, 175, 200)
 end)
 
 SearchClearBtn.MouseButton1Click:Connect(function()
