@@ -378,15 +378,18 @@ end)
 -- Dragging Functionality for Header
 local dragging = false
 local dragInput, dragStart, startPos
+local restingPos = UDim2.new(0.5, -360, 0.5, -280)
 
 Header.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         dragging = true
         dragStart = input.Position
         startPos = Window.Position
+        restingPos = Window.Position
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
                 dragging = false
+                restingPos = Window.Position
             end
         end)
     end
@@ -407,6 +410,16 @@ UserInputService.InputChanged:Connect(function(input)
             startPos.Y.Scale,
             startPos.Y.Offset + delta.Y
         )
+        restingPos = Window.Position
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if dragging then
+            restingPos = Window.Position
+        end
+        dragging = false
     end
 end)
 
@@ -1764,10 +1777,11 @@ local function openManager()
 
     currentLedger = loadLedger()
     Backdrop.Visible = true
-    Window.Position = UDim2.new(0.5, -360, 0.45, -280)
+    local base = restingPos or Window.Position
+    Window.Position = UDim2.new(base.X.Scale, base.X.Offset, base.Y.Scale - 0.05, base.Y.Offset)
     Window.BackgroundTransparency = 0.2
     local tween = TweenService:Create(Window, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        Position = UDim2.new(0.5, -360, 0.5, -280),
+        Position = base,
         BackgroundTransparency = 0
     })
     tween:Play()
@@ -1791,8 +1805,9 @@ local function closeManager()
     isAnimating = true
     isOpen = false
 
+    local base = restingPos or Window.Position
     local tween = TweenService:Create(Window, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-        Position = UDim2.new(0.5, -360, 0.55, -280),
+        Position = UDim2.new(base.X.Scale, base.X.Offset, base.Y.Scale + 0.05, base.Y.Offset),
         BackgroundTransparency = 1
     })
     tween:Play()
@@ -1800,6 +1815,8 @@ local function closeManager()
         isAnimating = false
         if not isOpen then
             Backdrop.Visible = false
+            Window.Position = base
+            Window.BackgroundTransparency = 0
         end
     end)
 end
