@@ -875,9 +875,9 @@ renderUrlsView = function()
             SigChip.TextSize = 10
             SigChip.TextColor3 = Color3.fromRGB(130, 195, 255)
             if subCount > 0 then
-                SigChip.Text = string.format("🔒 %d Signatures (%d Subs) ➔", totalSigs, subCount)
+                SigChip.Text = string.format("🔒 %d Signatures (%d Subs)", totalSigs, subCount)
             else
-                SigChip.Text = "🔒 1 Signature (Primary) ➔"
+                SigChip.Text = "🔒 1 Signature (Primary Only)"
             end
             SigChip.Parent = Card
 
