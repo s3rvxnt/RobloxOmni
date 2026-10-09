@@ -10809,7 +10809,7 @@ task.spawn(function()
     while running do
         waitFn(0.1)
 
-        if ScreenGui.Enabled then
+        if running and ScreenGui and ScreenGui.Parent and ScreenGui.Enabled then
             pcall(function()
                 local profile
                 if getgenv().GetSchedulerProfile then
