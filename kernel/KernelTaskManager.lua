@@ -1863,6 +1863,14 @@ local function scanStartupScripts(forceRefresh)
                 scripts[existingIdx] = entry
                 return
             end
+            -- Prioritize active/enabled scripts over disabled (.off / Off/) scripts
+            if old.enabled and not entry.enabled then
+                return
+            end
+            if not old.enabled and entry.enabled then
+                scripts[existingIdx] = entry
+                return
+            end
             if entry.file:lower():match("%.lua$") or entry.file:lower():match("%.luau$") then
                 scripts[existingIdx] = entry
             end
@@ -1991,6 +1999,9 @@ local function toggleStartupScript(filePath)
         return false, "Filesystem APIs not available"
     end
     local target = normStartupPath(filePath)
+    if target:lower():find("kerneltaskmanager") or target:lower():find("/kernel/") or target:lower():find("^kernel/") then
+        return false, "Kernel scripts cannot be disabled"
+    end
     if not isfile(target) and isfile("workspace/" .. target) then
         target = "workspace/" .. target
     end
@@ -9495,6 +9506,11 @@ end))
 local function renderStartupRow(scriptObj, idx)
     local key = scriptObj.file
     local row = cachedStartupRows[key]
+    if row and (not row:FindFirstChild("NameLbl") or not row:FindFirstChild("StageBadge") or not row:FindFirstChild("PriLbl") or not row:FindFirstChild("AccordionPanel")) then
+        pcall(function() row:Destroy() end)
+        row = nil
+        cachedStartupRows[key] = nil
+    end
     if not row then
         row = Instance.new("Frame")
         row.Name = key
@@ -9752,6 +9768,9 @@ local function renderStartupRow(scriptObj, idx)
         toggleCorner.Parent = toggleBtn
 
         toggleBtn.MouseButton1Click:Connect(function()
+            if scriptObj.stage == "Kernel" or (scriptObj.file and scriptObj.file:lower():find("kerneltaskmanager")) then
+                return
+            end
             toggleBtn.Text = ICONS.HOURGLASS .. "..."
             local ok, newDisabledState, newPath = toggleStartupScript(scriptObj.file)
             if ok then
@@ -10124,9 +10143,18 @@ local function renderStartupRow(scriptObj, idx)
         end
     end
     if toggleBtn then
-        toggleBtn.Text = isEnabled and (ICONS.DOT_GREEN .. " ON") or (ICONS.DOT_WHITE .. " OFF")
-        toggleBtn.BackgroundColor3 = isEnabled and Color3.fromRGB(25, 50, 35) or Color3.fromRGB(45, 30, 30)
-        toggleBtn.TextColor3 = isEnabled and Color3.fromRGB(100, 240, 150) or Color3.fromRGB(240, 120, 120)
+        local isKernel = (scriptObj.stage == "Kernel") or (scriptObj.file and scriptObj.file:lower():find("kerneltaskmanager"))
+        if isKernel then
+            toggleBtn.Text = ICONS.LOCK_CLOSED .. " ON"
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(20, 24, 32)
+            toggleBtn.TextColor3 = Color3.fromRGB(110, 125, 145)
+            toggleBtn.Active = false
+        else
+            toggleBtn.Active = true
+            toggleBtn.Text = isEnabled and (ICONS.DOT_GREEN .. " ON") or (ICONS.DOT_WHITE .. " OFF")
+            toggleBtn.BackgroundColor3 = isEnabled and Color3.fromRGB(25, 50, 35) or Color3.fromRGB(45, 30, 30)
+            toggleBtn.TextColor3 = isEnabled and Color3.fromRGB(100, 240, 150) or Color3.fromRGB(240, 120, 120)
+        end
     end
 
     -- Update Accordion & Action Buttons state
