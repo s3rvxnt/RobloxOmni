@@ -11574,6 +11574,12 @@ local function initOmniParallelEngine()
         oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
             local method = getnamecallmethod()
             if ACCELERATED_METHODS[method] and typeof(self) == "Instance" then
+                -- STRICT CALLER ISOLATION: Native game scripts (CameraModule, CoreScripts, Animate) MUST NOT be yielded!
+                if not (checkcaller and checkcaller()) then
+                    if setnamecallmethod then setnamecallmethod(method) end
+                    return oldNamecall(self, ...)
+                end
+
                 local curThread = coroutine.running()
                 if not inParallelHook[curThread] then
                     if not (coroutine.isyieldable and not coroutine.isyieldable()) then
