@@ -423,6 +423,68 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
+-- ==============================================================================
+-- RESIZABLE WINDOW ENGINE (Bottom-Right Resize Grip)
+-- ==============================================================================
+local MIN_WIDTH = 600
+local MIN_HEIGHT = 400
+local MAX_WIDTH = 1400
+local MAX_HEIGHT = 900
+
+local ResizeGrip = Instance.new("TextButton")
+ResizeGrip.Name = "ResizeGrip"
+ResizeGrip.Size = UDim2.new(0, 16, 0, 16)
+ResizeGrip.Position = UDim2.new(1, -16, 1, -16)
+ResizeGrip.BackgroundTransparency = 1
+ResizeGrip.BorderSizePixel = 0
+ResizeGrip.Font = Enum.Font.GothamBold
+ResizeGrip.TextSize = 11
+ResizeGrip.TextColor3 = Color3.fromRGB(80, 95, 120)
+ResizeGrip.Text = "◢"
+ResizeGrip.ZIndex = 100
+ResizeGrip.Parent = Window
+
+local resizing = false
+local resizeStart = Vector3.new()
+local startSize = Vector2.new()
+
+ResizeGrip.MouseEnter:Connect(function()
+    ResizeGrip.TextColor3 = Color3.fromRGB(64, 196, 255)
+end)
+
+ResizeGrip.MouseLeave:Connect(function()
+    if not resizing then
+        ResizeGrip.TextColor3 = Color3.fromRGB(80, 95, 120)
+    end
+end)
+
+ResizeGrip.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        resizing = true
+        resizeStart = input.Position
+        startSize = Vector2.new(Window.AbsoluteSize.X, Window.AbsoluteSize.Y)
+        ResizeGrip.TextColor3 = Color3.fromRGB(64, 196, 255)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - resizeStart
+        local newW = math.clamp(startSize.X + delta.X, MIN_WIDTH, MAX_WIDTH)
+        local newH = math.clamp(startSize.Y + delta.Y, MIN_HEIGHT, MAX_HEIGHT)
+        Window.Size = UDim2.new(0, newW, 0, newH)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if resizing then
+            resizing = false
+            ResizeGrip.TextColor3 = Color3.fromRGB(80, 95, 120)
+        end
+    end
+end)
+
 -- Navigation Tabs Bar
 local NavFrame = Instance.new("Frame")
 NavFrame.Name = "NavFrame"

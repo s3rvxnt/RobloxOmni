@@ -1877,7 +1877,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "gameloaded/OmniLoadstringManager.lua",
         localPath = "autoexec/gameloaded/OmniLoadstringManager.lua",
         name = "OmniLoadstringManager",
-        sha256 = "8517e41cb0d77a9572a92cdacd7907751a82f78e490623328bbadcd41674bfa5"
+        sha256 = "782a701364ef22a91e479d8f41e7cec55b8687823e8fb69865cfcc3bb6137358"
     }
 }
 
@@ -2685,7 +2685,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
     -- Content Frame
     local ContentFrame = Instance.new("Frame")
     ContentFrame.Name = "ContentFrame"
-    ContentFrame.Size = UDim2.new(1, -32, 0, 292)
+    ContentFrame.Size = UDim2.new(1, -32, 1, -188)
     ContentFrame.Position = UDim2.new(0, 16, 0, 134)
     ContentFrame.BackgroundTransparency = 1
     ContentFrame.Parent = ModalFrame
@@ -3763,6 +3763,66 @@ initUpdateGate = function(guiParent, UpdateBadge)
             local delta = input.Position - dragStartPos
             ModalFrame.Position = UDim2.new(frameStartPos.X.Scale, frameStartPos.X.Offset + delta.X, frameStartPos.Y.Scale, frameStartPos.Y.Offset + delta.Y)
             modalRestingPos = ModalFrame.Position
+        end
+    end)
+
+    -- Resizable Update Gate Modal via Bottom-Right Resize Handle
+    local MIN_MODAL_WIDTH = 500
+    local MIN_MODAL_HEIGHT = 380
+    local MAX_MODAL_WIDTH = 1200
+    local MAX_MODAL_HEIGHT = 900
+
+    local ModalResizeGrip = Instance.new("TextButton")
+    ModalResizeGrip.Name = "ResizeGrip"
+    ModalResizeGrip.Size = UDim2.new(0, 16, 0, 16)
+    ModalResizeGrip.Position = UDim2.new(1, -16, 1, -16)
+    ModalResizeGrip.BackgroundTransparency = 1
+    ModalResizeGrip.BorderSizePixel = 0
+    ModalResizeGrip.Font = Enum.Font.GothamBold
+    ModalResizeGrip.TextSize = 11
+    ModalResizeGrip.TextColor3 = Color3.fromRGB(80, 95, 120)
+    ModalResizeGrip.Text = "◢"
+    ModalResizeGrip.ZIndex = 100
+    ModalResizeGrip.Parent = ModalFrame
+
+    local isResizingModal = false
+    local modalResizeStart = Vector3.new()
+    local modalStartSize = Vector2.new()
+
+    ModalResizeGrip.MouseEnter:Connect(function()
+        ModalResizeGrip.TextColor3 = Color3.fromRGB(64, 196, 255)
+    end)
+
+    ModalResizeGrip.MouseLeave:Connect(function()
+        if not isResizingModal then
+            ModalResizeGrip.TextColor3 = Color3.fromRGB(80, 95, 120)
+        end
+    end)
+
+    ModalResizeGrip.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isResizingModal = true
+            modalResizeStart = input.Position
+            modalStartSize = Vector2.new(ModalFrame.AbsoluteSize.X, ModalFrame.AbsoluteSize.Y)
+            ModalResizeGrip.TextColor3 = Color3.fromRGB(64, 196, 255)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if isResizingModal and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - modalResizeStart
+            local newW = math.clamp(modalStartSize.X + delta.X, MIN_MODAL_WIDTH, MAX_MODAL_WIDTH)
+            local newH = math.clamp(modalStartSize.Y + delta.Y, MIN_MODAL_HEIGHT, MAX_MODAL_HEIGHT)
+            ModalFrame.Size = UDim2.new(0, newW, 0, newH)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            if isResizingModal then
+                isResizingModal = false
+                ModalResizeGrip.TextColor3 = Color3.fromRGB(80, 95, 120)
+            end
         end
     end)
 
