@@ -360,7 +360,7 @@ CloseBtn.BorderSizePixel = 0
 CloseBtn.Font = Enum.Font.GothamBold
 CloseBtn.TextSize = 14
 CloseBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-CloseBtn.Text = "✕"
+CloseBtn.Text = "X"
 CloseBtn.Parent = Header
 
 local CloseBtnCorner = Instance.new("UICorner")
@@ -481,7 +481,7 @@ SearchIcon.Parent = SearchFrame
 
 local SearchBox = Instance.new("TextBox")
 SearchBox.Name = "SearchBox"
-SearchBox.Size = UDim2.new(1, -40, 1, 0)
+SearchBox.Size = UDim2.new(1, -64, 1, 0)
 SearchBox.Position = UDim2.new(0, 32, 0, 0)
 SearchBox.BackgroundTransparency = 1
 SearchBox.Font = Enum.Font.Gotham
@@ -493,6 +493,37 @@ SearchBox.PlaceholderText = "Search authorized URLs, domains, or return hashes..
 SearchBox.ClearTextOnFocus = false
 SearchBox.TextXAlignment = Enum.TextXAlignment.Left
 SearchBox.Parent = SearchFrame
+
+local SearchClearBtn = Instance.new("TextButton")
+SearchClearBtn.Name = "SearchClearBtn"
+SearchClearBtn.Size = UDim2.new(0, 18, 0, 18)
+SearchClearBtn.Position = UDim2.new(1, -26, 0.5, -9)
+SearchClearBtn.BackgroundColor3 = Color3.fromRGB(36, 46, 64)
+SearchClearBtn.BorderSizePixel = 0
+SearchClearBtn.Font = Enum.Font.GothamBold
+SearchClearBtn.TextSize = 10
+SearchClearBtn.TextColor3 = Color3.fromRGB(160, 175, 200)
+SearchClearBtn.Text = "X"
+SearchClearBtn.Visible = false
+SearchClearBtn.Parent = SearchFrame
+
+local SearchClearCorner = Instance.new("UICorner")
+SearchClearCorner.CornerRadius = UDim.new(1, 0)
+SearchClearCorner.Parent = SearchClearBtn
+
+SearchClearBtn.MouseEnter:Connect(function()
+    SearchClearBtn.BackgroundColor3 = Color3.fromRGB(52, 68, 92)
+    SearchClearBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+end)
+
+SearchClearBtn.MouseLeave:Connect(function()
+    SearchClearBtn.BackgroundColor3 = Color3.fromRGB(36, 46, 64)
+    SearchClearBtn.TextColor3 = Color3.fromRGB(160, 175, 200)
+end)
+
+SearchClearBtn.MouseButton1Click:Connect(function()
+    SearchBox.Text = ""
+end)
 
 -- Toast Notification Container
 local Toast = Instance.new("Frame")
@@ -1680,6 +1711,7 @@ end
 
 -- Search Box Change Listener
 SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+    SearchClearBtn.Visible = (#SearchBox.Text > 0)
     if currentTab == "urls" then
         if renderUrlsView then renderUrlsView() end
     else
@@ -1726,6 +1758,7 @@ local function openManager()
         isAnimating = false
     end)
     SearchBox.Text = ""
+    SearchClearBtn.Visible = false
     if currentTab == "urls" then
         renderUrlsView()
     else
