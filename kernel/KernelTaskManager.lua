@@ -4355,8 +4355,8 @@ local ColumnConfig = {
             { id = "Stat",    name = "STAT",                   align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.05, maxWidth = 0.10, defaultWidth = 0.06 },
             { id = "Name",    name = "GAME SCRIPT NAME",       align = Enum.TextXAlignment.Center, width = 0.34, minWidth = 0.20, maxWidth = 0.55, defaultWidth = 0.34 },
             { id = "Hash",    name = "BYTECODE HASH (SHA-256)",align = Enum.TextXAlignment.Center, width = 0.24, minWidth = 0.16, maxWidth = 0.38, defaultWidth = 0.24 },
-            { id = "Core",    name = "ASSIGNED CORE",          align = Enum.TextXAlignment.Center, width = 0.18, minWidth = 0.14, maxWidth = 0.28, defaultWidth = 0.18 },
-            { id = "Action",  name = "THREAD ROUTING",         align = Enum.TextXAlignment.Center, width = 0.18, minWidth = 0.14, maxWidth = 0.28, defaultWidth = 0.18 },
+            { id = "Core",    name = "ACTIVE MODE",            align = Enum.TextXAlignment.Center, width = 0.18, minWidth = 0.14, maxWidth = 0.28, defaultWidth = 0.18 },
+            { id = "Action",  name = "MODE TOGGLE",            align = Enum.TextXAlignment.Center, width = 0.18, minWidth = 0.14, maxWidth = 0.28, defaultWidth = 0.18 },
         }
     },
 }
@@ -6698,7 +6698,7 @@ BtnAllToActor.BorderSizePixel = 0
 BtnAllToActor.Font = Enum.Font.GothamBold
 BtnAllToActor.TextSize = 10
 BtnAllToActor.TextColor3 = Color3.fromRGB(90, 235, 140)
-BtnAllToActor.Text = "⚡ All to Core 1"
+BtnAllToActor.Text = "⚡ All Performance"
 BtnAllToActor.Visible = false
 BtnAllToActor.Parent = Footer
 do
@@ -6715,7 +6715,7 @@ BtnAllToNative.BorderSizePixel = 0
 BtnAllToNative.Font = Enum.Font.GothamBold
 BtnAllToNative.TextSize = 10
 BtnAllToNative.TextColor3 = Color3.fromRGB(255, 185, 60)
-BtnAllToNative.Text = "🛡️ All to Core 0"
+BtnAllToNative.Text = "🛡️ All Native"
 BtnAllToNative.Visible = false
 BtnAllToNative.Parent = Footer
 do
@@ -11128,7 +11128,7 @@ local function renderThreadRow(item, idx)
         aCorner.Parent = actionBtn
 
         actionBtn.MouseButton1Click:Connect(function()
-            local targetMode = item.isActor and "Native" or "Actor"
+            local targetMode = item.isActor and "Native" or "Performance"
             if Omni and Omni.SetScriptPolicy then
                 Omni.SetScriptPolicy(item.scr, targetMode)
             elseif getgenv().OmniSetScriptPolicy then
@@ -11167,7 +11167,7 @@ local function renderThreadRow(item, idx)
             coreBadge.BackgroundColor3 = Color3.fromRGB(18, 48, 32)
             if coreLbl then
                 coreLbl.TextColor3 = Color3.fromRGB(80, 230, 140)
-                coreLbl.Text = "⚡ Core 1 (Actor)"
+                coreLbl.Text = "⚡ Performance"
             end
         end
         if actionBtn then
@@ -11181,11 +11181,11 @@ local function renderThreadRow(item, idx)
             coreBadge.BackgroundColor3 = Color3.fromRGB(48, 34, 18)
             if coreLbl then
                 coreLbl.TextColor3 = Color3.fromRGB(255, 190, 70)
-                coreLbl.Text = isEngineCompat and "🛡️ Core 0 (Compat)" or "🛡️ Core 0 (Native)"
+                coreLbl.Text = isEngineCompat and "🛡️ Compatibility" or "🛡️ Native"
             end
         end
         if actionBtn then
-            actionBtn.Text = "⚡ Set Actor"
+            actionBtn.Text = "⚡ Set Performance"
             actionBtn.BackgroundColor3 = Color3.fromRGB(20, 52, 34)
             actionBtn.TextColor3 = Color3.fromRGB(90, 240, 150)
         end
@@ -11241,7 +11241,8 @@ refreshThreadsTab = function(skipSort)
         local h = (Omni and Omni.ComputeScriptHash and Omni.ComputeScriptHash(scr)) or (getgenv()._OmniComputeScriptHash and getgenv()._OmniComputeScriptHash(scr))
         local isActor = primaryWorker and (scr.Parent == primaryWorker or scr:IsDescendantOf(primaryWorker))
         local polEntry = h and scriptPolicies[h]
-        local pol = polEntry and polEntry.mode or (isActor and "Actor" or "Native")
+        local pol = polEntry and polEntry.mode or (isActor and "Performance" or "Native")
+        if pol == "Actor" then pol = "Performance" end
 
         table.insert(items, {
             scr = scr,
@@ -11694,7 +11695,7 @@ BtnAllToActor.MouseButton1Click:Connect(function()
         refreshThreadsTab(true)
     end
     task.delay(1.0, function()
-        if BtnAllToActor then BtnAllToActor.Text = "⚡ All to Core 1" end
+        if BtnAllToActor then BtnAllToActor.Text = "⚡ All Performance" end
     end)
 end)
 
@@ -11709,7 +11710,7 @@ BtnAllToNative.MouseButton1Click:Connect(function()
         refreshThreadsTab(true)
     end
     task.delay(1.0, function()
-        if BtnAllToNative then BtnAllToNative.Text = "🛡️ All to Core 0" end
+        if BtnAllToNative then BtnAllToNative.Text = "🛡️ All Native" end
     end)
 end)
 
@@ -12409,10 +12410,10 @@ local function initOmniParallelEngine()
 
         if mode == "Compatibility" then
             local count = restoreAllScriptsToNative()
-            print(string.format("[Omni Engine]: 🛡️ Switched to Compatibility Mode (%d scripts running on Native Core 0)", count))
+            print(string.format("[Omni Engine]: 🛡️ Switched to Compatibility Mode (%d scripts running in Native Mode)", count))
         else
             local count = runCleanCoreMigration()
-            print(string.format("[Omni Engine]: ⚡ Switched to Performance Mode (%d scripts running on Actor Core 1)", count))
+            print(string.format("[Omni Engine]: ⚡ Switched to Performance Mode (%d scripts running in Performance Mode)", count))
         end
 
         if getgenv()._OmniRefreshThreadsTab then
@@ -12421,26 +12422,31 @@ local function initOmniParallelEngine()
     end
 
     local function setScriptPolicy(scr, mode)
-        if not scr or (mode ~= "Actor" and mode ~= "Native") then return end
+        if not scr then return end
+        local isPerf = (mode == "Performance" or mode == "Actor")
+        local isNat = (mode == "Native" or mode == "Compatibility")
+        if not isPerf and not isNat then return end
+        local resolvedMode = isPerf and "Performance" or "Native"
+
         local primaryWorker = pool[1] and pool[1].actor
         local h = computeScriptBytecodeHash(scr)
         if not h then return end
 
         currentPolicies.scripts[h] = {
             name = scr.Name,
-            mode = mode
+            mode = resolvedMode
         }
         saveScriptPolicies(currentPolicies)
 
-        if mode == "Native" then
+        if resolvedMode == "Native" then
             restoreScriptToNative(scr)
-            print(string.format("[Omni Engine]: Set policy for '%s' [%s] -> Native (Core 0)", scr.Name, h:sub(1, 8)))
-        elseif mode == "Actor" then
+            print(string.format("[Omni Engine]: Set script policy for '%s' [%s] -> Native", scr.Name, h:sub(1, 8)))
+        elseif resolvedMode == "Performance" then
             if getgenv()._OmniEngineMode ~= "Compatibility" and primaryWorker then
                 migrateScriptToActor(scr, primaryWorker)
-                print(string.format("[Omni Engine]: Set policy for '%s' [%s] -> Actor (Core 1)", scr.Name, h:sub(1, 8)))
+                print(string.format("[Omni Engine]: Set script policy for '%s' [%s] -> Performance", scr.Name, h:sub(1, 8)))
             else
-                print(string.format("[Omni Engine]: Saved policy for '%s' [%s] -> Actor (Core 1) [Engine in Compatibility Mode]", scr.Name, h:sub(1, 8)))
+                print(string.format("[Omni Engine]: Saved policy for '%s' [%s] -> Performance [Engine in Compatibility Mode]", scr.Name, h:sub(1, 8)))
             end
         end
 
@@ -12450,7 +12456,11 @@ local function initOmniParallelEngine()
     end
 
     local function setAllScriptsPolicy(mode)
-        if mode ~= "Actor" and mode ~= "Native" then return end
+        local isPerf = (mode == "Performance" or mode == "Actor")
+        local isNat = (mode == "Native" or mode == "Compatibility")
+        if not isPerf and not isNat then return end
+        local resolvedMode = isPerf and "Performance" or "Native"
+
         local primaryWorker = pool[1] and pool[1].actor
         local Players = pcall(function() return game:GetService("Players") end) and game:GetService("Players")
         local lp = Players and Players.LocalPlayer
@@ -12480,17 +12490,17 @@ local function initOmniParallelEngine()
         for scr, _ in pairs(scriptsToProcess) do
             local h = computeScriptBytecodeHash(scr)
             if h then
-                currentPolicies.scripts[h] = { name = scr.Name, mode = mode }
+                currentPolicies.scripts[h] = { name = scr.Name, mode = resolvedMode }
             end
-            if mode == "Native" then
+            if resolvedMode == "Native" then
                 restoreScriptToNative(scr)
-            elseif mode == "Actor" and getgenv()._OmniEngineMode ~= "Compatibility" and primaryWorker then
+            elseif resolvedMode == "Performance" and getgenv()._OmniEngineMode ~= "Compatibility" and primaryWorker then
                 migrateScriptToActor(scr, primaryWorker)
             end
         end
 
         saveScriptPolicies(currentPolicies)
-        print(string.format("[Omni Engine]: Set all script policies to %s", mode))
+        print(string.format("[Omni Engine]: Set all script policies to %s", resolvedMode))
 
         if getgenv()._OmniRefreshThreadsTab then
             pcall(getgenv()._OmniRefreshThreadsTab)
