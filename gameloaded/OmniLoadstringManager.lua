@@ -582,7 +582,7 @@ HashesContainer.Parent = Window
 
 local HashesScroll = Instance.new("ScrollingFrame")
 HashesScroll.Name = "HashesScroll"
-HashesScroll.Size = UDim2.new(1, 0, 1, -36)
+HashesScroll.Size = UDim2.new(1, 0, 1, 0)
 HashesScroll.BackgroundTransparency = 1
 HashesScroll.BorderSizePixel = 0
 HashesScroll.ScrollBarThickness = 5
@@ -595,27 +595,6 @@ local HashesListLayout = Instance.new("UIListLayout")
 HashesListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 HashesListLayout.Padding = UDim.new(0, 6)
 HashesListLayout.Parent = HashesScroll
-
-local HashesFooter = Instance.new("Frame")
-HashesFooter.Size = UDim2.new(1, 0, 0, 30)
-HashesFooter.Position = UDim2.new(0, 0, 1, -30)
-HashesFooter.BackgroundTransparency = 1
-HashesFooter.Parent = HashesContainer
-
-local PurgeOrphansBtn = Instance.new("TextButton")
-PurgeOrphansBtn.Size = UDim2.new(0, 180, 1, 0)
-PurgeOrphansBtn.Position = UDim2.new(1, -180, 0, 0)
-PurgeOrphansBtn.BackgroundColor3 = Color3.fromRGB(42, 28, 36)
-PurgeOrphansBtn.BorderSizePixel = 0
-PurgeOrphansBtn.Font = Enum.Font.GothamBold
-PurgeOrphansBtn.TextSize = 11
-PurgeOrphansBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
-PurgeOrphansBtn.Text = "🧹 Purge Orphan Hashes"
-PurgeOrphansBtn.Parent = HashesFooter
-
-local PurgeOrphansCorner = Instance.new("UICorner")
-PurgeOrphansCorner.CornerRadius = UDim.new(0, 6)
-PurgeOrphansCorner.Parent = PurgeOrphansBtn
 
 -- Active View Controller
 local currentTab = "urls" -- "urls" or "hashes"
@@ -1695,38 +1674,6 @@ renderHashesView = function()
         EmptyLabel.Parent = EmptyNotice
     end
 end
-
--- Purge Orphan Hashes
-PurgeOrphansBtn.MouseButton1Click:Connect(function()
-    local activeUrls = currentLedger.urls or {}
-    local activeHashes = {}
-    for u, entry in pairs(activeUrls) do
-        if entry.hash then
-            activeHashes[entry.hash:lower()] = true
-        end
-        if type(entry.submodules) == "table" then
-            for _, sH in ipairs(entry.submodules) do
-                activeHashes[sH:lower()] = true
-            end
-        end
-    end
-
-    local purgedCount = 0
-    for h, _ in pairs(currentLedger.hashes or {}) do
-        if not activeHashes[h:lower()] then
-            currentLedger.hashes[h] = nil
-            purgedCount = purgedCount + 1
-        end
-    end
-
-    if purgedCount > 0 then
-        saveLedger(currentLedger)
-        showToast(string.format("Purged %d orphan signature hash(es).", purgedCount), false)
-        renderHashesView()
-    else
-        showToast("No orphan hashes found; all signatures belong to active URLs.", false)
-    end
-end)
 
 -- Search Box Change Listener
 SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
