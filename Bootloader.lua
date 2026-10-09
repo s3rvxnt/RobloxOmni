@@ -346,6 +346,7 @@ end
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
 local CURRENT_OMNI_VERSION = "1.0.0"
 local TARGET_BUDGET_MS = 6.0 -- Max Lua ms per frame before yielding to host engine
@@ -1864,7 +1865,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "99988219ecdf720840971a57654117f786365188ca303a520ec92c52367d4276"
+        sha256 = "8756898ffc80a4581b53abda571a6bd8333df496759bfc89abeb228a2ce3a696"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
@@ -3332,6 +3333,75 @@ initUpdateGate = function(guiParent, UpdateBadge)
     local userConsentCallback = nil
     local closeUpdateModal = nil
     local openUpdateModal = nil
+    local isModalOpen = false
+    local isModalAnimating = false
+    local lastModalToggleTime = 0
+    local MODAL_DEBOUNCE_DELAY = 0.35
+    local modalRestingPos = UDim2.new(0.5, -290, 0.5, -240)
+
+    local function animateModalIn()
+        isModalOpen = true
+        isModalAnimating = true
+        ModalBackdrop.Visible = true
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+
+        local base = modalRestingPos or ModalFrame.Position
+        ModalFrame.Position = UDim2.new(base.X.Scale, base.X.Offset, base.Y.Scale - 0.05, base.Y.Offset)
+        ModalFrame.BackgroundTransparency = 0.2
+        local tween = TweenService:Create(ModalFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Position = base,
+            BackgroundTransparency = 0
+        })
+        tween:Play()
+        tween.Completed:Connect(function()
+            isModalAnimating = false
+        end)
+    end
+
+    local function animateModalOut(onComplete)
+        if not isModalOpen and not ModalBackdrop.Visible then
+            if onComplete then onComplete() end
+            return
+        end
+        isModalOpen = false
+        isModalAnimating = true
+        local base = modalRestingPos or ModalFrame.Position
+        local tween = TweenService:Create(ModalFrame, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Position = UDim2.new(base.X.Scale, base.X.Offset, base.Y.Scale + 0.05, base.Y.Offset),
+            BackgroundTransparency = 1
+        })
+        tween:Play()
+        tween.Completed:Connect(function()
+            isModalAnimating = false
+            if not isModalOpen then
+                ModalBackdrop.Visible = false
+                ModalFrame.Position = base
+                ModalFrame.BackgroundTransparency = 0
+            end
+            if onComplete then onComplete() end
+        end)
+    end
+
+    local function showPillToast()
+        PillToast.Position = UDim2.new(1, -336, 0, -60)
+        PillToast.Visible = true
+        TweenService:Create(PillToast, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Position = UDim2.new(1, -336, 0, 16)
+        }):Play()
+    end
+
+    local function hidePillToast()
+        if not PillToast.Visible then return end
+        local tween = TweenService:Create(PillToast, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Position = UDim2.new(1, -336, 0, -60)
+        })
+        tween:Play()
+        tween.Completed:Connect(function()
+            PillToast.Visible = false
+            PillToast.Position = UDim2.new(1, -336, 0, 16)
+        end)
+    end
 
     local function applyVerifiedUpdateSequence()
         if not currentUpdateData then return false end
@@ -3342,7 +3412,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "99988219ecdf720840971a57654117f786365188ca303a520ec92c52367d4276"
+                    sha256 = "8756898ffc80a4581b53abda571a6bd8333df496759bfc89abeb228a2ce3a696"
                 }
             }
         end
@@ -3453,7 +3523,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
             ApplyUpdateBtn.Text = "✓ Applied! Reloading Omni..."
             task.wait(0.7)
             closeUpdateModal()
-            PillToast.Visible = false
+            hidePillToast()
             if UpdateBadge then UpdateBadge.Visible = false end
 
             if lastCode then
@@ -3483,6 +3553,11 @@ initUpdateGate = function(guiParent, UpdateBadge)
     end
 
     openUpdateModal = function(lockdownFlag, lockdownMsg)
+        if isModalOpen or isModalAnimating then return end
+        local now = os.clock()
+        if now - lastModalToggleTime < MODAL_DEBOUNCE_DELAY then return end
+        lastModalToggleTime = now
+
         if forceInstallResetThread then
             task.cancel(forceInstallResetThread)
             forceInstallResetThread = nil
@@ -3586,9 +3661,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
             switchTab("Changelog")
         end
 
-        ModalBackdrop.Visible = true
-        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-        UserInputService.MouseIconEnabled = true
+        animateModalIn()
     end
 
     local isApprovalPending = false
@@ -3633,6 +3706,11 @@ initUpdateGate = function(guiParent, UpdateBadge)
     end
 
     closeUpdateModal = function()
+        if not isModalOpen or isModalAnimating then return end
+        local now = os.clock()
+        if now - lastModalToggleTime < MODAL_DEBOUNCE_DELAY then return end
+        lastModalToggleTime = now
+
         if isScriptReviewActive and scriptReviewCallback then
             scriptReviewCallback("block")
             return
@@ -3646,7 +3724,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
         end
         forceInstallConfirmActive = false
         refreshApplyButtonUI()
-        ModalBackdrop.Visible = false
+        animateModalOut()
     end
 
     -- Event Wiring
@@ -3660,7 +3738,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
         end
         closeUpdateModal()
         if not getgenv()._OmniUpdateDismissed and currentUpdateData and not isSafetyAdvisoryActive then
-            PillToast.Visible = true
+            showPillToast()
         end
     end)
 
@@ -3671,9 +3749,11 @@ initUpdateGate = function(guiParent, UpdateBadge)
             isDraggingModal = true
             dragStartPos = input.Position
             frameStartPos = ModalFrame.Position
+            modalRestingPos = ModalFrame.Position
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     isDraggingModal = false
+                    modalRestingPos = ModalFrame.Position
                 end
             end)
         end
@@ -3682,16 +3762,17 @@ initUpdateGate = function(guiParent, UpdateBadge)
         if isDraggingModal and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStartPos
             ModalFrame.Position = UDim2.new(frameStartPos.X.Scale, frameStartPos.X.Offset + delta.X, frameStartPos.Y.Scale, frameStartPos.Y.Offset + delta.Y)
+            modalRestingPos = ModalFrame.Position
         end
     end)
 
     PillReviewBtn.MouseButton1Click:Connect(function()
-        PillToast.Visible = false
+        hidePillToast()
         openUpdateModal(false)
     end)
 
     PillDismissBtn.MouseButton1Click:Connect(function()
-        PillToast.Visible = false
+        hidePillToast()
         getgenv()._OmniUpdateDismissed = true
         getgenv()._OmniUpdateAvailable = false
         -- Update ledger dismissed state
@@ -3715,7 +3796,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
             userConsentCallback(false)
         end
         closeUpdateModal()
-        PillToast.Visible = false
+        hidePillToast()
         getgenv()._OmniUpdateDismissed = true
         getgenv()._OmniUpdateAvailable = false
         local ledger = loadLedger()
@@ -3748,7 +3829,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
         if UserInputService:GetFocusedTextBox() then return end
         local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
         if input.KeyCode == Enum.KeyCode.F7 and isShift then
-            if ModalBackdrop.Visible then
+            if isModalOpen or ModalBackdrop.Visible then
                 closeUpdateModal()
             else
                 openUpdateModal(false)
@@ -3867,7 +3948,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                 else
                     PillSubtitle.Text = #missingAvailable .. " new component(s) available"
                 end
-                PillToast.Visible = true
+                showPillToast()
             end
         end
     end)
@@ -4179,15 +4260,13 @@ initUpdateGate = function(guiParent, UpdateBadge)
         end
 
         switchTab("Code")
-        ModalBackdrop.Visible = true
-        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-        UserInputService.MouseIconEnabled = true
+        animateModalIn()
 
         while decision == nil do
             task.wait(0.05)
         end
 
-        ModalBackdrop.Visible = false
+        animateModalOut()
 
         -- Restore standard layout
         StageBar.Visible = true

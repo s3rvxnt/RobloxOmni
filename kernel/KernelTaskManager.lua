@@ -5543,6 +5543,7 @@ local hudWindowConnections = {}
 local dragging = false
 local dragStart = Vector3.new()
 local startPos = UDim2.new()
+local restingPos = UDim2.new(0.5, -380, 0.5, -260)
 
 local function isInsideGui(guiObj, pos)
     if not guiObj or not guiObj.Visible then return false end
@@ -5562,6 +5563,7 @@ local function handleDragStart(pos)
         dragging = true
         dragStart = pos
         startPos = MainFrame.Position
+        restingPos = MainFrame.Position
     end
 end
 
@@ -5591,6 +5593,9 @@ end))
 
 table.insert(hudWindowConnections, UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if dragging then
+            restingPos = MainFrame.Position
+        end
         dragging = false
     end
 end))
@@ -7766,7 +7771,14 @@ openCodeEditor = function(scriptObj)
     -- Ensure mouse cursor is completely unlocked and visible
     UserInputService.MouseBehavior = Enum.MouseBehavior.Default
     UserInputService.MouseIconEnabled = true
+    Ed.Modal.Position = UDim2.new(0, 12, -0.02, 12)
+    Ed.Modal.BackgroundTransparency = 0.2
     Ed.Modal.Visible = true
+    local tween = TweenService:Create(Ed.Modal, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0, 12, 0, 12),
+        BackgroundTransparency = 0
+    })
+    tween:Play()
 
     renderViewport()
     activateEditWindow(1, 1)
@@ -7838,8 +7850,17 @@ Ed.CloseBtn.MouseButton1Click:Connect(function()
         task.cancel(Ed.HlThread)
         Ed.HlThread = nil
     end
-    Ed.Modal.Visible = false
-    Ed.Script = nil
+    local tween = TweenService:Create(Ed.Modal, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+        Position = UDim2.new(0, 12, 0.05, 12),
+        BackgroundTransparency = 1
+    })
+    tween:Play()
+    tween.Completed:Connect(function()
+        Ed.Modal.Visible = false
+        Ed.Modal.Position = UDim2.new(0, 12, 0, 12)
+        Ed.Modal.BackgroundTransparency = 0
+        Ed.Script = nil
+    end)
 end)
 
 Ed.SaveBtn.MouseButton1Click:Connect(function()
@@ -7973,7 +7994,16 @@ do
     nmCorner(NM.CloseBtn, 4)
 
     NM.CloseBtn.MouseButton1Click:Connect(function()
-        NM.Modal.Visible = false
+        local tween = TweenService:Create(NM.Modal, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Position = UDim2.new(0.5, -215, 0.55, -145),
+            BackgroundTransparency = 1
+        })
+        tween:Play()
+        tween.Completed:Connect(function()
+            NM.Modal.Visible = false
+            NM.Modal.Position = UDim2.new(0.5, -215, 0.5, -145)
+            NM.Modal.BackgroundTransparency = 0
+        end)
     end)
 
     -- Script Name Field
@@ -8266,7 +8296,14 @@ print("[%s]: Initialized successfully.")
         NM.StatusLbl.Text = ""
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
         UserInputService.MouseIconEnabled = true
+        NM.Modal.Position = UDim2.new(0.5, -215, 0.45, -145)
+        NM.Modal.BackgroundTransparency = 0.2
         NM.Modal.Visible = true
+        local tween = TweenService:Create(NM.Modal, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0.5, -215, 0.5, -145),
+            BackgroundTransparency = 0
+        })
+        tween:Play()
         task.defer(function()
             NM.NameBox:CaptureFocus()
         end)
@@ -8477,7 +8514,16 @@ do
     pmcCorner.Parent = PM.CloseBtn
 
     PM.CloseBtn.MouseButton1Click:Connect(function()
-        PM.Modal.Visible = false
+        local tween = TweenService:Create(PM.Modal, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Position = UDim2.new(0.5, -180, 0.55, -110),
+            BackgroundTransparency = 1
+        })
+        tween:Play()
+        tween.Completed:Connect(function()
+            PM.Modal.Visible = false
+            PM.Modal.Position = UDim2.new(0.5, -180, 0.5, -110)
+            PM.Modal.BackgroundTransparency = 0
+        end)
     end)
 
     -- Target Info Row
@@ -8808,7 +8854,14 @@ do
 
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
         UserInputService.MouseIconEnabled = true
+        PM.Modal.Position = UDim2.new(0.5, -180, 0.45, -110)
+        PM.Modal.BackgroundTransparency = 0.2
         PM.Modal.Visible = true
+        local tween = TweenService:Create(PM.Modal, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0.5, -180, 0.5, -110),
+            BackgroundTransparency = 0
+        })
+        tween:Play()
         task.defer(function()
             PM.PriBox:CaptureFocus()
         end)
@@ -11085,8 +11138,63 @@ BtnRescanStartup.MouseButton1Click:Connect(function()
     end)
 end)
 
+local isHudOpen = false
+local isHudAnimating = false
+local lastHudToggleTime = 0
+local HUD_DEBOUNCE_DELAY = 0.35
+
+local function openHUD()
+    if isHudOpen or isHudAnimating then return end
+    local now = os.clock()
+    if now - lastHudToggleTime < HUD_DEBOUNCE_DELAY then return end
+    lastHudToggleTime = now
+    isHudAnimating = true
+    isHudOpen = true
+
+    ScreenGui.Enabled = true
+    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+    UserInputService.MouseIconEnabled = true
+
+    local base = restingPos or MainFrame.Position
+    MainFrame.Position = UDim2.new(base.X.Scale, base.X.Offset, base.Y.Scale - 0.05, base.Y.Offset)
+    MainFrame.BackgroundTransparency = 0.2
+
+    local tween = TweenService:Create(MainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Position = base,
+        BackgroundTransparency = 0
+    })
+    tween:Play()
+    tween.Completed:Connect(function()
+        isHudAnimating = false
+    end)
+end
+
+local function closeHUD()
+    if not isHudOpen or isHudAnimating then return end
+    local now = os.clock()
+    if now - lastHudToggleTime < HUD_DEBOUNCE_DELAY then return end
+    lastHudToggleTime = now
+    isHudAnimating = true
+    isHudOpen = false
+
+    local base = restingPos or MainFrame.Position
+    local tween = TweenService:Create(MainFrame, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+        Position = UDim2.new(base.X.Scale, base.X.Offset, base.Y.Scale + 0.05, base.Y.Offset),
+        BackgroundTransparency = 1
+    })
+    tween:Play()
+    tween.Completed:Connect(function()
+        isHudAnimating = false
+        if not isHudOpen then
+            ScreenGui.Enabled = false
+            MainFrame.Position = base
+            MainFrame.BackgroundTransparency = 0
+        end
+    end)
+end
+
 CloseBtn.MouseButton1Click:Connect(function()
-    ScreenGui.Enabled = false
+    closeHUD()
 end)
 
 -- UpdateBadge wired to Bootloader's Root-of-Trust Update Gate
@@ -11103,14 +11211,20 @@ end
 -- ==============================================================================
 
 toggleHUD = function(forcedState)
+    local now = os.clock()
+    if isHudAnimating or (now - lastHudToggleTime < HUD_DEBOUNCE_DELAY) then return end
     if forcedState ~= nil then
-        ScreenGui.Enabled = forcedState
+        if forcedState and not isHudOpen then
+            openHUD()
+        elseif not forcedState and isHudOpen then
+            closeHUD()
+        end
     else
-        ScreenGui.Enabled = not ScreenGui.Enabled
-    end
-    if ScreenGui.Enabled then
-        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-        UserInputService.MouseIconEnabled = true
+        if isHudOpen then
+            closeHUD()
+        else
+            openHUD()
+        end
     end
 end
 
@@ -11131,6 +11245,8 @@ ScreenGui.Parent = guiParent
 
 cleanUpHUD = function()
     running = false
+    isHudOpen = false
+    isHudAnimating = false
     if keybindConnection then
         pcall(function() keybindConnection:Disconnect() end)
         keybindConnection = nil

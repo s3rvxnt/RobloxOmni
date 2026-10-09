@@ -19,7 +19,7 @@
       "stage": "Kernel",
       "name": "KernelTaskManager",
       "desc": "Kernel Task Manager & Runtime Micro-Kernel (Shift + F8)",
-      "sha256": "99988219ecdf720840971a57654117f786365188ca303a520ec92c52367d4276"
+      "sha256": "8756898ffc80a4581b53abda571a6bd8333df496759bfc89abeb228a2ce3a696"
     },
     {
       "repoPath": "gameloaded/OmniEnhancementSuite.lua",
