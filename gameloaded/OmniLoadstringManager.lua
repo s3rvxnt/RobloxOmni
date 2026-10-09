@@ -672,9 +672,10 @@ renderUrlsView = function()
 
             local Card = Instance.new("Frame")
             Card.Name = "UrlCard_" .. idx
-            Card.Size = UDim2.new(1, 0, 0, 108)
+            Card.Size = UDim2.new(1, 0, 0, 114)
             Card.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
             Card.BorderSizePixel = 0
+            Card.ClipsDescendants = true
             Card.Parent = UrlsScroll
 
             local CardCorner = Instance.new("UICorner")
@@ -686,12 +687,13 @@ renderUrlsView = function()
             CardStroke.Color = Color3.fromRGB(36, 46, 66)
             CardStroke.Parent = Card
 
-            -- Row 1: Left Container (Domain Pill + Script Title + URL Preview)
+            -- Row 1: Left Container (Domain Pill + Script Title)
             local TopLeft = Instance.new("Frame")
             TopLeft.Name = "TopLeft"
-            TopLeft.Size = UDim2.new(1, -260, 0, 22)
+            TopLeft.Size = UDim2.new(1, -265, 0, 22)
             TopLeft.Position = UDim2.new(0, 10, 0, 8)
             TopLeft.BackgroundTransparency = 1
+            TopLeft.ClipsDescendants = true
             TopLeft.Parent = Card
 
             local TopLeftLayout = Instance.new("UIListLayout")
@@ -742,18 +744,19 @@ renderUrlsView = function()
             TitleLabel.Text = entry.name or shortFile or domain
             TitleLabel.Parent = TopLeft
 
-            local UrlPreview = Instance.new("TextLabel")
-            UrlPreview.Name = "UrlPreview"
-            UrlPreview.LayoutOrder = 3
-            UrlPreview.Size = UDim2.new(1, 0, 1, 0)
-            UrlPreview.BackgroundTransparency = 1
-            UrlPreview.Font = Enum.Font.Gotham
-            UrlPreview.TextSize = 10
-            UrlPreview.TextColor3 = Color3.fromRGB(110, 125, 145)
-            UrlPreview.TextXAlignment = Enum.TextXAlignment.Left
-            UrlPreview.TextTruncate = Enum.TextTruncate.AtEnd
-            UrlPreview.Text = "(" .. u .. ")"
-            UrlPreview.Parent = TopLeft
+            -- Row 2: Dedicated URL Label (Clean, bounded to left column, zero button collision)
+            local UrlLabel = Instance.new("TextLabel")
+            UrlLabel.Name = "UrlLabel"
+            UrlLabel.Size = UDim2.new(1, -265, 0, 16)
+            UrlLabel.Position = UDim2.new(0, 10, 0, 34)
+            UrlLabel.BackgroundTransparency = 1
+            UrlLabel.Font = Enum.Font.Code
+            UrlLabel.TextSize = 10
+            UrlLabel.TextColor3 = Color3.fromRGB(120, 140, 170)
+            UrlLabel.TextXAlignment = Enum.TextXAlignment.Left
+            UrlLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            UrlLabel.Text = u
+            UrlLabel.Parent = Card
 
             -- Auto-Update Status Badge & Toggle Button
             local isAuto = (entry.auto_update == true)
@@ -848,7 +851,7 @@ renderUrlsView = function()
             local SigChip = Instance.new("TextButton")
             SigChip.Name = "SigChip"
             SigChip.Size = UDim2.new(0, 235, 0, 24)
-            SigChip.Position = UDim2.new(1, -245, 0, 38)
+            SigChip.Position = UDim2.new(1, -245, 0, 44)
             SigChip.BackgroundColor3 = Color3.fromRGB(26, 34, 48)
             SigChip.BorderSizePixel = 0
             SigChip.Font = Enum.Font.GothamMedium
@@ -879,7 +882,7 @@ renderUrlsView = function()
             -- Hash Label & Copy
             local HashLabel = Instance.new("TextLabel")
             HashLabel.Size = UDim2.new(1, -265, 0, 16)
-            HashLabel.Position = UDim2.new(0, 10, 0, 36)
+            HashLabel.Position = UDim2.new(0, 10, 0, 52)
             HashLabel.BackgroundTransparency = 1
             HashLabel.Font = Enum.Font.Code
             HashLabel.TextSize = 10
@@ -893,7 +896,7 @@ renderUrlsView = function()
             -- Cache File Info & Timestamps
             local CacheLabel = Instance.new("TextLabel")
             CacheLabel.Size = UDim2.new(1, -265, 0, 16)
-            CacheLabel.Position = UDim2.new(0, 10, 0, 54)
+            CacheLabel.Position = UDim2.new(0, 10, 0, 70)
             CacheLabel.BackgroundTransparency = 1
             CacheLabel.Font = Enum.Font.Gotham
             CacheLabel.TextSize = 10
@@ -907,7 +910,7 @@ renderUrlsView = function()
 
             local TimeLabel = Instance.new("TextLabel")
             TimeLabel.Size = UDim2.new(1, -265, 0, 16)
-            TimeLabel.Position = UDim2.new(0, 10, 0, 72)
+            TimeLabel.Position = UDim2.new(0, 10, 0, 88)
             TimeLabel.BackgroundTransparency = 1
             TimeLabel.Font = Enum.Font.Gotham
             TimeLabel.TextSize = 10
@@ -920,8 +923,8 @@ renderUrlsView = function()
             -- Check Upstream Button
             local CheckBtn = Instance.new("TextButton")
             CheckBtn.Name = "CheckBtn"
-            CheckBtn.Size = UDim2.new(0, 145, 0, 24)
-            CheckBtn.Position = UDim2.new(1, -245, 0, 70)
+            CheckBtn.Size = UDim2.new(0, 150, 0, 24)
+            CheckBtn.Position = UDim2.new(1, -245, 0, 80)
             CheckBtn.BackgroundColor3 = Color3.fromRGB(30, 38, 54)
             CheckBtn.BorderSizePixel = 0
             CheckBtn.Font = Enum.Font.GothamBold
@@ -931,7 +934,7 @@ renderUrlsView = function()
             CheckBtn.Parent = Card
 
             local CheckCorner = Instance.new("UICorner")
-            CheckCorner.CornerRadius = UDim.new(0, 5)
+            CheckCorner.CornerRadius = UDim.new(0, 6)
             CheckCorner.Parent = CheckBtn
 
             CheckBtn.MouseButton1Click:Connect(function()
@@ -989,7 +992,7 @@ renderUrlsView = function()
             local CopyBtn = Instance.new("TextButton")
             CopyBtn.Name = "CopyBtn"
             CopyBtn.Size = UDim2.new(0, 80, 0, 24)
-            CopyBtn.Position = UDim2.new(1, -90, 0, 70)
+            CopyBtn.Position = UDim2.new(1, -90, 0, 80)
             CopyBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 44)
             CopyBtn.BorderSizePixel = 0
             CopyBtn.Font = Enum.Font.GothamMedium
@@ -999,7 +1002,7 @@ renderUrlsView = function()
             CopyBtn.Parent = Card
 
             local CopyCorner = Instance.new("UICorner")
-            CopyCorner.CornerRadius = UDim.new(0, 5)
+            CopyCorner.CornerRadius = UDim.new(0, 6)
             CopyCorner.Parent = CopyBtn
 
             CopyBtn.MouseButton1Click:Connect(function()
