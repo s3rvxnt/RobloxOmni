@@ -11885,6 +11885,15 @@ local function unifiedCleanUp(isTeardown)
         getgenv().Omni.Parallel = nil
     end
     getgenv().Parallel = nil
+    if getgenv()._OmniTransparentOldNamecall and hookmetamethod then
+        pcall(hookmetamethod, game, "__namecall", getgenv()._OmniTransparentOldNamecall)
+        getgenv()._OmniTransparentOldNamecall = nil
+    end
+    if getgenv()._OmniTransparentOldIndex and hookmetamethod then
+        pcall(hookmetamethod, game, "__index", getgenv()._OmniTransparentOldIndex)
+        getgenv()._OmniTransparentOldIndex = nil
+        getgenv()._OmniParentSpoofHooked = nil
+    end
 end
 
 getgenv()._KernelTaskManagerCleanUp = cleanUpHUD
@@ -12148,7 +12157,12 @@ local function initOmniParallelEngine()
         return false
     end
 
-    if hookmetamethod and type(getnamecallmethod) == "function" then
+    if not getgenv()._OmniEnableMetamethodHooks then
+        if getgenv()._OmniTransparentOldNamecall and hookmetamethod then
+            pcall(hookmetamethod, game, "__namecall", getgenv()._OmniTransparentOldNamecall)
+            getgenv()._OmniTransparentOldNamecall = nil
+        end
+    elseif hookmetamethod and type(getnamecallmethod) == "function" then
         local oldNamecall
         oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
             local method = getnamecallmethod()
@@ -12257,7 +12271,13 @@ local function initOmniParallelEngine()
         getgenv()._OmniUpdateEngineModeBtnUI(getgenv()._OmniEngineMode)
     end
 
-    if not getgenv()._OmniParentSpoofHooked and hookmetamethod then
+    if not getgenv()._OmniEnableMetamethodHooks then
+        if getgenv()._OmniTransparentOldIndex and hookmetamethod then
+            pcall(hookmetamethod, game, "__index", getgenv()._OmniTransparentOldIndex)
+            getgenv()._OmniTransparentOldIndex = nil
+            getgenv()._OmniParentSpoofHooked = nil
+        end
+    elseif not getgenv()._OmniParentSpoofHooked and hookmetamethod then
         local oldIndex
         oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, prop)
             if prop == "Parent" and typeof(self) == "Instance" and self:IsA("LuaSourceContainer") then
