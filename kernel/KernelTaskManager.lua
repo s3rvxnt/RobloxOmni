@@ -4353,10 +4353,9 @@ local ColumnConfig = {
     Threads = {
         cols = {
             { id = "Stat",    name = "STAT",                   align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.05, maxWidth = 0.10, defaultWidth = 0.06 },
-            { id = "Name",    name = "GAME SCRIPT NAME",       align = Enum.TextXAlignment.Center, width = 0.34, minWidth = 0.20, maxWidth = 0.55, defaultWidth = 0.34 },
-            { id = "Hash",    name = "BYTECODE HASH (SHA-256)",align = Enum.TextXAlignment.Center, width = 0.24, minWidth = 0.16, maxWidth = 0.38, defaultWidth = 0.24 },
-            { id = "Core",    name = "ACTIVE MODE",            align = Enum.TextXAlignment.Center, width = 0.18, minWidth = 0.14, maxWidth = 0.28, defaultWidth = 0.18 },
-            { id = "Action",  name = "MODE TOGGLE",            align = Enum.TextXAlignment.Center, width = 0.18, minWidth = 0.14, maxWidth = 0.28, defaultWidth = 0.18 },
+            { id = "Name",    name = "GAME SCRIPT NAME",       align = Enum.TextXAlignment.Center, width = 0.44, minWidth = 0.25, maxWidth = 0.65, defaultWidth = 0.44 },
+            { id = "Hash",    name = "BYTECODE HASH (SHA-256)",align = Enum.TextXAlignment.Center, width = 0.28, minWidth = 0.18, maxWidth = 0.42, defaultWidth = 0.28 },
+            { id = "Mode",    name = "EXECUTION MODE",         align = Enum.TextXAlignment.Center, width = 0.22, minWidth = 0.16, maxWidth = 0.32, defaultWidth = 0.22 },
         }
     },
 }
@@ -4367,7 +4366,7 @@ local ColumnWidths = {
     Loops = { name = 0.34, minName = 0.22, maxName = 0.65, defaultName = 0.34 },
     Startup = { name = 0.41, minName = 0.28, maxName = 0.70, defaultName = 0.41 },
     Game = { name = 0.44, minName = 0.24, maxName = 0.70, defaultName = 0.44 },
-    Threads = { name = 0.34, minName = 0.20, maxName = 0.55, defaultName = 0.34 },
+    Threads = { name = 0.44, minName = 0.25, maxName = 0.65, defaultName = 0.44 },
 }
 
 local TableHeaders = {}
@@ -4621,7 +4620,7 @@ end
 
 local function sortThreadList(threads, colId, ascending)
     table.sort(threads, function(a, b)
-        if colId == "Stat" or colId == "Core" then
+        if colId == "Stat" or colId == "Core" or colId == "Mode" or colId == "Action" then
             local cA = a.isPerformance and 1 or 0
             local cB = b.isPerformance and 1 or 0
             if cA ~= cB then
@@ -5075,8 +5074,7 @@ applyRowColumnLayout = function(row, tabKey)
         local pStat, wStat = positions[1], widths[1]
         local pName, wName = positions[2], widths[2]
         local pHash, wHash = positions[3], widths[3]
-        local pCore, wCore = positions[4], widths[4]
-        local pAct,  wAct  = positions[5], widths[5]
+        local pMode, wMode = positions[4], widths[4]
 
         local dot = row:FindFirstChild("Dot")
         if dot then
@@ -5097,16 +5095,15 @@ applyRowColumnLayout = function(row, tabKey)
             hashLbl.TextTruncate = Enum.TextTruncate.AtEnd
             hashLbl.ClipsDescendants = true
         end
-        local coreBadge = row:FindFirstChild("CoreBadge")
-        if coreBadge then
-            coreBadge.Position = UDim2.new(pCore + wCore / 2, -55, 0.5, -10)
-            coreBadge.Size = UDim2.new(0, 110, 0, 20)
+        local modeBtn = row:FindFirstChild("ModeBtn")
+        if modeBtn then
+            modeBtn.Position = UDim2.new(pMode + wMode / 2, -60, 0.5, -11)
+            modeBtn.Size = UDim2.new(0, 120, 0, 22)
         end
-        local actionBtn = row:FindFirstChild("ActionBtn")
-        if actionBtn then
-            actionBtn.Position = UDim2.new(pAct + wAct / 2, -45, 0.5, -10)
-            actionBtn.Size = UDim2.new(0, 90, 0, 20)
-        end
+        local oldCore = row:FindFirstChild("CoreBadge")
+        if oldCore then pcall(function() oldCore:Destroy() end) end
+        local oldAct = row:FindFirstChild("ActionBtn")
+        if oldAct then pcall(function() oldAct:Destroy() end) end
     end
 end
 
@@ -5189,6 +5186,11 @@ autoFitColumn = function(tabKey, divIdx)
             end
         elseif tabKey == "Game" then
             for _, r in pairs(cachedGameRows) do
+                local lbl = r:FindFirstChild("NameLbl")
+                if lbl and lbl.Text and #lbl.Text > #longestText then longestText = lbl.Text end
+            end
+        elseif tabKey == "Threads" then
+            for _, r in pairs(cachedThreadRows) do
                 local lbl = r:FindFirstChild("NameLbl")
                 if lbl and lbl.Text and #lbl.Text > #longestText then longestText = lbl.Text end
             end
@@ -11099,36 +11101,17 @@ local function renderThreadRow(item, idx)
         hashLbl.Text = shortHash
         hashLbl.Parent = row
 
-        local coreBadge = Instance.new("TextButton")
-        coreBadge.Name = "CoreBadge"
-        coreBadge.Size = UDim2.new(0, 110, 0, 20)
-        coreBadge.BorderSizePixel = 0
-        coreBadge.Text = ""
-        coreBadge.AutoButtonColor = true
-        coreBadge.Parent = row
-        local cBadgeCorner = Instance.new("UICorner")
-        cBadgeCorner.CornerRadius = UDim.new(0, 4)
-        cBadgeCorner.Parent = coreBadge
-
-        local coreLbl = Instance.new("TextLabel")
-        coreLbl.Name = "CoreLbl"
-        coreLbl.Size = UDim2.new(1, 0, 1, 0)
-        coreLbl.BackgroundTransparency = 1
-        coreLbl.Font = Enum.Font.GothamBold
-        coreLbl.TextSize = 10
-        coreLbl.Parent = coreBadge
-
-        local actionBtn = Instance.new("TextButton")
-        actionBtn.Name = "ActionBtn"
-        actionBtn.Size = UDim2.new(0, 90, 0, 20)
-        actionBtn.BorderSizePixel = 0
-        actionBtn.Font = Enum.Font.GothamBold
-        actionBtn.TextSize = 10
-        actionBtn.AutoButtonColor = true
-        actionBtn.Parent = row
-        local aCorner = Instance.new("UICorner")
-        aCorner.CornerRadius = UDim.new(0, 4)
-        aCorner.Parent = actionBtn
+        local modeBtn = Instance.new("TextButton")
+        modeBtn.Name = "ModeBtn"
+        modeBtn.Size = UDim2.new(0, 120, 0, 22)
+        modeBtn.BorderSizePixel = 0
+        modeBtn.Font = Enum.Font.GothamBold
+        modeBtn.TextSize = 10
+        modeBtn.AutoButtonColor = true
+        modeBtn.Parent = row
+        local mCorner = Instance.new("UICorner")
+        mCorner.CornerRadius = UDim.new(0, 4)
+        mCorner.Parent = modeBtn
 
         local function onRowToggle()
             local it = rowItemMap[row] or item
@@ -11144,8 +11127,7 @@ local function renderThreadRow(item, idx)
             end
         end
 
-        actionBtn.MouseButton1Click:Connect(onRowToggle)
-        coreBadge.MouseButton1Click:Connect(onRowToggle)
+        modeBtn.MouseButton1Click:Connect(onRowToggle)
 
         cachedThreadRows[key] = row
         applyRowColumnLayout(row, "Threads")
@@ -11158,8 +11140,12 @@ local function renderThreadRow(item, idx)
     local dot = row:FindFirstChild("Dot")
     local nameLbl = row:FindFirstChild("NameLbl")
     local hashLbl = row:FindFirstChild("HashLbl")
-    local coreBadge = row:FindFirstChild("CoreBadge")
-    local actionBtn = row:FindFirstChild("ActionBtn")
+    local modeBtn = row:FindFirstChild("ModeBtn")
+
+    local oldCore = row:FindFirstChild("CoreBadge")
+    if oldCore then pcall(function() oldCore:Destroy() end) end
+    local oldAction = row:FindFirstChild("ActionBtn")
+    if oldAction then pcall(function() oldAction:Destroy() end) end
 
     if nameLbl then nameLbl.Text = item.name end
     if hashLbl then
@@ -11168,35 +11154,20 @@ local function renderThreadRow(item, idx)
     end
 
     local isEngineCompat = (getgenv()._OmniEngineMode == "Compatibility")
-    local coreLbl = coreBadge and coreBadge:FindFirstChild("CoreLbl")
 
     if item.isPerformance then
         if dot then dot.BackgroundColor3 = Color3.fromRGB(50, 220, 120) end
-        if coreBadge then
-            coreBadge.BackgroundColor3 = Color3.fromRGB(18, 48, 32)
-            if coreLbl then
-                coreLbl.TextColor3 = Color3.fromRGB(80, 230, 140)
-                coreLbl.Text = "⚡ Performance"
-            end
-        end
-        if actionBtn then
-            actionBtn.Text = "🛡️ Set Native"
-            actionBtn.BackgroundColor3 = Color3.fromRGB(56, 38, 20)
-            actionBtn.TextColor3 = Color3.fromRGB(255, 185, 60)
+        if modeBtn then
+            modeBtn.BackgroundColor3 = Color3.fromRGB(18, 48, 32)
+            modeBtn.TextColor3 = Color3.fromRGB(80, 230, 140)
+            modeBtn.Text = "⚡ Performance"
         end
     else
         if dot then dot.BackgroundColor3 = Color3.fromRGB(255, 180, 50) end
-        if coreBadge then
-            coreBadge.BackgroundColor3 = Color3.fromRGB(48, 34, 18)
-            if coreLbl then
-                coreLbl.TextColor3 = Color3.fromRGB(255, 190, 70)
-                coreLbl.Text = isEngineCompat and "🛡️ Compatibility" or "🛡️ Native"
-            end
-        end
-        if actionBtn then
-            actionBtn.Text = "⚡ Set Performance"
-            actionBtn.BackgroundColor3 = Color3.fromRGB(20, 52, 34)
-            actionBtn.TextColor3 = Color3.fromRGB(90, 240, 150)
+        if modeBtn then
+            modeBtn.BackgroundColor3 = Color3.fromRGB(48, 34, 18)
+            modeBtn.TextColor3 = Color3.fromRGB(255, 190, 70)
+            modeBtn.Text = isEngineCompat and "🛡️ Compatibility" or "🛡️ Native"
         end
     end
 
@@ -11865,6 +11836,9 @@ cleanUpHUD = function()
     cachedLoopRows = {}
     for _, r in pairs(cachedStartupRows) do pcall(function() r:Destroy() end) end
     cachedStartupRows = {}
+    for _, r in pairs(cachedThreadRows) do pcall(function() r:Destroy() end) end
+    cachedThreadRows = {}
+    rowItemMap = {}
     TableHeaders = {}
     activeDividerDrag = nil
     if ScreenGui then

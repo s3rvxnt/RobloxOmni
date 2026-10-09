@@ -6,3 +6,5 @@ scratch/
 *.key
 __pycache__/
 *.pyc
+
+video_frames/
