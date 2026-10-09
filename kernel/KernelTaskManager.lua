@@ -11046,6 +11046,7 @@ end
 
 -- Row 6: Multi-Core Thread Row
 local cachedThreadRows = {}
+local rowItemMap = {}
 
 local function renderThreadRow(item, idx)
     local key = item.hash or item.name
@@ -11068,7 +11069,7 @@ local function renderThreadRow(item, idx)
         local dot = Instance.new("Frame")
         dot.Name = "Dot"
         dot.Size = UDim2.new(0, 8, 0, 8)
-        dot.BackgroundColor3 = item.isActor and Color3.fromRGB(50, 220, 120) or Color3.fromRGB(255, 180, 50)
+        dot.BackgroundColor3 = item.isPerformance and Color3.fromRGB(50, 220, 120) or Color3.fromRGB(255, 180, 50)
         dot.BorderSizePixel = 0
         dot.Parent = row
         local dotCorner = Instance.new("UICorner")
@@ -11128,7 +11129,7 @@ local function renderThreadRow(item, idx)
         aCorner.Parent = actionBtn
 
         actionBtn.MouseButton1Click:Connect(function()
-            local it = row._item or item
+            local it = rowItemMap[row] or item
             local isPerf = it.isPerformance
             local targetMode = isPerf and "Native" or "Performance"
             if Omni and Omni.SetScriptPolicy then
@@ -11145,7 +11146,7 @@ local function renderThreadRow(item, idx)
         applyRowColumnLayout(row, "Threads")
     end
 
-    row._item = item
+    rowItemMap[row] = item
     row.LayoutOrder = idx
     row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
 
@@ -11207,15 +11208,15 @@ refreshThreadsTab = function(skipSort)
     local primaryWorker = getgenv()._OmniPrimaryWorker
     if not primaryWorker and ps then
         primaryWorker = ps:FindFirstChild("OmniWorker_1")
-        if primaryWorker then
-            getgenv()._OmniPrimaryWorker = primaryWorker
-        end
+    end
+    if not primaryWorker then
+        primaryWorker = workspace:FindFirstChild("OmniWorker_1")
     end
     if not primaryWorker and pool and pool[1] then
         primaryWorker = pool[1].actor
-        if primaryWorker then
-            getgenv()._OmniPrimaryWorker = primaryWorker
-        end
+    end
+    if primaryWorker then
+        getgenv()._OmniPrimaryWorker = primaryWorker
     end
 
     local originalParents = getgenv()._OmniOriginalParents or {}
@@ -11300,6 +11301,7 @@ refreshThreadsTab = function(skipSort)
 
     for k, r in pairs(cachedThreadRows) do
         if not seenKeys[k] then
+            rowItemMap[r] = nil
             r:Destroy()
             cachedThreadRows[k] = nil
         end
@@ -12357,7 +12359,10 @@ local function initOmniParallelEngine()
     end
 
     local function restoreAllScriptsToNative()
-        local primaryWorker = pool[1] and pool[1].actor
+        local primaryWorker = (pool[1] and pool[1].actor)
+            or getgenv()._OmniPrimaryWorker
+            or (game:GetService("Players").LocalPlayer and game:GetService("Players").LocalPlayer:FindFirstChild("PlayerScripts") and game:GetService("Players").LocalPlayer.PlayerScripts:FindFirstChild("OmniWorker_1"))
+            or (workspace:FindFirstChild("OmniWorker_1"))
         local restoredCount = 0
         if primaryWorker then
             for _, child in ipairs(primaryWorker:GetChildren()) do
@@ -12379,13 +12384,15 @@ local function initOmniParallelEngine()
     end
 
     local function runCleanCoreMigration()
-        local primaryWorker = pool[1] and pool[1].actor
-        if not primaryWorker then return 0 end
-        if getgenv()._OmniEngineMode == "Compatibility" then return 0 end
-
         local Players = pcall(function() return game:GetService("Players") end) and game:GetService("Players")
         local lp = Players and Players.LocalPlayer
         local ps = lp and (lp:FindFirstChild("PlayerScripts") or lp:WaitForChild("PlayerScripts", 5))
+        local primaryWorker = (pool[1] and pool[1].actor)
+            or getgenv()._OmniPrimaryWorker
+            or (ps and ps:FindFirstChild("OmniWorker_1"))
+            or (workspace:FindFirstChild("OmniWorker_1"))
+        if not primaryWorker then return 0 end
+        if getgenv()._OmniEngineMode == "Compatibility" then return 0 end
         if not ps then return 0 end
 
         local migratedCount = 0
@@ -12450,7 +12457,13 @@ local function initOmniParallelEngine()
         if not isPerf and not isNat then return end
         local resolvedMode = isPerf and "Performance" or "Native"
 
-        local primaryWorker = pool[1] and pool[1].actor
+        local Players = pcall(function() return game:GetService("Players") end) and game:GetService("Players")
+        local lp = Players and Players.LocalPlayer
+        local ps = lp and lp:FindFirstChild("PlayerScripts")
+        local primaryWorker = (pool[1] and pool[1].actor)
+            or getgenv()._OmniPrimaryWorker
+            or (ps and ps:FindFirstChild("OmniWorker_1"))
+            or (workspace:FindFirstChild("OmniWorker_1"))
         local h = computeScriptBytecodeHash(scr)
         if not h then return end
 
@@ -12483,10 +12496,13 @@ local function initOmniParallelEngine()
         if not isPerf and not isNat then return end
         local resolvedMode = isPerf and "Performance" or "Native"
 
-        local primaryWorker = pool[1] and pool[1].actor
         local Players = pcall(function() return game:GetService("Players") end) and game:GetService("Players")
         local lp = Players and Players.LocalPlayer
         local ps = lp and lp:FindFirstChild("PlayerScripts")
+        local primaryWorker = (pool[1] and pool[1].actor)
+            or getgenv()._OmniPrimaryWorker
+            or (ps and ps:FindFirstChild("OmniWorker_1"))
+            or (workspace:FindFirstChild("OmniWorker_1"))
 
         local scriptsToProcess = {}
         for scr, _ in pairs(originalParents) do
