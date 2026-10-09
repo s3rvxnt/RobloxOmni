@@ -3149,17 +3149,45 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
             loop.peakTimeMs = cpuMs
         end
 
-        -- Autonomous Auto-Throttler: only downshift rapid tight loops (frequencyHz >= 15) that burn > 2.5ms per frame
+        -- Autonomous Auto-Throttler with Memory Foam Rebound:
+        -- Downshift rapid tight loops (frequencyHz >= 15) that burn > 2.5ms per frame
         if loop.isExecutor and not loop.locked and loop.avgTimeMs > 2.5 and (loop.frequencyHz or 0) >= 15 and not loop.autoThrottled then
             loop.autoThrottled = true
             loop.targetHz = 15
             loop.targetRatio = 15 / math.max(60, measuredFps or 60)
             loop.minDelay = 1 / 15
+            loop.reboundStart = nil
+            loop.reboundFromHz = nil
         elseif loop.autoThrottled and loop.avgTimeMs < 0.8 and not loop.locked then
-            loop.autoThrottled = false
-            loop.targetHz = nil
-            loop.targetRatio = nil
-            loop.minDelay = nil
+            -- Memory Foam Rebound: Graceful, smooth cubic S-curve expansion instead of stiff snap
+            if not loop.reboundStart then
+                loop.reboundStart = now
+                loop.reboundFromHz = loop.targetHz or 15
+            end
+            local elapsedRebound = now - loop.reboundStart
+            local REBOUND_DURATION = getgenv()._OmniMemoryFoamDuration or 1.2
+            local progress = math.clamp(elapsedRebound / REBOUND_DURATION, 0, 1)
+            -- Cubic S-curve for organic memory foam feel
+            local smoothProgress = progress * progress * (3 - 2 * progress)
+            local maxTargetHz = math.max(60, measuredFps or 60)
+            local currentReboundHz = math.floor(loop.reboundFromHz + (maxTargetHz - loop.reboundFromHz) * smoothProgress)
+            if progress >= 1.0 then
+                loop.autoThrottled = false
+                loop.targetHz = nil
+                loop.targetRatio = nil
+                loop.minDelay = nil
+                loop.reboundStart = nil
+                loop.reboundFromHz = nil
+            else
+                loop.targetHz = currentReboundHz
+                loop.minDelay = 1 / currentReboundHz
+            end
+        elseif loop.autoThrottled and loop.avgTimeMs >= 1.5 and loop.reboundStart then
+            -- Re-compression: If a new burst hits during recovery, damp back down
+            loop.reboundStart = nil
+            loop.reboundFromHz = nil
+            loop.targetHz = 15
+            loop.minDelay = 1 / 15
         end
 
         table.insert(loop.recentTimestamps, now)
