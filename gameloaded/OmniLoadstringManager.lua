@@ -496,14 +496,12 @@ SearchBox.Parent = SearchFrame
 
 local SearchClearBtn = Instance.new("TextButton")
 SearchClearBtn.Name = "SearchClearBtn"
-SearchClearBtn.Size = UDim2.new(0, 18, 0, 18)
-SearchClearBtn.Position = UDim2.new(1, -26, 0.5, -9)
+SearchClearBtn.Size = UDim2.new(0, 20, 0, 20)
+SearchClearBtn.AnchorPoint = Vector2.new(1, 0.5)
+SearchClearBtn.Position = UDim2.new(1, -8, 0.5, 0)
 SearchClearBtn.BackgroundColor3 = Color3.fromRGB(36, 46, 64)
 SearchClearBtn.BorderSizePixel = 0
-SearchClearBtn.Font = Enum.Font.GothamBold
-SearchClearBtn.TextSize = 10
-SearchClearBtn.TextColor3 = Color3.fromRGB(160, 175, 200)
-SearchClearBtn.Text = "X"
+SearchClearBtn.Text = ""
 SearchClearBtn.Visible = false
 SearchClearBtn.Parent = SearchFrame
 
@@ -511,14 +509,27 @@ local SearchClearCorner = Instance.new("UICorner")
 SearchClearCorner.CornerRadius = UDim.new(1, 0)
 SearchClearCorner.Parent = SearchClearBtn
 
+local ClearIcon = Instance.new("TextLabel")
+ClearIcon.Name = "ClearIcon"
+ClearIcon.Size = UDim2.new(1, 0, 1, 0)
+ClearIcon.Position = UDim2.new(0, 0, 0, -1)
+ClearIcon.BackgroundTransparency = 1
+ClearIcon.Font = Enum.Font.GothamBold
+ClearIcon.TextSize = 12
+ClearIcon.TextColor3 = Color3.fromRGB(160, 175, 200)
+ClearIcon.Text = "X"
+ClearIcon.TextXAlignment = Enum.TextXAlignment.Center
+ClearIcon.TextYAlignment = Enum.TextYAlignment.Center
+ClearIcon.Parent = SearchClearBtn
+
 SearchClearBtn.MouseEnter:Connect(function()
     SearchClearBtn.BackgroundColor3 = Color3.fromRGB(52, 68, 92)
-    SearchClearBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ClearIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
 end)
 
 SearchClearBtn.MouseLeave:Connect(function()
     SearchClearBtn.BackgroundColor3 = Color3.fromRGB(36, 46, 64)
-    SearchClearBtn.TextColor3 = Color3.fromRGB(160, 175, 200)
+    ClearIcon.TextColor3 = Color3.fromRGB(160, 175, 200)
 end)
 
 SearchClearBtn.MouseButton1Click:Connect(function()
