@@ -1865,7 +1865,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "8756898ffc80a4581b53abda571a6bd8333df496759bfc89abeb228a2ce3a696"
+        sha256 = "e5a2d68295b19fd40d6904641ceded350571e2d22e6938ca5a4c659517ef369b"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
@@ -3412,7 +3412,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "8756898ffc80a4581b53abda571a6bd8333df496759bfc89abeb228a2ce3a696"
+                    sha256 = "e5a2d68295b19fd40d6904641ceded350571e2d22e6938ca5a4c659517ef369b"
                 }
             }
         end
