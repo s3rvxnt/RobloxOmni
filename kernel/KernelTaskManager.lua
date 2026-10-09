@@ -3147,17 +3147,45 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
             loop.peakTimeMs = cpuMs
         end
 
-        -- Autonomous Auto-Throttler: only downshift rapid tight loops (frequencyHz >= 15) that burn > 2.5ms per frame
+        -- Autonomous Auto-Throttler with Memory Foam Rebound:
+        -- Downshift rapid tight loops (frequencyHz >= 15) that burn > 2.5ms per frame
         if loop.isExecutor and not loop.locked and loop.avgTimeMs > 2.5 and (loop.frequencyHz or 0) >= 15 and not loop.autoThrottled then
             loop.autoThrottled = true
             loop.targetHz = 15
             loop.targetRatio = 15 / math.max(60, measuredFps or 60)
             loop.minDelay = 1 / 15
+            loop.reboundStart = nil
+            loop.reboundFromHz = nil
         elseif loop.autoThrottled and loop.avgTimeMs < 0.8 and not loop.locked then
-            loop.autoThrottled = false
-            loop.targetHz = nil
-            loop.targetRatio = nil
-            loop.minDelay = nil
+            -- Memory Foam Rebound: Graceful, smooth cubic S-curve expansion instead of stiff snap
+            if not loop.reboundStart then
+                loop.reboundStart = now
+                loop.reboundFromHz = loop.targetHz or 15
+            end
+            local elapsedRebound = now - loop.reboundStart
+            local REBOUND_DURATION = getgenv()._OmniMemoryFoamDuration or 1.2
+            local progress = math.clamp(elapsedRebound / REBOUND_DURATION, 0, 1)
+            -- Cubic S-curve for organic memory foam feel
+            local smoothProgress = progress * progress * (3 - 2 * progress)
+            local maxTargetHz = math.max(60, measuredFps or 60)
+            local currentReboundHz = math.floor(loop.reboundFromHz + (maxTargetHz - loop.reboundFromHz) * smoothProgress)
+            if progress >= 1.0 then
+                loop.autoThrottled = false
+                loop.targetHz = nil
+                loop.targetRatio = nil
+                loop.minDelay = nil
+                loop.reboundStart = nil
+                loop.reboundFromHz = nil
+            else
+                loop.targetHz = currentReboundHz
+                loop.minDelay = 1 / currentReboundHz
+            end
+        elseif loop.autoThrottled and loop.avgTimeMs >= 1.5 and loop.reboundStart then
+            -- Re-compression: If a new burst hits during recovery, damp back down
+            loop.reboundStart = nil
+            loop.reboundFromHz = nil
+            loop.targetHz = 15
+            loop.minDelay = 1 / 15
         end
 
         table.insert(loop.recentTimestamps, now)
@@ -11600,6 +11628,92 @@ local function initOmniParallelEngine()
             return oldNamecall(self, ...)
         end))
         getgenv()._OmniTransparentOldNamecall = oldNamecall
+    end
+
+    -- ==============================================================================
+    -- SECTION: CLEAN CORE SCRIPT ISOLATION (Multi-Core Actor Sandboxing)
+    -- ==============================================================================
+    local originalParents = getgenv()._OmniOriginalParents or {}
+    getgenv()._OmniOriginalParents = originalParents
+
+    if not getgenv()._OmniParentSpoofHooked and hookmetamethod then
+        local oldIndex
+        oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, prop)
+            if prop == "Parent" and typeof(self) == "Instance" and self:IsA("LuaSourceContainer") then
+                local orig = originalParents[self]
+                if orig then
+                    return orig
+                end
+            end
+            return oldIndex(self, prop)
+        end))
+        getgenv()._OmniTransparentOldIndex = oldIndex
+        getgenv()._OmniParentSpoofHooked = true
+    end
+
+    local function migrateScriptToActor(scr, targetActor)
+        if not scr or not scr:IsA("LocalScript") then return false end
+        if scr:IsDescendantOf(targetActor) then return false end
+
+        local origParent = scr.Parent
+        if not origParent or origParent == targetActor then return false end
+
+        local name = scr.Name
+        if name == "OmniWorkerStub" or name == "PlayerScriptsLoader" then
+            return false
+        end
+
+        originalParents[scr] = origParent
+
+        -- Stunt double in original location so FindFirstChild / dot notation never breaks
+        local stuntOk, stunt = pcall(function() return scr:Clone() end)
+        if stuntOk and stunt then
+            stunt.Name = scr.Name
+            pcall(function() stunt.Disabled = true end)
+            pcall(function() stunt.Parent = origParent end)
+        end
+
+        local reparentOk = pcall(function() scr.Parent = targetActor end)
+        return reparentOk
+    end
+
+    local function runCleanCoreMigration()
+        local primaryWorker = pool[1] and pool[1].actor
+        if not primaryWorker then return end
+
+        local Players = pcall(function() return game:GetService("Players") end) and game:GetService("Players")
+        local lp = Players and Players.LocalPlayer
+        local ps = lp and (lp:FindFirstChild("PlayerScripts") or lp:WaitForChild("PlayerScripts", 5))
+        if not ps then return end
+
+        local migratedCount = 0
+        for _, child in ipairs(ps:GetChildren()) do
+            if child:IsA("LocalScript") and child ~= primaryWorker and not child:IsDescendantOf(primaryWorker) then
+                if migrateScriptToActor(child, primaryWorker) then
+                    migratedCount = migratedCount + 1
+                end
+            end
+        end
+
+        -- Continuous guardian: migrate any newly spawned LocalScripts automatically
+        ps.ChildAdded:Connect(function(child)
+            task.wait(0.05)
+            if child:IsA("LocalScript") and not child:IsDescendantOf(primaryWorker) then
+                migrateScriptToActor(child, primaryWorker)
+            end
+        end)
+
+        if migratedCount > 0 then
+            print(string.format("[CleanCore]: Successfully migrated %d game scripts to %s (CPU Core 1)", migratedCount, primaryWorker.Name))
+        end
+    end
+
+    Omni.MigrateScriptToActor = migrateScriptToActor
+    Omni.RunCleanCoreMigration = runCleanCoreMigration
+    getgenv().OmniMigrateScript = migrateScriptToActor
+
+    if getgenv()._OmniEnableCleanCore ~= false then
+        pcall(task.spawn, runCleanCoreMigration)
     end
 
     return dispatcher
