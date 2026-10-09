@@ -11099,10 +11099,12 @@ local function renderThreadRow(item, idx)
         hashLbl.Text = shortHash
         hashLbl.Parent = row
 
-        local coreBadge = Instance.new("Frame")
+        local coreBadge = Instance.new("TextButton")
         coreBadge.Name = "CoreBadge"
         coreBadge.Size = UDim2.new(0, 110, 0, 20)
         coreBadge.BorderSizePixel = 0
+        coreBadge.Text = ""
+        coreBadge.AutoButtonColor = true
         coreBadge.Parent = row
         local cBadgeCorner = Instance.new("UICorner")
         cBadgeCorner.CornerRadius = UDim.new(0, 4)
@@ -11128,7 +11130,7 @@ local function renderThreadRow(item, idx)
         aCorner.CornerRadius = UDim.new(0, 4)
         aCorner.Parent = actionBtn
 
-        actionBtn.MouseButton1Click:Connect(function()
+        local function onRowToggle()
             local it = rowItemMap[row] or item
             local isPerf = it.isPerformance
             local targetMode = isPerf and "Native" or "Performance"
@@ -11140,7 +11142,10 @@ local function renderThreadRow(item, idx)
             if refreshThreadsTab then
                 refreshThreadsTab(true)
             end
-        end)
+        end
+
+        actionBtn.MouseButton1Click:Connect(onRowToggle)
+        coreBadge.MouseButton1Click:Connect(onRowToggle)
 
         cachedThreadRows[key] = row
         applyRowColumnLayout(row, "Threads")
