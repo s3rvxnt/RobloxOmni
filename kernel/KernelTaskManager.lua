@@ -54,6 +54,9 @@ local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 
+local Omni = getgenv().Omni or {}
+getgenv().Omni = Omni
+
 -- Forward declarations for signals & proxies
 local ProxiedSignals = {}
 local emitProfile
@@ -4347,6 +4350,15 @@ local ColumnConfig = {
             { id = "Action",  name = "ACTION",             align = Enum.TextXAlignment.Center, width = 0.15, minWidth = 0.12, maxWidth = 0.25, defaultWidth = 0.15 },
         }
     },
+    Threads = {
+        cols = {
+            { id = "Stat",    name = "STAT",                   align = Enum.TextXAlignment.Center, width = 0.06, minWidth = 0.05, maxWidth = 0.10, defaultWidth = 0.06 },
+            { id = "Name",    name = "GAME SCRIPT NAME",       align = Enum.TextXAlignment.Center, width = 0.34, minWidth = 0.20, maxWidth = 0.55, defaultWidth = 0.34 },
+            { id = "Hash",    name = "BYTECODE HASH (SHA-256)",align = Enum.TextXAlignment.Center, width = 0.24, minWidth = 0.16, maxWidth = 0.38, defaultWidth = 0.24 },
+            { id = "Core",    name = "ASSIGNED CORE",          align = Enum.TextXAlignment.Center, width = 0.18, minWidth = 0.14, maxWidth = 0.28, defaultWidth = 0.18 },
+            { id = "Action",  name = "THREAD ROUTING",         align = Enum.TextXAlignment.Center, width = 0.18, minWidth = 0.14, maxWidth = 0.28, defaultWidth = 0.18 },
+        }
+    },
 }
 
 -- Backward compatibility reference
@@ -4355,6 +4367,7 @@ local ColumnWidths = {
     Loops = { name = 0.34, minName = 0.22, maxName = 0.65, defaultName = 0.34 },
     Startup = { name = 0.41, minName = 0.28, maxName = 0.70, defaultName = 0.41 },
     Game = { name = 0.44, minName = 0.24, maxName = 0.70, defaultName = 0.44 },
+    Threads = { name = 0.34, minName = 0.20, maxName = 0.55, defaultName = 0.34 },
 }
 
 local TableHeaders = {}
@@ -4370,6 +4383,7 @@ local handleDividerDrag
 local autoFitColumn
 local showTableNotice
 local openPriorityEditModal
+local refreshThreadsTab
 
 -- ==============================================================================
 -- INTERACTIVE COLUMN SORTING ENGINE & STATE
@@ -4379,6 +4393,7 @@ local TableSortState = {
     Loops = { colId = "Priority", ascending = false },
     Startup = { colId = "Priority", ascending = false },
     Game = { colId = "Event", ascending = true },
+    Threads = { colId = "Name", ascending = true },
 }
 
 local RS_EVENT_ORDER = {
@@ -4604,6 +4619,37 @@ local function sortGameTaskList(gameTasks, colId, ascending)
     end)
 end
 
+local function sortThreadList(threads, colId, ascending)
+    table.sort(threads, function(a, b)
+        if colId == "Stat" or colId == "Core" then
+            local cA = a.isActor and 1 or 0
+            local cB = b.isActor and 1 or 0
+            if cA ~= cB then
+                if ascending then return cA < cB else return cA > cB end
+            end
+        elseif colId == "Name" then
+            local nA = tostring(a.name or ""):lower()
+            local nB = tostring(b.name or ""):lower()
+            if nA ~= nB then
+                if ascending then return nA < nB else return nA > nB end
+            end
+        elseif colId == "Hash" then
+            local hA = tostring(a.hash or ""):lower()
+            local hB = tostring(b.hash or ""):lower()
+            if hA ~= hB then
+                if ascending then return hA < hB else return hA > hB end
+            end
+        elseif colId == "Action" then
+            local pA = tostring(a.policy or ""):lower()
+            local pB = tostring(b.policy or ""):lower()
+            if pA ~= pB then
+                if ascending then return pA < pB else return pA > pB end
+            end
+        end
+        return tostring(a.name or "") < tostring(b.name or "")
+    end)
+end
+
 local function updateHeaderSortIndicators(tabKey)
     local state = TableSortState[tabKey]
     local cfg = ColumnConfig[tabKey]
@@ -4688,6 +4734,8 @@ local function toggleTableSort(tabKey, colId)
 
     if tabKey == "Startup" and refreshStartupTab then
         refreshStartupTab(true)
+    elseif tabKey == "Threads" and refreshThreadsTab then
+        refreshThreadsTab(true)
     end
 end
 
@@ -5022,6 +5070,43 @@ applyRowColumnLayout = function(row, tabKey)
         if disconnectBtn then
             disconnectBtn.Position = UDim2.new(pAct + wAct / 2, -32, 0.5, -10)
         end
+
+    elseif tabKey == "Threads" then
+        local pStat, wStat = positions[1], widths[1]
+        local pName, wName = positions[2], widths[2]
+        local pHash, wHash = positions[3], widths[3]
+        local pCore, wCore = positions[4], widths[4]
+        local pAct,  wAct  = positions[5], widths[5]
+
+        local dot = row:FindFirstChild("Dot")
+        if dot then
+            dot.Position = UDim2.new(pStat + wStat / 2, -4, 0.5, -4)
+        end
+        local nameLbl = row:FindFirstChild("NameLbl")
+        if nameLbl then
+            nameLbl.Position = UDim2.new(pName, H_PAD, 0, 0)
+            nameLbl.Size = UDim2.new(wName, -H_PAD * 2, 1, 0)
+            nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            nameLbl.ClipsDescendants = true
+        end
+        local hashLbl = row:FindFirstChild("HashLbl")
+        if hashLbl then
+            hashLbl.Position = UDim2.new(pHash, H_PAD, 0, 0)
+            hashLbl.Size = UDim2.new(wHash, -H_PAD * 2, 1, 0)
+            hashLbl.TextXAlignment = Enum.TextXAlignment.Center
+            hashLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            hashLbl.ClipsDescendants = true
+        end
+        local coreBadge = row:FindFirstChild("CoreBadge")
+        if coreBadge then
+            coreBadge.Position = UDim2.new(pCore + wCore / 2, -55, 0.5, -10)
+            coreBadge.Size = UDim2.new(0, 110, 0, 20)
+        end
+        local actionBtn = row:FindFirstChild("ActionBtn")
+        if actionBtn then
+            actionBtn.Position = UDim2.new(pAct + wAct / 2, -45, 0.5, -10)
+            actionBtn.Size = UDim2.new(0, 90, 0, 20)
+        end
     end
 end
 
@@ -5061,6 +5146,7 @@ updateTableColumnLayout = function(tabKey)
     elseif tabKey == "Tasks" then cache = cachedTaskRows
     elseif tabKey == "Loops" then cache = cachedLoopRows
     elseif tabKey == "Game" then cache = cachedGameRows
+    elseif tabKey == "Threads" then cache = cachedThreadRows
     end
 
     if cache then
@@ -5465,14 +5551,16 @@ MainFrame.ClipsDescendants = true
 MainFrame.Active = true
 MainFrame.Parent = ScreenGui
 
-local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 8)
-MainCorner.Parent = MainFrame
+do
+    local MainCorner = Instance.new("UICorner")
+    MainCorner.CornerRadius = UDim.new(0, 8)
+    MainCorner.Parent = MainFrame
 
-local MainStroke = Instance.new("UIStroke")
-MainStroke.Thickness = 1
-MainStroke.Color = Color3.fromRGB(45, 52, 68)
-MainStroke.Parent = MainFrame
+    local MainStroke = Instance.new("UIStroke")
+    MainStroke.Thickness = 1
+    MainStroke.Color = Color3.fromRGB(45, 52, 68)
+    MainStroke.Parent = MainFrame
+end
 
 -- Top Navigation / Title Bar
 local TitleBar = Instance.new("Frame")
@@ -5483,16 +5571,18 @@ TitleBar.BorderSizePixel = 0
 TitleBar.Active = true
 TitleBar.Parent = MainFrame
 
-local TitleBarCorner = Instance.new("UICorner")
-TitleBarCorner.CornerRadius = UDim.new(0, 8)
-TitleBarCorner.Parent = TitleBar
+do
+    local TitleBarCorner = Instance.new("UICorner")
+    TitleBarCorner.CornerRadius = UDim.new(0, 8)
+    TitleBarCorner.Parent = TitleBar
 
-local TitleBarCover = Instance.new("Frame")
-TitleBarCover.Size = UDim2.new(1, 0, 0, 8)
-TitleBarCover.Position = UDim2.new(0, 0, 1, -8)
-TitleBarCover.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
-TitleBarCover.BorderSizePixel = 0
-TitleBarCover.Parent = TitleBar
+    local TitleBarCover = Instance.new("Frame")
+    TitleBarCover.Size = UDim2.new(1, 0, 0, 8)
+    TitleBarCover.Position = UDim2.new(0, 0, 1, -8)
+    TitleBarCover.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
+    TitleBarCover.BorderSizePixel = 0
+    TitleBarCover.Parent = TitleBar
+end
 
 local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Name = "TitleLabel"
@@ -5519,14 +5609,66 @@ KeybindBadge.TextColor3 = Color3.fromRGB(160, 175, 200)
 KeybindBadge.Text = "Shift + F8"
 KeybindBadge.Parent = TitleBar
 
-local KeybindBadgeCorner = Instance.new("UICorner")
-KeybindBadgeCorner.CornerRadius = UDim.new(0, 4)
-KeybindBadgeCorner.Parent = KeybindBadge
+do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 4)
+    c.Parent = KeybindBadge
+end
+
+local EngineModeBtn = Instance.new("TextButton")
+EngineModeBtn.Name = "EngineModeBtn"
+EngineModeBtn.Size = UDim2.new(0, 150, 0, 20)
+EngineModeBtn.Position = UDim2.new(0, 316, 0.5, -10)
+EngineModeBtn.BackgroundColor3 = Color3.fromRGB(18, 52, 32)
+EngineModeBtn.Font = Enum.Font.GothamBold
+EngineModeBtn.TextSize = 10
+EngineModeBtn.TextColor3 = Color3.fromRGB(90, 235, 140)
+EngineModeBtn.Text = "⚡ Performance Mode"
+EngineModeBtn.Parent = TitleBar
+
+do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 4)
+    c.Parent = EngineModeBtn
+end
+
+local EngineModeStroke = Instance.new("UIStroke")
+EngineModeStroke.Thickness = 1
+EngineModeStroke.Color = Color3.fromRGB(40, 150, 80)
+EngineModeStroke.Parent = EngineModeBtn
+
+local function updateEngineModeBtnUI(mode)
+    if mode == "Performance" then
+        EngineModeBtn.Text = "⚡ Performance Mode"
+        EngineModeBtn.BackgroundColor3 = Color3.fromRGB(18, 52, 32)
+        EngineModeBtn.TextColor3 = Color3.fromRGB(90, 235, 140)
+        EngineModeStroke.Color = Color3.fromRGB(40, 150, 80)
+    else
+        EngineModeBtn.Text = "🛡️ Compatibility Mode"
+        EngineModeBtn.BackgroundColor3 = Color3.fromRGB(56, 38, 16)
+        EngineModeBtn.TextColor3 = Color3.fromRGB(255, 185, 60)
+        EngineModeStroke.Color = Color3.fromRGB(180, 110, 30)
+    end
+end
+getgenv()._OmniUpdateEngineModeBtnUI = updateEngineModeBtnUI
+
+EngineModeBtn.MouseButton1Click:Connect(function()
+    local cur = getgenv()._OmniEngineMode or "Performance"
+    local nextMode = (cur == "Performance") and "Compatibility" or "Performance"
+    if Omni and Omni.SetEngineMode then
+        Omni.SetEngineMode(nextMode)
+    elseif getgenv().OmniSetEngineMode then
+        getgenv().OmniSetEngineMode(nextMode)
+    else
+        getgenv()._OmniEngineMode = nextMode
+        updateEngineModeBtnUI(nextMode)
+    end
+end)
 
 local UpdateBadge = Instance.new("TextButton")
 UpdateBadge.Name = "UpdateBadge"
 UpdateBadge.Size = UDim2.new(0, 126, 0, 20)
-UpdateBadge.Position = UDim2.new(0, 320, 0.5, -10)
+UpdateBadge.Position = UDim2.new(0, 474, 0.5, -10)
 UpdateBadge.BackgroundColor3 = Color3.fromRGB(25, 60, 100)
 UpdateBadge.Font = Enum.Font.GothamBold
 UpdateBadge.TextSize = 10
@@ -5536,14 +5678,16 @@ UpdateBadge.Visible = (getgenv()._OmniUpdateAvailable == true and not getgenv().
 if getgenv()._OmniUpdateBadgeText then UpdateBadge.Text = getgenv()._OmniUpdateBadgeText end
 UpdateBadge.Parent = TitleBar
 
-local UpdateBadgeCorner = Instance.new("UICorner")
-UpdateBadgeCorner.CornerRadius = UDim.new(0, 4)
-UpdateBadgeCorner.Parent = UpdateBadge
+do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 4)
+    c.Parent = UpdateBadge
 
-local UpdateBadgeStroke = Instance.new("UIStroke")
-UpdateBadgeStroke.Thickness = 1
-UpdateBadgeStroke.Color = Color3.fromRGB(50, 130, 210)
-UpdateBadgeStroke.Parent = UpdateBadge
+    local s = Instance.new("UIStroke")
+    s.Thickness = 1
+    s.Color = Color3.fromRGB(50, 130, 210)
+    s.Parent = UpdateBadge
+end
 
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Name = "CloseBtn"
@@ -5557,9 +5701,11 @@ CloseBtn.Text = "X"
 CloseBtn.Modal = true
 CloseBtn.Parent = TitleBar
 
-local CloseBtnCorner = Instance.new("UICorner")
-CloseBtnCorner.CornerRadius = UDim.new(0, 6)
-CloseBtnCorner.Parent = CloseBtn
+do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 6)
+    c.Parent = CloseBtn
+end
 
 -- ==============================================================================
 -- WINDOW DRAG & RESIZE ENGINE
@@ -5583,7 +5729,7 @@ end
 local function handleDragStart(pos)
     if not ScreenGui.Enabled then return end
     -- Guard interactive title bar buttons
-    if isInsideGui(CloseBtn, pos) or (UpdateBadge and isInsideGui(UpdateBadge, pos)) then
+    if isInsideGui(CloseBtn, pos) or isInsideGui(EngineModeBtn, pos) or (UpdateBadge and isInsideGui(UpdateBadge, pos)) then
         return
     end
     -- Check if click originated within TitleBar bounds
@@ -5716,12 +5862,14 @@ DashContainer.Position = UDim2.new(0, 12, 0, 44)
 DashContainer.BackgroundTransparency = 1
 DashContainer.Parent = MainFrame
 
-local DashLayout = Instance.new("UIListLayout")
-DashLayout.FillDirection = Enum.FillDirection.Horizontal
-DashLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-DashLayout.SortOrder = Enum.SortOrder.LayoutOrder
-DashLayout.Padding = UDim.new(0, 8)
-DashLayout.Parent = DashContainer
+do
+    local DashLayout = Instance.new("UIListLayout")
+    DashLayout.FillDirection = Enum.FillDirection.Horizontal
+    DashLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    DashLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    DashLayout.Padding = UDim.new(0, 8)
+    DashLayout.Parent = DashContainer
+end
 
 local function createMetricCard(name, order, title, primaryDefault, subDefault)
     local card = Instance.new("Frame")
@@ -5796,25 +5944,27 @@ TabBar.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
 TabBar.BorderSizePixel = 0
 TabBar.Parent = MainFrame
 
-local TabBarCorner = Instance.new("UICorner")
-TabBarCorner.CornerRadius = UDim.new(0, 6)
-TabBarCorner.Parent = TabBar
+do
+    local TabBarCorner = Instance.new("UICorner")
+    TabBarCorner.CornerRadius = UDim.new(0, 6)
+    TabBarCorner.Parent = TabBar
 
-local TabBarLayout = Instance.new("UIListLayout")
-TabBarLayout.FillDirection = Enum.FillDirection.Horizontal
-TabBarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-TabBarLayout.SortOrder = Enum.SortOrder.LayoutOrder
-TabBarLayout.Padding = UDim.new(0, 4)
-TabBarLayout.Parent = TabBar
+    local TabBarLayout = Instance.new("UIListLayout")
+    TabBarLayout.FillDirection = Enum.FillDirection.Horizontal
+    TabBarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    TabBarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    TabBarLayout.Padding = UDim.new(0, 4)
+    TabBarLayout.Parent = TabBar
+end
 
-local currentTab = "Tasks" -- "Tasks" | "Loops" | "Performance" | "Startup"
+local currentTab = "Tasks" -- "Tasks" | "Threads" | "Loops" | "Performance" | "Startup"
 
 local tasksSubMode = "active" -- "active" | "advanced"
 
 local function createTabBtn(name, text, order)
     local btn = Instance.new("TextButton")
     btn.Name = name
-    btn.Size = UDim2.new(0.25, -3, 1, 0)
+    btn.Size = UDim2.new(0.20, -3, 1, 0)
     btn.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
     btn.BorderSizePixel = 0
     btn.Font = Enum.Font.GothamBold
@@ -5832,9 +5982,10 @@ local function createTabBtn(name, text, order)
 end
 
 local TabTasksBtn = createTabBtn("TabTasksBtn", "⚡ Runtime", 1)
-local TabLoopsBtn = createTabBtn("TabLoopsBtn", "🔄 Loops", 2)
-local TabPerfBtn = createTabBtn("TabPerfBtn", "📈 Performance", 3)
-local TabStartupBtn = createTabBtn("TabStartupBtn", "🚀 Startup", 4)
+local TabThreadsBtn = createTabBtn("TabThreadsBtn", "🧵 Multi-Core", 2)
+local TabLoopsBtn = createTabBtn("TabLoopsBtn", "🔄 Loops", 3)
+local TabPerfBtn = createTabBtn("TabPerfBtn", "📈 Performance", 4)
+local TabStartupBtn = createTabBtn("TabStartupBtn", "🚀 Startup", 5)
 
 -- ==============================================================================
 -- SHARED COLUMN HEADER BUILDER
@@ -5922,15 +6073,25 @@ for _, col in ipairs(ColumnConfig.Game.cols) do
 end
 setupHeaderDividers(TableHeaderGame, "Game")
 
+-- 6. Threads Header
+local TableHeaderThreads = createHeaderContainer("TableHeaderThreads")
+TableHeaders.Threads = TableHeaderThreads
+for _, col in ipairs(ColumnConfig.Threads.cols) do
+    addHeaderColumn(TableHeaderThreads, col.name, col.width, 0, col.align, "Threads", col.id)
+end
+setupHeaderDividers(TableHeaderThreads, "Threads")
+
 updateTableColumnLayout("Tasks")
 updateTableColumnLayout("Loops")
 updateTableColumnLayout("Startup")
 updateTableColumnLayout("Game")
+updateTableColumnLayout("Threads")
 
 updateHeaderSortIndicators("Tasks")
 updateHeaderSortIndicators("Loops")
 updateHeaderSortIndicators("Startup")
 updateHeaderSortIndicators("Game")
+updateHeaderSortIndicators("Threads")
 
 -- ==============================================================================
 -- SCROLLING LIST CONTAINERS
@@ -5974,6 +6135,7 @@ ScrollListTasks.Visible = true
 local ScrollListGame, EmptyGame = createScrollList("ScrollListGame")
 local ScrollListLoops, EmptyLoops = createScrollList("ScrollListLoops")
 local ScrollListStartup, EmptyStartup = createScrollList("ScrollListStartup")
+local ScrollListThreads, EmptyThreads = createScrollList("ScrollListThreads")
 
 -- ==============================================================================
 -- PERFORMANCE DASHBOARD & SPARKLINE GRAPHS (PanelPerf)
@@ -5995,12 +6157,14 @@ PerfStatsRow.Position = UDim2.new(0, 0, 0, 0)
 PerfStatsRow.BackgroundTransparency = 1
 PerfStatsRow.Parent = PanelPerf
 
-local PerfStatsLayout = Instance.new("UIListLayout")
-PerfStatsLayout.FillDirection = Enum.FillDirection.Horizontal
-PerfStatsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-PerfStatsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-PerfStatsLayout.Padding = UDim.new(0, 8)
-PerfStatsLayout.Parent = PerfStatsRow
+do
+    local PerfStatsLayout = Instance.new("UIListLayout")
+    PerfStatsLayout.FillDirection = Enum.FillDirection.Horizontal
+    PerfStatsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    PerfStatsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    PerfStatsLayout.Padding = UDim.new(0, 8)
+    PerfStatsLayout.Parent = PerfStatsRow
+end
 
 local function createPerfStatCard(name, order, title, primaryDef, subDef)
     local card = Instance.new("Frame")
@@ -6071,12 +6235,14 @@ PerfGraphsContainer.Position = UDim2.new(0, 0, 0, 54)
 PerfGraphsContainer.BackgroundTransparency = 1
 PerfGraphsContainer.Parent = PanelPerf
 
-local PerfGraphsLayout = Instance.new("UIListLayout")
-PerfGraphsLayout.FillDirection = Enum.FillDirection.Horizontal
-PerfGraphsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-PerfGraphsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-PerfGraphsLayout.Padding = UDim.new(0, 8)
-PerfGraphsLayout.Parent = PerfGraphsContainer
+do
+    local PerfGraphsLayout = Instance.new("UIListLayout")
+    PerfGraphsLayout.FillDirection = Enum.FillDirection.Horizontal
+    PerfGraphsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    PerfGraphsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    PerfGraphsLayout.Padding = UDim.new(0, 8)
+    PerfGraphsLayout.Parent = PerfGraphsContainer
+end
 
 local function createGraphCard(name, order, title, defaultVal)
     local card = Instance.new("Frame")
@@ -6254,9 +6420,11 @@ Footer.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
 Footer.BorderSizePixel = 0
 Footer.Parent = MainFrame
 
-local FooterCorner = Instance.new("UICorner")
-FooterCorner.CornerRadius = UDim.new(0, 6)
-FooterCorner.Parent = Footer
+do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 6)
+    c.Parent = Footer
+end
 
 local SearchBox = Instance.new("TextBox")
 SearchBox.Name = "SearchBox"
@@ -6273,9 +6441,11 @@ SearchBox.Text = ""
 SearchBox.ClearTextOnFocus = false
 SearchBox.Parent = Footer
 
-local SearchBoxCorner = Instance.new("UICorner")
-SearchBoxCorner.CornerRadius = UDim.new(0, 4)
-SearchBoxCorner.Parent = SearchBox
+do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 4)
+    c.Parent = SearchBox
+end
 
 local BtnSourceFilter = Instance.new("TextButton")
 BtnSourceFilter.Name = "BtnSourceFilter"
@@ -6290,9 +6460,11 @@ BtnSourceFilter.Text = "🌐 All Sources"
 BtnSourceFilter.Visible = true
 BtnSourceFilter.Parent = Footer
 
-local BtnSourceCorner = Instance.new("UICorner")
-BtnSourceCorner.CornerRadius = UDim.new(0, 4)
-BtnSourceCorner.Parent = BtnSourceFilter
+do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 4)
+    c.Parent = BtnSourceFilter
+end
 
 local function updateSourceFilterUI()
     if currentSourceFilter == "all" then
@@ -6394,9 +6566,11 @@ bsdBox.Position = UDim2.new(1, -18, 0.5, -8)
 bsdBox.BackgroundColor3 = showDisabled and Color3.fromRGB(28, 45, 70) or Color3.fromRGB(14, 18, 26)
 bsdBox.BorderSizePixel = 0
 bsdBox.Parent = BtnShowDisabled
-local boxCorner = Instance.new("UICorner")
-boxCorner.CornerRadius = UDim.new(0, 3)
-boxCorner.Parent = bsdBox
+do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 3)
+    c.Parent = bsdBox
+end
 local boxStroke = Instance.new("UIStroke")
 boxStroke.Color = showDisabled and Color3.fromRGB(70, 125, 190) or Color3.fromRGB(48, 62, 85)
 boxStroke.Thickness = 1
@@ -6418,8 +6592,10 @@ xLine1.Rotation = 45
 xLine1.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
 xLine1.BorderSizePixel = 0
 xLine1.Parent = xMark
-local c1 = Instance.new("UICorner", xLine1)
-c1.CornerRadius = UDim.new(0, 1)
+do
+    local c = Instance.new("UICorner", xLine1)
+    c.CornerRadius = UDim.new(0, 1)
+end
 
 local xLine2 = Instance.new("Frame")
 xLine2.Name = "Line2"
@@ -6430,8 +6606,10 @@ xLine2.Rotation = -45
 xLine2.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
 xLine2.BorderSizePixel = 0
 xLine2.Parent = xMark
-local c2 = Instance.new("UICorner", xLine2)
-c2.CornerRadius = UDim.new(0, 1)
+do
+    local c = Instance.new("UICorner", xLine2)
+    c.CornerRadius = UDim.new(0, 1)
+end
 
 BtnShowDisabled.MouseButton1Click:Connect(function()
     showDisabled = not showDisabled
@@ -6469,13 +6647,15 @@ BtnAddNewStartup.TextColor3 = Color3.fromRGB(100, 180, 255)
 BtnAddNewStartup.Text = "+ Add new"
 BtnAddNewStartup.Visible = false
 BtnAddNewStartup.Parent = Footer
-local addCorner = Instance.new("UICorner")
-addCorner.CornerRadius = UDim.new(0, 4)
-addCorner.Parent = BtnAddNewStartup
-local addStroke = Instance.new("UIStroke")
-addStroke.Color = Color3.fromRGB(45, 70, 105)
-addStroke.Thickness = 1
-addStroke.Parent = BtnAddNewStartup
+do
+    local addCorner = Instance.new("UICorner")
+    addCorner.CornerRadius = UDim.new(0, 4)
+    addCorner.Parent = BtnAddNewStartup
+    local addStroke = Instance.new("UIStroke")
+    addStroke.Color = Color3.fromRGB(45, 70, 105)
+    addStroke.Thickness = 1
+    addStroke.Parent = BtnAddNewStartup
+end
 
 BtnAddNewStartup.MouseEnter:Connect(function()
     BtnAddNewStartup.BackgroundColor3 = Color3.fromRGB(38, 62, 95)
@@ -6491,6 +6671,57 @@ BtnAddNewStartup.MouseButton1Click:Connect(function()
         openNewScriptModal()
     end
 end)
+
+local BtnRescanThreads = Instance.new("TextButton")
+BtnRescanThreads.Name = "BtnRescanThreads"
+BtnRescanThreads.Size = UDim2.new(0, 110, 0, 26)
+BtnRescanThreads.Position = UDim2.new(1, -330, 0.5, -13)
+BtnRescanThreads.BackgroundColor3 = Color3.fromRGB(24, 38, 55)
+BtnRescanThreads.BorderSizePixel = 0
+BtnRescanThreads.Font = Enum.Font.GothamBold
+BtnRescanThreads.TextSize = 10
+BtnRescanThreads.TextColor3 = Color3.fromRGB(120, 190, 255)
+BtnRescanThreads.Text = "🔄 Rescan Scripts"
+BtnRescanThreads.Visible = false
+BtnRescanThreads.Parent = Footer
+do
+    local c = Instance.new("UICorner", BtnRescanThreads)
+    c.CornerRadius = UDim.new(0, 4)
+end
+
+local BtnAllToActor = Instance.new("TextButton")
+BtnAllToActor.Name = "BtnAllToActor"
+BtnAllToActor.Size = UDim2.new(0, 105, 0, 26)
+BtnAllToActor.Position = UDim2.new(1, -214, 0.5, -13)
+BtnAllToActor.BackgroundColor3 = Color3.fromRGB(18, 48, 30)
+BtnAllToActor.BorderSizePixel = 0
+BtnAllToActor.Font = Enum.Font.GothamBold
+BtnAllToActor.TextSize = 10
+BtnAllToActor.TextColor3 = Color3.fromRGB(90, 235, 140)
+BtnAllToActor.Text = "⚡ All to Core 1"
+BtnAllToActor.Visible = false
+BtnAllToActor.Parent = Footer
+do
+    local c = Instance.new("UICorner", BtnAllToActor)
+    c.CornerRadius = UDim.new(0, 4)
+end
+
+local BtnAllToNative = Instance.new("TextButton")
+BtnAllToNative.Name = "BtnAllToNative"
+BtnAllToNative.Size = UDim2.new(0, 105, 0, 26)
+BtnAllToNative.Position = UDim2.new(1, -104, 0.5, -13)
+BtnAllToNative.BackgroundColor3 = Color3.fromRGB(48, 32, 16)
+BtnAllToNative.BorderSizePixel = 0
+BtnAllToNative.Font = Enum.Font.GothamBold
+BtnAllToNative.TextSize = 10
+BtnAllToNative.TextColor3 = Color3.fromRGB(255, 185, 60)
+BtnAllToNative.Text = "🛡️ All to Core 0"
+BtnAllToNative.Visible = false
+BtnAllToNative.Parent = Footer
+do
+    local c = Instance.new("UICorner", BtnAllToNative)
+    c.CornerRadius = UDim.new(0, 4)
+end
 
 -- Tasks Sub-View Toggle (Active Tasks vs Native Game Tasks Ingestion)
 local function updateTasksSubView()
@@ -6579,6 +6810,9 @@ local function setTab(tabName)
     TabTasksBtn.BackgroundColor3 = if tabName == "Tasks" then Color3.fromRGB(35, 45, 65) else Color3.fromRGB(20, 24, 33)
     TabTasksBtn.TextColor3 = if tabName == "Tasks" then Color3.fromRGB(80, 200, 255) else Color3.fromRGB(130, 145, 170)
 
+    TabThreadsBtn.BackgroundColor3 = if tabName == "Threads" then Color3.fromRGB(35, 45, 65) else Color3.fromRGB(20, 24, 33)
+    TabThreadsBtn.TextColor3 = if tabName == "Threads" then Color3.fromRGB(80, 200, 255) else Color3.fromRGB(130, 145, 170)
+
     TabLoopsBtn.BackgroundColor3 = if tabName == "Loops" then Color3.fromRGB(35, 45, 65) else Color3.fromRGB(20, 24, 33)
     TabLoopsBtn.TextColor3 = if tabName == "Loops" then Color3.fromRGB(80, 200, 255) else Color3.fromRGB(130, 145, 170)
 
@@ -6597,6 +6831,9 @@ local function setTab(tabName)
     TableHeaderStartup.Visible = (tabName == "Startup")
     ScrollListStartup.Visible = (tabName == "Startup")
 
+    TableHeaderThreads.Visible = (tabName == "Threads")
+    ScrollListThreads.Visible = (tabName == "Threads")
+
     -- 3. Toggle Footer Buttons
     BtnPauseAllLoops.Visible = (tabName == "Loops")
     BtnKillAllLoops.Visible = (tabName == "Loops")
@@ -6605,6 +6842,10 @@ local function setTab(tabName)
     BtnRescanStartup.Visible = (tabName == "Startup")
     BtnShowDisabled.Visible = (tabName == "Startup")
     BtnAddNewStartup.Visible = (tabName == "Startup")
+
+    BtnRescanThreads.Visible = (tabName == "Threads")
+    BtnAllToActor.Visible = (tabName == "Threads")
+    BtnAllToNative.Visible = (tabName == "Threads")
 
     if tabName == "Tasks" then
         updateTasksSubView()
@@ -6637,11 +6878,20 @@ local function setTab(tabName)
             if refreshStartupTab then
                 refreshStartupTab()
             end
+        elseif tabName == "Threads" then
+            BtnSourceFilter.Visible = false
+            SearchBox.Visible = true
+            SearchBox.Size = UDim2.new(0, 190, 0, 26)
+            SearchBox.PlaceholderText = "🔍 Filter scripts by name or hash..."
+            if refreshThreadsTab then
+                refreshThreadsTab()
+            end
         end
     end
 end
 
 TabTasksBtn.MouseButton1Click:Connect(function() setTab("Tasks") end)
+TabThreadsBtn.MouseButton1Click:Connect(function() setTab("Threads") end)
 TabLoopsBtn.MouseButton1Click:Connect(function() setTab("Loops") end)
 TabPerfBtn.MouseButton1Click:Connect(function() setTab("Performance") end)
 TabStartupBtn.MouseButton1Click:Connect(function() setTab("Startup") end)
@@ -6666,9 +6916,11 @@ TaskDrag.indicator.BorderSizePixel = 0
 TaskDrag.indicator.Visible = false
 TaskDrag.indicator.ZIndex = 120
 TaskDrag.indicator.Parent = ScrollListTasks
-local taskIndCorner = Instance.new("UICorner")
-taskIndCorner.CornerRadius = UDim.new(1, 0)
-taskIndCorner.Parent = TaskDrag.indicator
+do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(1, 0)
+    c.Parent = TaskDrag.indicator
+end
 
 local LoopDrag = {
     pending = nil,
@@ -6684,18 +6936,13 @@ LoopDrag.indicator.BorderSizePixel = 0
 LoopDrag.indicator.Visible = false
 LoopDrag.indicator.ZIndex = 120
 LoopDrag.indicator.Parent = ScrollListLoops
-local loopIndCorner = Instance.new("UICorner")
-loopIndCorner.CornerRadius = UDim.new(1, 0)
-loopIndCorner.Parent = LoopDrag.indicator
+do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(1, 0)
+    c.Parent = LoopDrag.indicator
+end
 
-local PRIORITY_COLORS = {
-    High = Color3.fromRGB(50, 130, 240),
-    Medium = Color3.fromRGB(40, 190, 210),
-    Low = Color3.fromRGB(230, 160, 40),
-    Eco = Color3.fromRGB(240, 100, 60),
-    Idle = Color3.fromRGB(160, 70, 220),
-}
-local PRIORITY_CYCLE = { High = "Medium", Medium = "Low", Low = "Eco", Eco = "Idle", Idle = "High" }
+-- (Legacy PRIORITY_COLORS & PRIORITY_CYCLE cleaned up for local register budget)
 
 local function getHzColor(hz, maxHz)
     maxHz = maxHz or math.max(60, measuredFps or 60)
@@ -7224,9 +7471,11 @@ StartupDropIndicator.Visible = false
 StartupDropIndicator.ZIndex = 120
 StartupDropIndicator.Parent = ScrollListStartup
 
-local indCorner = Instance.new("UICorner")
-indCorner.CornerRadius = UDim.new(1, 0)
-indCorner.Parent = StartupDropIndicator
+do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(1, 0)
+    c.Parent = StartupDropIndicator
+end
 
 local StartupDragGhost = Instance.new("Frame")
 StartupDragGhost.Name = "StartupDragGhost"
@@ -7238,15 +7487,17 @@ StartupDragGhost.Visible = false
 StartupDragGhost.ZIndex = 250
 StartupDragGhost.Parent = MainFrame
 
-local ghostCorner = Instance.new("UICorner")
-ghostCorner.CornerRadius = UDim.new(0, 4)
-ghostCorner.Parent = StartupDragGhost
+do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 4)
+    c.Parent = StartupDragGhost
 
-local ghostStroke = Instance.new("UIStroke")
-ghostStroke.Thickness = 1.5
-ghostStroke.Color = Color3.fromRGB(70, 160, 255)
-ghostStroke.Transparency = 0.3
-ghostStroke.Parent = StartupDragGhost
+    local s = Instance.new("UIStroke")
+    s.Thickness = 1.5
+    s.Color = Color3.fromRGB(70, 160, 255)
+    s.Transparency = 0.3
+    s.Parent = StartupDragGhost
+end
 
 local ghostDot = Instance.new("Frame")
 ghostDot.Name = "GhostDot"
@@ -7256,9 +7507,11 @@ ghostDot.BackgroundColor3 = Color3.fromRGB(50, 220, 120)
 ghostDot.BorderSizePixel = 0
 ghostDot.ZIndex = 251
 ghostDot.Parent = StartupDragGhost
-local gdCorner = Instance.new("UICorner")
-gdCorner.CornerRadius = UDim.new(1, 0)
-gdCorner.Parent = ghostDot
+do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(1, 0)
+    c.Parent = ghostDot
+end
 
 local ghostName = Instance.new("TextLabel")
 ghostName.Name = "GhostName"
@@ -7284,9 +7537,11 @@ ghostBadge.TextSize = 9
 ghostBadge.TextColor3 = Color3.fromRGB(100, 180, 255)
 ghostBadge.ZIndex = 251
 ghostBadge.Parent = StartupDragGhost
-local gbCorner = Instance.new("UICorner")
-gbCorner.CornerRadius = UDim.new(0, 3)
-gbCorner.Parent = ghostBadge
+do
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 3)
+    c.Parent = ghostBadge
+end
 
 local ghostGrip = Instance.new("TextLabel")
 ghostGrip.Name = "GhostGrip"
@@ -7311,7 +7566,7 @@ local targetDropStage = nil
 -- ==============================================================================
 
 local openCodeEditor = nil
-local TextService = game:GetService("TextService")
+-- (Redundant TextService local removed for register budget)
 
 
 do
@@ -8476,11 +8731,16 @@ do
             end
         end)
     end
+end
 
+do
     -- ==============================================================================
     -- PRIORITY EDIT MODAL (Option 3: Stepper, Direct Number Input, Presets)
     -- ==============================================================================
     local PM = {}
+    PM.currentTargetType = nil
+    PM.currentItemObj = nil
+    PM.currentPriorityVal = 50
     PM.Modal = Instance.new("Frame")
     PM.Modal.Name = "PriorityEditModal"
     PM.Modal.Size = UDim2.new(0, 360, 0, 220)
@@ -8709,15 +8969,11 @@ do
     sbCorner2.CornerRadius = UDim.new(0, 4)
     sbCorner2.Parent = PM.SaveBtn
 
-    local currentTargetType = nil
-    local currentItemObj = nil
-    local currentPriorityVal = 50
-
     local function adjustBy(delta)
-        local val = (tonumber(PM.PriBox.Text) or currentPriorityVal) + delta
-        local maxLimit = (currentTargetType == "Startup") and 1000 or 100
-        currentPriorityVal = math.clamp(math.round(val), 1, maxLimit)
-        PM.PriBox.Text = tostring(currentPriorityVal)
+        local val = (tonumber(PM.PriBox.Text) or PM.currentPriorityVal) + delta
+        local maxLimit = (PM.currentTargetType == "Startup") and 1000 or 100
+        PM.currentPriorityVal = math.clamp(math.round(val), 1, maxLimit)
+        PM.PriBox.Text = tostring(PM.currentPriorityVal)
     end
 
     PM.BtnMinus10.MouseButton1Click:Connect(function() adjustBy(-10) end)
@@ -8727,45 +8983,45 @@ do
     PM.CancelBtn.MouseButton1Click:Connect(function() PM.Modal.Visible = false end)
 
     local function commitPrioritySave()
-        if not currentTargetType or not currentItemObj then
+        if not PM.currentTargetType or not PM.currentItemObj then
             PM.Modal.Visible = false
             return
         end
 
-        local rawVal = tonumber(PM.PriBox.Text) or currentPriorityVal or 50
-        local maxLimit = (currentTargetType == "Startup") and 1000 or 100
+        local rawVal = tonumber(PM.PriBox.Text) or PM.currentPriorityVal or 50
+        local maxLimit = (PM.currentTargetType == "Startup") and 1000 or 100
         local finalVal = math.clamp(math.round(rawVal), 1, maxLimit)
 
-        if currentTargetType == "Task" then
-            currentItemObj.priority = finalVal
-            currentItemObj.basePriority = finalVal
+        if PM.currentTargetType == "Task" then
+            PM.currentItemObj.priority = finalVal
+            PM.currentItemObj.basePriority = finalVal
             if SetSchedulerTaskPriority then
-                SetSchedulerTaskPriority(currentItemObj.id, finalVal)
+                SetSchedulerTaskPriority(PM.currentItemObj.id, finalVal)
             end
             saveSchedulerOverrides(true)
             emitProfile()
-            local r = cachedTaskRows[currentItemObj.id]
+            local r = cachedTaskRows[PM.currentItemObj.id]
             if r then
                 local priLbl = r:FindFirstChild("PriLbl")
                 if priLbl then priLbl.Text = tostring(finalVal) end
             end
 
-        elseif currentTargetType == "Loop" then
-            currentItemObj.priority = finalVal
+        elseif PM.currentTargetType == "Loop" then
+            PM.currentItemObj.priority = finalVal
             if SetLoopPriority then
-                SetLoopPriority(currentItemObj.id, finalVal)
+                SetLoopPriority(PM.currentItemObj.id, finalVal)
             end
             saveSchedulerOverrides(true)
             emitProfile()
-            local r = cachedLoopRows[currentItemObj.id]
+            local r = cachedLoopRows[PM.currentItemObj.id]
             if r then
                 local priLbl = r:FindFirstChild("PriLbl")
                 if priLbl then priLbl.Text = tostring(finalVal) end
             end
 
-        elseif currentTargetType == "Startup" then
-            currentItemObj.priority = finalVal
-            updateScriptPragmas(currentItemObj.file, currentItemObj.stage, finalVal)
+        elseif PM.currentTargetType == "Startup" then
+            PM.currentItemObj.priority = finalVal
+            updateScriptPragmas(PM.currentItemObj.file, PM.currentItemObj.stage, finalVal)
             scanStartupScripts(true)
             if refreshStartupTab then
                 refreshStartupTab(true)
@@ -8782,23 +9038,23 @@ do
         else
             local val = tonumber(PM.PriBox.Text)
             if val then
-                local maxLimit = (currentTargetType == "Startup") and 1000 or 100
-                currentPriorityVal = math.clamp(math.round(val), 1, maxLimit)
-                PM.PriBox.Text = tostring(currentPriorityVal)
+                local maxLimit = (PM.currentTargetType == "Startup") and 1000 or 100
+                PM.currentPriorityVal = math.clamp(math.round(val), 1, maxLimit)
+                PM.PriBox.Text = tostring(PM.currentPriorityVal)
             else
-                PM.PriBox.Text = tostring(currentPriorityVal)
+                PM.PriBox.Text = tostring(PM.currentPriorityVal)
             end
         end
     end)
 
     openPriorityEditModal = function(targetType, itemObj, currentPri)
-        currentTargetType = targetType
-        currentItemObj = itemObj
-        currentPriorityVal = tonumber(currentPri) or 50
+        PM.currentTargetType = targetType
+        PM.currentItemObj = itemObj
+        PM.currentPriorityVal = tonumber(currentPri) or 50
         if targetType == "Startup" then
-            currentPriorityVal = math.clamp(math.round(currentPriorityVal), 1, 1000)
+            PM.currentPriorityVal = math.clamp(math.round(PM.currentPriorityVal), 1, 1000)
         else
-            currentPriorityVal = math.clamp(math.round(currentPriorityVal), 1, 100)
+            PM.currentPriorityVal = math.clamp(math.round(PM.currentPriorityVal), 1, 100)
         end
 
         local titleName = "Item"
@@ -8875,7 +9131,7 @@ do
             end)
 
             pBtn.MouseButton1Click:Connect(function()
-                currentPriorityVal = p.val
+                PM.currentPriorityVal = p.val
                 PM.PriBox.Text = tostring(p.val)
             end)
         end
@@ -10220,14 +10476,7 @@ end
 -- Row 4: Loop Row (Placed after getHzColor so all helper routines are defined)
 local loopRowDragging = {}
 
-local LOOP_HZ_CYCLE = {
-    [0] = 60,
-    [60] = 30,
-    [30] = 15,
-    [15] = 5,
-    [5] = 1,
-    [1] = 0,
-}
+-- (Legacy LOOP_HZ_CYCLE removed for register budget)
 
 local function renderLoopRow(loopObj, idx)
     local row = cachedLoopRows[loopObj.id]
@@ -10795,6 +11044,254 @@ local function renderGameTaskRow(entry, idx)
     return row
 end
 
+-- Row 6: Multi-Core Thread Row
+local cachedThreadRows = {}
+
+local function renderThreadRow(item, idx)
+    local key = item.hash or item.name
+    local row = cachedThreadRows[key]
+    if not row then
+        row = Instance.new("Frame")
+        row.Name = key
+        row.Size = UDim2.new(1, 0, 0, 32)
+        row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
+        row.BorderSizePixel = 0
+        row.LayoutOrder = idx
+        row.Active = true
+        row.ClipsDescendants = true
+        row.Parent = ScrollListThreads
+
+        local rCorner = Instance.new("UICorner")
+        rCorner.CornerRadius = UDim.new(0, 4)
+        rCorner.Parent = row
+
+        local dot = Instance.new("Frame")
+        dot.Name = "Dot"
+        dot.Size = UDim2.new(0, 8, 0, 8)
+        dot.BackgroundColor3 = item.isActor and Color3.fromRGB(50, 220, 120) or Color3.fromRGB(255, 180, 50)
+        dot.BorderSizePixel = 0
+        dot.Parent = row
+        local dotCorner = Instance.new("UICorner")
+        dotCorner.CornerRadius = UDim.new(1, 0)
+        dotCorner.Parent = dot
+
+        local nameLbl = Instance.new("TextLabel")
+        nameLbl.Name = "NameLbl"
+        nameLbl.BackgroundTransparency = 1
+        nameLbl.Font = Enum.Font.GothamMedium
+        nameLbl.TextSize = 11
+        nameLbl.TextColor3 = Color3.fromRGB(225, 235, 250)
+        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+        nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        nameLbl.Text = item.name
+        nameLbl.Parent = row
+
+        local hashLbl = Instance.new("TextLabel")
+        hashLbl.Name = "HashLbl"
+        hashLbl.BackgroundTransparency = 1
+        hashLbl.Font = Enum.Font.Code
+        hashLbl.TextSize = 10
+        hashLbl.TextColor3 = Color3.fromRGB(120, 180, 220)
+        hashLbl.TextXAlignment = Enum.TextXAlignment.Center
+        hashLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        local shortHash = (item.hash and #item.hash >= 16) and (item.hash:sub(1, 16) .. "…") or (item.hash or "N/A")
+        hashLbl.Text = shortHash
+        hashLbl.Parent = row
+
+        local coreBadge = Instance.new("Frame")
+        coreBadge.Name = "CoreBadge"
+        coreBadge.Size = UDim2.new(0, 110, 0, 20)
+        coreBadge.BorderSizePixel = 0
+        coreBadge.Parent = row
+        local cBadgeCorner = Instance.new("UICorner")
+        cBadgeCorner.CornerRadius = UDim.new(0, 4)
+        cBadgeCorner.Parent = coreBadge
+
+        local coreLbl = Instance.new("TextLabel")
+        coreLbl.Name = "CoreLbl"
+        coreLbl.Size = UDim2.new(1, 0, 1, 0)
+        coreLbl.BackgroundTransparency = 1
+        coreLbl.Font = Enum.Font.GothamBold
+        coreLbl.TextSize = 10
+        coreLbl.Parent = coreBadge
+
+        local actionBtn = Instance.new("TextButton")
+        actionBtn.Name = "ActionBtn"
+        actionBtn.Size = UDim2.new(0, 90, 0, 20)
+        actionBtn.BorderSizePixel = 0
+        actionBtn.Font = Enum.Font.GothamBold
+        actionBtn.TextSize = 10
+        actionBtn.AutoButtonColor = true
+        actionBtn.Parent = row
+        local aCorner = Instance.new("UICorner")
+        aCorner.CornerRadius = UDim.new(0, 4)
+        aCorner.Parent = actionBtn
+
+        actionBtn.MouseButton1Click:Connect(function()
+            local targetMode = item.isActor and "Native" or "Actor"
+            if Omni and Omni.SetScriptPolicy then
+                Omni.SetScriptPolicy(item.scr, targetMode)
+            elseif getgenv().OmniSetScriptPolicy then
+                getgenv().OmniSetScriptPolicy(item.scr, targetMode)
+            end
+            if refreshThreadsTab then
+                refreshThreadsTab()
+            end
+        end)
+
+        cachedThreadRows[key] = row
+        applyRowColumnLayout(row, "Threads")
+    end
+
+    row.LayoutOrder = idx
+    row.BackgroundColor3 = if idx % 2 == 0 then Color3.fromRGB(20, 24, 33) else Color3.fromRGB(17, 20, 28)
+
+    local dot = row:FindFirstChild("Dot")
+    local nameLbl = row:FindFirstChild("NameLbl")
+    local hashLbl = row:FindFirstChild("HashLbl")
+    local coreBadge = row:FindFirstChild("CoreBadge")
+    local actionBtn = row:FindFirstChild("ActionBtn")
+
+    if nameLbl then nameLbl.Text = item.name end
+    if hashLbl then
+        local shortHash = (item.hash and #item.hash >= 16) and (item.hash:sub(1, 16) .. "…") or (item.hash or "N/A")
+        hashLbl.Text = shortHash
+    end
+
+    local isEngineCompat = (getgenv()._OmniEngineMode == "Compatibility")
+    local coreLbl = coreBadge and coreBadge:FindFirstChild("CoreLbl")
+
+    if item.isActor then
+        if dot then dot.BackgroundColor3 = Color3.fromRGB(50, 220, 120) end
+        if coreBadge then
+            coreBadge.BackgroundColor3 = Color3.fromRGB(18, 48, 32)
+            if coreLbl then
+                coreLbl.TextColor3 = Color3.fromRGB(80, 230, 140)
+                coreLbl.Text = "⚡ Core 1 (Actor)"
+            end
+        end
+        if actionBtn then
+            actionBtn.Text = "🛡️ Set Native"
+            actionBtn.BackgroundColor3 = Color3.fromRGB(56, 38, 20)
+            actionBtn.TextColor3 = Color3.fromRGB(255, 185, 60)
+        end
+    else
+        if dot then dot.BackgroundColor3 = Color3.fromRGB(255, 180, 50) end
+        if coreBadge then
+            coreBadge.BackgroundColor3 = Color3.fromRGB(48, 34, 18)
+            if coreLbl then
+                coreLbl.TextColor3 = Color3.fromRGB(255, 190, 70)
+                coreLbl.Text = isEngineCompat and "🛡️ Core 0 (Compat)" or "🛡️ Core 0 (Native)"
+            end
+        end
+        if actionBtn then
+            actionBtn.Text = "⚡ Set Actor"
+            actionBtn.BackgroundColor3 = Color3.fromRGB(20, 52, 34)
+            actionBtn.TextColor3 = Color3.fromRGB(90, 240, 150)
+        end
+    end
+
+    row.Visible = true
+    return row
+end
+
+refreshThreadsTab = function(skipSort)
+    local items = {}
+    local primaryWorker = getgenv()._OmniPrimaryWorker
+    if not primaryWorker and pool and pool[1] then
+        primaryWorker = pool[1].actor
+    end
+
+    local Players = pcall(function() return game:GetService("Players") end) and game:GetService("Players")
+    local lp = Players and Players.LocalPlayer
+    local ps = lp and (lp:FindFirstChild("PlayerScripts") or lp:WaitForChild("PlayerScripts", 2))
+
+    local originalParents = getgenv()._OmniOriginalParents or {}
+    local discovered = {}
+
+    -- 1. Check all scripts currently tracked in originalParents
+    for scr, origParent in pairs(originalParents) do
+        if scr and typeof(scr) == "Instance" and scr.Parent then
+            discovered[scr] = origParent
+        end
+    end
+
+    -- 2. Check all scripts in primaryWorker
+    if primaryWorker then
+        for _, child in ipairs(primaryWorker:GetChildren()) do
+            if child:IsA("LocalScript") and child.Name ~= "OmniWorkerStub" then
+                discovered[child] = originalParents[child] or ps
+            end
+        end
+    end
+
+    -- 3. Check all scripts in PlayerScripts
+    if ps then
+        for _, child in ipairs(ps:GetChildren()) do
+            if child:IsA("LocalScript") and not child:GetAttribute("OmniStuntDouble") and not child.Disabled and child.Name ~= "OmniWorkerStub" and child.Name ~= "PlayerScriptsLoader" then
+                discovered[child] = ps
+            end
+        end
+    end
+
+    local policies = (Omni and Omni.GetScriptPolicies and Omni.GetScriptPolicies()) or (getgenv()._OmniScriptPolicies) or { scripts = {} }
+    local scriptPolicies = policies.scripts or {}
+
+    for scr, origParent in pairs(discovered) do
+        local h = (Omni and Omni.ComputeScriptHash and Omni.ComputeScriptHash(scr)) or (getgenv()._OmniComputeScriptHash and getgenv()._OmniComputeScriptHash(scr))
+        local isActor = primaryWorker and (scr.Parent == primaryWorker or scr:IsDescendantOf(primaryWorker))
+        local polEntry = h and scriptPolicies[h]
+        local pol = polEntry and polEntry.mode or (isActor and "Actor" or "Native")
+
+        table.insert(items, {
+            scr = scr,
+            name = scr.Name,
+            hash = h or "unknown",
+            isActor = isActor,
+            policy = pol,
+            origParent = origParent,
+        })
+    end
+
+    local filterText = (SearchBox and SearchBox.Text:lower()) or ""
+    local sortState = TableSortState.Threads or { colId = "Name", ascending = true }
+    sortThreadList(items, sortState.colId, sortState.ascending)
+
+    local seenKeys = {}
+    local visibleCount = 0
+
+    for _, it in ipairs(items) do
+        local matchesFilter = true
+        if filterText ~= "" then
+            local nMatch = it.name:lower():find(filterText, 1, true) ~= nil
+            local hMatch = it.hash:lower():find(filterText, 1, true) ~= nil
+            matchesFilter = nMatch or hMatch
+        end
+
+        if matchesFilter then
+            visibleCount = visibleCount + 1
+            seenKeys[it.hash or it.name] = true
+            renderThreadRow(it, visibleCount)
+        else
+            local r = cachedThreadRows[it.hash or it.name]
+            if r then r.Visible = false end
+        end
+    end
+
+    for k, r in pairs(cachedThreadRows) do
+        if not seenKeys[k] then
+            r:Destroy()
+            cachedThreadRows[k] = nil
+        end
+    end
+
+    EmptyThreads.Visible = (visibleCount == 0)
+    if visibleCount == 0 then
+        EmptyThreads.Text = (filterText ~= "") and ("No scripts match filter '" .. SearchBox.Text .. "'.") or "No game scripts detected."
+    end
+end
+getgenv()._OmniRefreshThreadsTab = refreshThreadsTab
+
 -- ==============================================================================
 -- UPDATE TICK (10Hz)
 -- ==============================================================================
@@ -11038,6 +11535,11 @@ task.spawn(function()
                     if refreshStartupTab then
                         refreshStartupTab()
                     end
+
+                elseif currentTab == "Threads" then
+                    if refreshThreadsTab then
+                        refreshThreadsTab()
+                    end
                 end
             end
             end) -- end pcall
@@ -11163,6 +11665,51 @@ BtnRescanStartup.MouseButton1Click:Connect(function()
     end
     task.delay(1.0, function()
         if BtnRescanStartup then BtnRescanStartup.Text = "🔄 Rescan Autoexec" end
+    end)
+end)
+
+-- Threads Footer Buttons
+BtnRescanThreads.MouseButton1Click:Connect(function()
+    BtnRescanThreads.Text = "✓ Rescanned"
+    for k, r in pairs(cachedThreadRows) do
+        r:Destroy()
+        cachedThreadRows[k] = nil
+    end
+    if refreshThreadsTab then
+        refreshThreadsTab(true)
+    end
+    task.delay(1.0, function()
+        if BtnRescanThreads then BtnRescanThreads.Text = "🔄 Rescan Scripts" end
+    end)
+end)
+
+BtnAllToActor.MouseButton1Click:Connect(function()
+    if Omni and Omni.SetAllScriptsPolicy then
+        Omni.SetAllScriptsPolicy("Actor")
+    elseif getgenv().OmniSetAllScriptsPolicy then
+        getgenv().OmniSetAllScriptsPolicy("Actor")
+    end
+    BtnAllToActor.Text = "✓ Done"
+    if refreshThreadsTab then
+        refreshThreadsTab(true)
+    end
+    task.delay(1.0, function()
+        if BtnAllToActor then BtnAllToActor.Text = "⚡ All to Core 1" end
+    end)
+end)
+
+BtnAllToNative.MouseButton1Click:Connect(function()
+    if Omni and Omni.SetAllScriptsPolicy then
+        Omni.SetAllScriptsPolicy("Native")
+    elseif getgenv().OmniSetAllScriptsPolicy then
+        getgenv().OmniSetAllScriptsPolicy("Native")
+    end
+    BtnAllToNative.Text = "✓ Done"
+    if refreshThreadsTab then
+        refreshThreadsTab(true)
+    end
+    task.delay(1.0, function()
+        if BtnAllToNative then BtnAllToNative.Text = "🛡️ All to Core 0" end
     end)
 end)
 
@@ -11631,10 +12178,80 @@ local function initOmniParallelEngine()
     end
 
     -- ==============================================================================
-    -- SECTION: CLEAN CORE SCRIPT ISOLATION (Multi-Core Actor Sandboxing)
+    -- SECTION: CLEAN CORE SCRIPT ISOLATION & MULTI-CORE POLICY ENGINE
     -- ==============================================================================
     local originalParents = getgenv()._OmniOriginalParents or {}
     getgenv()._OmniOriginalParents = originalParents
+
+    local stuntDoubles = getgenv()._OmniStuntDoubles or {}
+    getgenv()._OmniStuntDoubles = stuntDoubles
+
+    local scriptHashes = getgenv()._OmniScriptHashes or {}
+    getgenv()._OmniScriptHashes = scriptHashes
+
+    local SCRIPT_POLICIES_FILE = "Omni_ScriptPolicies.json"
+
+    local function computeScriptBytecodeHash(scr)
+        if not scr or not scr:IsA("LuaSourceContainer") then return nil end
+        if scriptHashes[scr] then return scriptHashes[scr] end
+
+        local bc = nil
+        if getscriptbytecode then
+            pcall(function() bc = getscriptbytecode(scr) end)
+        end
+        if not bc or #bc == 0 then
+            local fallback = "fallback_" .. scr.Name
+            scriptHashes[scr] = fallback
+            return fallback
+        end
+
+        local h = nil
+        if crypt and crypt.hash then
+            pcall(function() h = crypt.hash(bc, "sha256") end)
+        end
+        if not h or #h == 0 then
+            h = "hash_" .. scr.Name .. "_" .. tostring(#bc)
+        end
+        scriptHashes[scr] = h
+        return h
+    end
+    getgenv()._OmniComputeScriptHash = computeScriptBytecodeHash
+
+    local function loadScriptPolicies()
+        local defaultPolicies = { engine_mode = "Performance", scripts = {} }
+        if isfile and isfile(SCRIPT_POLICIES_FILE) and readfile then
+            local ok, raw = pcall(readfile, SCRIPT_POLICIES_FILE)
+            if ok and raw and #raw > 0 then
+                local HttpService = game:GetService("HttpService")
+                local decOk, decoded = pcall(function() return HttpService:JSONDecode(raw) end)
+                if decOk and type(decoded) == "table" then
+                    if decoded.engine_mode == "Compatibility" or decoded.engine_mode == "Performance" then
+                        defaultPolicies.engine_mode = decoded.engine_mode
+                    end
+                    if type(decoded.scripts) == "table" then
+                        defaultPolicies.scripts = decoded.scripts
+                    end
+                end
+            end
+        end
+        getgenv()._OmniScriptPolicies = defaultPolicies
+        return defaultPolicies
+    end
+
+    local function saveScriptPolicies(policies)
+        if not writefile then return end
+        local HttpService = game:GetService("HttpService")
+        local ok, encoded = pcall(function() return HttpService:JSONEncode(policies) end)
+        if ok and encoded then
+            pcall(writefile, SCRIPT_POLICIES_FILE, encoded)
+        end
+    end
+
+    local currentPolicies = loadScriptPolicies()
+    getgenv()._OmniEngineMode = currentPolicies.engine_mode or "Performance"
+    if getgenv()._OmniUpdateEngineModeBtnUI then
+        getgenv()._OmniUpdateEngineModeBtnUI(getgenv()._OmniEngineMode)
+    end
 
     if not getgenv()._OmniParentSpoofHooked and hookmetamethod then
         local oldIndex
@@ -11651,9 +12268,33 @@ local function initOmniParallelEngine()
         getgenv()._OmniParentSpoofHooked = true
     end
 
+    local function restoreScriptToNative(scr)
+        if not scr or not scr.Parent then return false end
+        local origParent = originalParents[scr]
+        if not origParent then return false end
+
+        -- Destroy tracked stunt double
+        local stunt = stuntDoubles[scr]
+        if stunt and stunt.Parent then
+            pcall(function() stunt:Destroy() end)
+        end
+        stuntDoubles[scr] = nil
+
+        -- Clean up any duplicate stunt doubles in origParent
+        for _, sibling in ipairs(origParent:GetChildren()) do
+            if sibling ~= scr and sibling.Name == scr.Name and sibling:IsA("LocalScript") and (sibling:GetAttribute("OmniStuntDouble") == true or sibling.Disabled) then
+                pcall(function() sibling:Destroy() end)
+            end
+        end
+
+        local reparentOk = pcall(function() scr.Parent = origParent end)
+        return reparentOk
+    end
+
     local function migrateScriptToActor(scr, targetActor)
         if not scr or not scr:IsA("LocalScript") then return false end
         if scr:IsDescendantOf(targetActor) then return false end
+        if scr:GetAttribute("OmniStuntDouble") == true or scr.Disabled then return false end
 
         local origParent = scr.Parent
         if not origParent or origParent == targetActor then return false end
@@ -11663,56 +12304,217 @@ local function initOmniParallelEngine()
             return false
         end
 
+        -- Check Master Engine Mode
+        if getgenv()._OmniEngineMode == "Compatibility" then
+            return false
+        end
+
+        -- Check per-script bytecode policy
+        local h = computeScriptBytecodeHash(scr)
+        if h and currentPolicies.scripts and currentPolicies.scripts[h] then
+            if currentPolicies.scripts[h].mode == "Native" then
+                return false
+            end
+        end
+
         originalParents[scr] = origParent
 
-        -- Stunt double in original location so FindFirstChild / dot notation never breaks
+        -- Stunt double in original location with attribute marker
         local stuntOk, stunt = pcall(function() return scr:Clone() end)
         if stuntOk and stunt then
             stunt.Name = scr.Name
+            stunt:SetAttribute("OmniStuntDouble", true)
             pcall(function() stunt.Disabled = true end)
             pcall(function() stunt.Parent = origParent end)
+            stuntDoubles[scr] = stunt
         end
 
         local reparentOk = pcall(function() scr.Parent = targetActor end)
         return reparentOk
     end
 
+    local function restoreAllScriptsToNative()
+        local primaryWorker = pool[1] and pool[1].actor
+        local restoredCount = 0
+        if primaryWorker then
+            for _, child in ipairs(primaryWorker:GetChildren()) do
+                if child:IsA("LocalScript") and child.Name ~= "OmniWorkerStub" then
+                    if restoreScriptToNative(child) then
+                        restoredCount = restoredCount + 1
+                    end
+                end
+            end
+        end
+        for scr, origParent in pairs(originalParents) do
+            if scr and scr.Parent and scr.Parent ~= origParent then
+                if restoreScriptToNative(scr) then
+                    restoredCount = restoredCount + 1
+                end
+            end
+        end
+        return restoredCount
+    end
+
     local function runCleanCoreMigration()
         local primaryWorker = pool[1] and pool[1].actor
-        if not primaryWorker then return end
+        if not primaryWorker then return 0 end
+        if getgenv()._OmniEngineMode == "Compatibility" then return 0 end
 
         local Players = pcall(function() return game:GetService("Players") end) and game:GetService("Players")
         local lp = Players and Players.LocalPlayer
         local ps = lp and (lp:FindFirstChild("PlayerScripts") or lp:WaitForChild("PlayerScripts", 5))
-        if not ps then return end
+        if not ps then return 0 end
 
         local migratedCount = 0
         for _, child in ipairs(ps:GetChildren()) do
             if child:IsA("LocalScript") and child ~= primaryWorker and not child:IsDescendantOf(primaryWorker) then
-                if migrateScriptToActor(child, primaryWorker) then
-                    migratedCount = migratedCount + 1
+                if not child:GetAttribute("OmniStuntDouble") and not child.Disabled then
+                    if migrateScriptToActor(child, primaryWorker) then
+                        migratedCount = migratedCount + 1
+                    end
                 end
             end
         end
 
-        -- Continuous guardian: migrate any newly spawned LocalScripts automatically
-        ps.ChildAdded:Connect(function(child)
+        -- Continuous guardian: disconnect previous before connecting
+        if getgenv()._OmniChildAddedConn then
+            pcall(function() getgenv()._OmniChildAddedConn:Disconnect() end)
+            getgenv()._OmniChildAddedConn = nil
+        end
+
+        getgenv()._OmniChildAddedConn = ps.ChildAdded:Connect(function(child)
             task.wait(0.05)
             if child:IsA("LocalScript") and not child:IsDescendantOf(primaryWorker) then
-                migrateScriptToActor(child, primaryWorker)
+                if not child:GetAttribute("OmniStuntDouble") and not child.Disabled then
+                    migrateScriptToActor(child, primaryWorker)
+                end
             end
         end)
 
         if migratedCount > 0 then
             print(string.format("[CleanCore]: Successfully migrated %d game scripts to %s (CPU Core 1)", migratedCount, primaryWorker.Name))
         end
+        return migratedCount
     end
 
+    local function setEngineMode(mode)
+        if mode ~= "Performance" and mode ~= "Compatibility" then return end
+        getgenv()._OmniEngineMode = mode
+        currentPolicies.engine_mode = mode
+        saveScriptPolicies(currentPolicies)
+
+        if getgenv()._OmniUpdateEngineModeBtnUI then
+            getgenv()._OmniUpdateEngineModeBtnUI(mode)
+        end
+
+        if mode == "Compatibility" then
+            local count = restoreAllScriptsToNative()
+            print(string.format("[Omni Engine]: 🛡️ Switched to Compatibility Mode (%d scripts running on Native Core 0)", count))
+        else
+            local count = runCleanCoreMigration()
+            print(string.format("[Omni Engine]: ⚡ Switched to Performance Mode (%d scripts running on Actor Core 1)", count))
+        end
+
+        if getgenv()._OmniRefreshThreadsTab then
+            pcall(getgenv()._OmniRefreshThreadsTab)
+        end
+    end
+
+    local function setScriptPolicy(scr, mode)
+        if not scr or (mode ~= "Actor" and mode ~= "Native") then return end
+        local primaryWorker = pool[1] and pool[1].actor
+        local h = computeScriptBytecodeHash(scr)
+        if not h then return end
+
+        currentPolicies.scripts[h] = {
+            name = scr.Name,
+            mode = mode
+        }
+        saveScriptPolicies(currentPolicies)
+
+        if mode == "Native" then
+            restoreScriptToNative(scr)
+            print(string.format("[Omni Engine]: Set policy for '%s' [%s] -> Native (Core 0)", scr.Name, h:sub(1, 8)))
+        elseif mode == "Actor" then
+            if getgenv()._OmniEngineMode ~= "Compatibility" and primaryWorker then
+                migrateScriptToActor(scr, primaryWorker)
+                print(string.format("[Omni Engine]: Set policy for '%s' [%s] -> Actor (Core 1)", scr.Name, h:sub(1, 8)))
+            else
+                print(string.format("[Omni Engine]: Saved policy for '%s' [%s] -> Actor (Core 1) [Engine in Compatibility Mode]", scr.Name, h:sub(1, 8)))
+            end
+        end
+
+        if getgenv()._OmniRefreshThreadsTab then
+            pcall(getgenv()._OmniRefreshThreadsTab)
+        end
+    end
+
+    local function setAllScriptsPolicy(mode)
+        if mode ~= "Actor" and mode ~= "Native" then return end
+        local primaryWorker = pool[1] and pool[1].actor
+        local Players = pcall(function() return game:GetService("Players") end) and game:GetService("Players")
+        local lp = Players and Players.LocalPlayer
+        local ps = lp and lp:FindFirstChild("PlayerScripts")
+
+        local scriptsToProcess = {}
+        for scr, _ in pairs(originalParents) do
+            if scr and scr.Parent then
+                scriptsToProcess[scr] = true
+            end
+        end
+        if primaryWorker then
+            for _, c in ipairs(primaryWorker:GetChildren()) do
+                if c:IsA("LocalScript") and c.Name ~= "OmniWorkerStub" then
+                    scriptsToProcess[c] = true
+                end
+            end
+        end
+        if ps then
+            for _, c in ipairs(ps:GetChildren()) do
+                if c:IsA("LocalScript") and not c:GetAttribute("OmniStuntDouble") and not c.Disabled and c.Name ~= "OmniWorkerStub" and c.Name ~= "PlayerScriptsLoader" then
+                    scriptsToProcess[c] = true
+                end
+            end
+        end
+
+        for scr, _ in pairs(scriptsToProcess) do
+            local h = computeScriptBytecodeHash(scr)
+            if h then
+                currentPolicies.scripts[h] = { name = scr.Name, mode = mode }
+            end
+            if mode == "Native" then
+                restoreScriptToNative(scr)
+            elseif mode == "Actor" and getgenv()._OmniEngineMode ~= "Compatibility" and primaryWorker then
+                migrateScriptToActor(scr, primaryWorker)
+            end
+        end
+
+        saveScriptPolicies(currentPolicies)
+        print(string.format("[Omni Engine]: Set all script policies to %s", mode))
+
+        if getgenv()._OmniRefreshThreadsTab then
+            pcall(getgenv()._OmniRefreshThreadsTab)
+        end
+    end
+
+    Omni.ComputeScriptHash = computeScriptBytecodeHash
+    Omni.GetScriptPolicies = function() return currentPolicies end
+    Omni.GetEngineMode = function() return getgenv()._OmniEngineMode or "Performance" end
+    Omni.SetEngineMode = setEngineMode
+    Omni.SetScriptPolicy = setScriptPolicy
+    Omni.SetAllScriptsPolicy = setAllScriptsPolicy
+    Omni.RestoreScriptToNative = restoreScriptToNative
+    Omni.RestoreAllScriptsToNative = restoreAllScriptsToNative
     Omni.MigrateScriptToActor = migrateScriptToActor
     Omni.RunCleanCoreMigration = runCleanCoreMigration
+
+    getgenv().OmniGetEngineMode = Omni.GetEngineMode
+    getgenv().OmniSetEngineMode = setEngineMode
+    getgenv().OmniSetScriptPolicy = setScriptPolicy
+    getgenv().OmniSetAllScriptsPolicy = setAllScriptsPolicy
     getgenv().OmniMigrateScript = migrateScriptToActor
 
-    if getgenv()._OmniEnableCleanCore ~= false then
+    if getgenv()._OmniEngineMode == "Performance" and getgenv()._OmniEnableCleanCore ~= false then
         pcall(task.spawn, runCleanCoreMigration)
     end
 
