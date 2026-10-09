@@ -3445,7 +3445,7 @@ end
 getgenv()._OmniActiveHookedTaskWait = hookedTaskWait
 getgenv()._OmniActiveHookedWait = hookedWait
 
-if hookfunction and getgenv()._OmniEnableWaitHooks == true then
+if hookfunction and getgenv()._OmniEnableWaitHooks ~= false then
     if not getgenv()._OmniWaitTrampolineInstalled then
         if task and task.wait then
             pcall(function()

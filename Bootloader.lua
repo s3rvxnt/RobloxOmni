@@ -368,7 +368,7 @@ end
 if not getgenv()._KernelExemptScripts then
     getgenv()._KernelExemptScripts = {}
 end
-getgenv()._OmniEnableWaitHooks = false
+getgenv()._OmniEnableWaitHooks = true
 getgenv()._OmniEnableMetamethodHooks = false
 getgenv()._OmniEnableGameProxy = false
 
