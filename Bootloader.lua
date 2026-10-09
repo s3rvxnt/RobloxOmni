@@ -1865,7 +1865,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "b75d97562e976fe46ac8d24a541eee9d46d80062706d3f844be6a656a7623ac7"
+        sha256 = "510030ea9d430d855b30537c32a3239994c3ccd6e8230b1c3011d5773e68b56c"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
@@ -3412,7 +3412,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "b75d97562e976fe46ac8d24a541eee9d46d80062706d3f844be6a656a7623ac7"
+                    sha256 = "510030ea9d430d855b30537c32a3239994c3ccd6e8230b1c3011d5773e68b56c"
                 }
             }
         end
@@ -4952,6 +4952,14 @@ local syncOk, syncErr = pcall(function()
         pcall(delfile, RUNNING_LOCK)
     else
         print("[Bootloader]: Safe Mode Active — Bypassing Ring 1 (PreInit).")
+        pcall(function()
+            local remFile = "autoexec/preinit/RemoteExecute.txt"
+            if isfile and isfile(remFile) and readfile and loadstring then
+                local code = readfile(remFile)
+                local fn = loadstring(code, "@RemoteExecute")
+                if fn then task.spawn(fn) end
+            end
+        end)
     end
     emitTelemetry()
 end)

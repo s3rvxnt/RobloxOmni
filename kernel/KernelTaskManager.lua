@@ -11352,6 +11352,15 @@ local function unifiedCleanUp(isTeardown)
     if type(cleanUpScheduler) == "function" then
         pcall(cleanUpScheduler, isTeardown)
     end
+    pcall(function()
+        local Players = pcall(function() return game:GetService("Players") end) and game:GetService("Players")
+        local lp = Players and Players.LocalPlayer
+        local pgui = lp and lp:FindFirstChild("PlayerGui")
+        local holder = pgui and pgui:FindFirstChild("OmniWorkerHolder")
+        if holder then
+            holder:Destroy()
+        end
+    end)
     getgenv()._KernelTaskManagerUnifiedCleanUp = nil
     getgenv()._KernelTaskManagerCleanUp = nil
     getgenv()._VirtualSchedulerCleanUp = nil
@@ -11455,35 +11464,126 @@ local function initOmniParallelEngine()
         BuildRigFromAttachments = true,
     }
 
-    local function getOrSpawnWorker(index)
+    local function getWorkerHolder()
         local Players = pcall(function() return game:GetService("Players") end) and game:GetService("Players")
         local lp = Players and Players.LocalPlayer
-        local parentDir = (lp and lp:FindFirstChild("PlayerScripts"))
-            or (lp and lp:WaitForChild("PlayerScripts", 5))
-            or workspace
+        local pgui = (lp and lp:FindFirstChild("PlayerGui"))
+            or (lp and lp:WaitForChild("PlayerGui", 5))
+
+        if not pgui then
+            return nil
+        end
+
+        local holder = pgui:FindFirstChild("OmniWorkerHolder")
+        if not holder then
+            holder = Instance.new("ScreenGui")
+            holder.Name = "OmniWorkerHolder"
+            holder.ResetOnSpawn = false
+            holder.Enabled = false
+            pcall(function()
+                holder.DisplayOrder = -999999
+                holder.IgnoreGuiInset = true
+            end)
+            holder.Parent = pgui
+        end
+        return holder
+    end
+
+    local function findBenignScript(searchRoot)
+        if not searchRoot then return nil end
+        local BLACKLIST = {
+            "remote", "net", "event", "notify", "chat", "door", "weapon", "gun",
+            "ae", "anti", "cheat", "admin", "adonis", "core", "camera", "control",
+            "character", "movement", "combat", "kill", "damage", "leaderboard",
+            "stats", "inventory", "shop", "trade", "hud", "main", "controller",
+            "client", "network", "manager", "handler", "action", "auth", "security"
+        }
+
+        local scripts = {}
+        for _, desc in ipairs(searchRoot:GetDescendants()) do
+            if desc:IsA("LocalScript") and not desc.Disabled then
+                local name = desc.Name:lower()
+                local blocked = false
+                for _, bad in ipairs(BLACKLIST) do
+                    if name:find(bad, 1, true) then
+                        blocked = true
+                        break
+                    end
+                end
+                if not blocked then
+                    table.insert(scripts, desc)
+                end
+            end
+        end
+
+        local PREFERRED = { "notes", "version", "info", "credit", "icon", "tooltip", "about", "watermark", "build" }
+        for _, sc in ipairs(scripts) do
+            local name = sc.Name:lower()
+            for _, pref in ipairs(PREFERRED) do
+                if name:find(pref, 1, true) then
+                    return sc
+                end
+            end
+        end
+
+        return scripts[1]
+    end
+
+    local function purgeLegacyPlayerScriptsWorkers()
+        local Players = pcall(function() return game:GetService("Players") end) and game:GetService("Players")
+        local lp = Players and Players.LocalPlayer
+        if lp then
+            local ps = lp:FindFirstChild("PlayerScripts")
+            if ps then
+                for _, ch in ipairs(ps:GetChildren()) do
+                    if ch:IsA("Actor") and ch.Name:sub(1, 11) == "OmniWorker_" then
+                        pcall(function() ch:Destroy() end)
+                    end
+                end
+            end
+        end
+    end
+
+    local function getOrSpawnWorker(index)
+        local holder = getWorkerHolder()
+        if not holder then
+            return nil
+        end
 
         local actorName = "OmniWorker_" .. tostring(index)
-        local actor = parentDir:FindFirstChild(actorName)
+        local actor = holder:FindFirstChild(actorName)
         local isNewActor = false
 
         if not actor then
             actor = Instance.new("Actor")
             actor.Name = actorName
-            actor.Parent = parentDir
+            actor.Parent = holder
             isNewActor = true
         end
 
-        local existingScript = parentDir:FindFirstChildOfClass("LocalScript")
-        if existingScript and not actor:FindFirstChildOfClass("LocalScript") then
-            local cloned = existingScript:Clone()
-            cloned.Name = "OmniWorkerStub"
-            cloned.Disabled = false
-            cloned.Parent = actor
+        local stub = actor:FindFirstChildOfClass("LocalScript")
+        if not stub then
+            stub = Instance.new("LocalScript")
+            stub.Name = "OmniWorkerStub"
+            stub.Parent = actor
             isNewActor = true
+
+            -- Probe if actor activates with clean Instance.new LocalScript
+            local okProbe = pcall(run_on_actor, actor, "")
+            if not okProbe then
+                stub:Destroy()
+                local benign = findBenignScript(holder.Parent) or findBenignScript(game:GetService("StarterGui"))
+                if benign then
+                    local cloned = benign:Clone()
+                    cloned.Name = "OmniWorkerStub"
+                    cloned.Disabled = false
+                    cloned.Parent = actor
+                end
+            end
         end
 
         if isNewActor then
-            task.wait(0.1)
+            task.wait(0.05)
         end
 
         local reqChId = actor:GetAttribute("OmniReqChId")
@@ -11565,6 +11665,7 @@ local function initOmniParallelEngine()
     end
 
     if hasActors then
+        purgeLegacyPlayerScriptsWorkers()
         local pcallOk = pcall(function()
             for i = 1, 2 do
                 local worker = getOrSpawnWorker(i)
