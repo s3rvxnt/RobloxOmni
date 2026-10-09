@@ -11305,6 +11305,10 @@ local function unifiedCleanUp(isTeardown)
     getgenv()._OmniTaskManager_AutoFitColumn = nil
     getgenv()._OmniTaskManager_SortTable = nil
     getgenv()._OmniTaskManager_GetSortState = nil
+    if getgenv().Omni and getgenv().Omni.Parallel then
+        getgenv().Omni.Parallel = nil
+    end
+    getgenv().Parallel = nil
 end
 
 getgenv()._KernelTaskManagerCleanUp = cleanUpHUD
@@ -11314,4 +11318,222 @@ getgenv()._KernelTaskManagerLoaded = true
 getgenv()._VirtualSchedulerLoaded = true
 getgenv().ToggleTaskManagerHUD = toggleHUD
 
-print("[KernelTaskManager]: Unified Runtime Micro-Kernel & Task Manager HUD initialized. Press Shift + F8 to open.")
+-- ==============================================================================
+-- SECTION: OMNI PARALLEL DISPATCHER ENGINE (Parallel Luau & Actor Worker Pool)
+-- ==============================================================================
+local function initOmniParallelEngine()
+    local hasActors = (type(getactors) == "function")
+        and (type(run_on_actor) == "function")
+        and (type(create_comm_channel) == "function")
+
+    local pool = {}
+    local roundRobinIndex = 1
+    local nextReqId = 1
+    local pendingRequests = {}
+
+    local SYNC_METHODS = {
+        Clone = true,
+        Destroy = true,
+        ClearAllChildren = true,
+        SubtractAsync = true,
+        UnionAsync = true,
+        IntersectAsync = true,
+        WriteVoxels = true,
+        FillBlock = true,
+        FillBall = true,
+        FillCylinder = true,
+        FillWedge = true,
+        PasteRegion = true,
+        ReplaceMaterial = true,
+        ApplyDescription = true,
+        ApplyDescriptionReset = true,
+        BuildRigFromAttachments = true,
+    }
+
+    local function getOrSpawnWorker(index)
+        local Players = pcall(function() return game:GetService("Players") end) and game:GetService("Players")
+        local lp = Players and Players.LocalPlayer
+        local parentDir = (lp and lp:FindFirstChild("PlayerScripts"))
+            or (lp and lp:WaitForChild("PlayerScripts", 5))
+            or workspace
+
+        local actorName = "OmniWorker_" .. tostring(index)
+        local actor = parentDir:FindFirstChild(actorName)
+        local isNewActor = false
+
+        if not actor then
+            actor = Instance.new("Actor")
+            actor.Name = actorName
+            actor.Parent = parentDir
+            isNewActor = true
+        end
+
+        local existingScript = parentDir:FindFirstChildOfClass("LocalScript")
+        if existingScript and not actor:FindFirstChildOfClass("LocalScript") then
+            local cloned = existingScript:Clone()
+            cloned.Name = "OmniWorkerStub"
+            cloned.Disabled = false
+            cloned.Parent = actor
+            isNewActor = true
+        end
+
+        if isNewActor then
+            task.wait(0.1)
+        end
+
+        local reqChId = actor:GetAttribute("OmniReqChId")
+        local resChId = actor:GetAttribute("OmniResChId")
+        local needsBootstrap = false
+
+        if not reqChId or not resChId then
+            reqChId = create_comm_channel()
+            resChId = create_comm_channel()
+            actor:SetAttribute("OmniReqChId", reqChId)
+            actor:SetAttribute("OmniResChId", resChId)
+            needsBootstrap = true
+        end
+
+        local reqCh = get_comm_channel(reqChId)
+        local resCh = get_comm_channel(resChId)
+
+        if needsBootstrap then
+            local workerCode = string.format([=[
+                local req = get_comm_channel(%d)
+                local res = get_comm_channel(%d)
+
+                local SYNC_METHODS = {
+                    Clone = true,
+                    Destroy = true,
+                    ClearAllChildren = true,
+                    SubtractAsync = true,
+                    UnionAsync = true,
+                    IntersectAsync = true,
+                    WriteVoxels = true,
+                    FillBlock = true,
+                    FillBall = true,
+                    FillCylinder = true,
+                    FillWedge = true,
+                    PasteRegion = true,
+                    ReplaceMaterial = true,
+                    ApplyDescription = true,
+                    ApplyDescriptionReset = true,
+                    BuildRigFromAttachments = true,
+                }
+
+                req.Event:Connect(function(reqId, target, method, args)
+                    local isSync = (SYNC_METHODS[method] == true)
+                    local ok, ret
+
+                    if isSync then
+                        task.synchronize()
+                        ok, ret = pcall(target[method], target, table.unpack(args or {}))
+                    else
+                        task.desynchronize()
+                        ok, ret = pcall(target[method], target, table.unpack(args or {}))
+                        task.synchronize()
+                    end
+
+                    res:Fire(reqId, ok, ret)
+                end)
+            ]=], reqChId, resChId)
+
+            local okRun, errRun = pcall(run_on_actor, actor, workerCode)
+            if not okRun then
+                return nil, errRun
+            end
+            task.wait(0.05)
+        end
+
+        resCh.Event:Connect(function(reqId, ok, ret)
+            local thread = pendingRequests[reqId]
+            if thread then
+                pendingRequests[reqId] = nil
+                task.spawn(thread, ok, ret)
+            end
+        end)
+
+        return {
+            actor = actor,
+            reqCh = reqCh,
+            resCh = resCh
+        }
+    end
+
+    if hasActors then
+        local pcallOk = pcall(function()
+            for i = 1, 2 do
+                local worker = getOrSpawnWorker(i)
+                if worker then
+                    table.insert(pool, worker)
+                end
+            end
+        end)
+        if not pcallOk or #pool == 0 then
+            hasActors = false
+        end
+    end
+
+    local function dispatch(target, method, ...)
+        local args = { ... }
+        if not hasActors or #pool == 0 then
+            return target[method](target, table.unpack(args))
+        end
+
+        local worker = pool[roundRobinIndex]
+        roundRobinIndex = (roundRobinIndex % #pool) + 1
+
+        local reqId = nextReqId
+        nextReqId = nextReqId + 1
+
+        local curThread = coroutine.running()
+        pendingRequests[reqId] = curThread
+
+        task.delay(0.5, function()
+            if pendingRequests[reqId] == curThread then
+                pendingRequests[reqId] = nil
+                local ok, ret = pcall(target[method], target, table.unpack(args))
+                task.spawn(curThread, ok, ret)
+            end
+        end)
+
+        worker.reqCh:Fire(reqId, target, method, args)
+
+        local ok, ret = coroutine.yield()
+        if not ok then
+            error(tostring(ret), 2)
+        end
+        return ret
+    end
+
+    local dispatcher = setmetatable({
+        _isInitialized = true,
+        _poolSize = #pool,
+        _hasActors = hasActors,
+        dispatch = dispatch
+    }, {
+        __call = function(_, target)
+            return setmetatable({}, {
+                __index = function(_, methodName)
+                    return function(_, ...)
+                        return dispatch(target, methodName, ...)
+                    end
+                end
+            })
+        end,
+        __index = function(_, methodName)
+            return function(target, ...)
+                return dispatch(target, methodName, ...)
+            end
+        end
+    })
+
+    local Omni = getgenv().Omni or {}
+    getgenv().Omni = Omni
+    Omni.Parallel = dispatcher
+    getgenv().Parallel = dispatcher
+    return dispatcher
+end
+
+pcall(task.spawn, initOmniParallelEngine)
+
+print("[KernelTaskManager]: Unified Runtime Micro-Kernel, Parallel Engine & Task Manager HUD initialized. Press Shift + F8 to open.")
