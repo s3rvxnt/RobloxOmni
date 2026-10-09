@@ -686,6 +686,7 @@ renderUrlsView = function()
         local h = entry.hash or ""
         local localFile = entry.local_file or ""
         local domain, shortFile = getUrlDisplayName(u, entry.name)
+        local scriptName = entry.name or shortFile or domain
 
         if query == "" or u:lower():find(query, 1, true) or h:lower():find(query, 1, true) or domain:lower():find(query, 1, true) or shortFile:lower():find(query, 1, true) or (entry.name and entry.name:lower():find(query, 1, true)) then
             matches = matches + 1
@@ -804,7 +805,7 @@ renderUrlsView = function()
                 local saved = saveLedger(currentLedger)
                 if saved then
                     local stateStr = entry.auto_update and "ENABLED" or "DISABLED"
-                    showToast(string.format("Auto-Update %s for %s", stateStr, domain), false)
+                    showToast(string.format("Auto-Update %s for %s", stateStr, scriptName), false)
                     renderUrlsView()
                 else
                     showToast("Failed to save ledger to disk!", true)
@@ -854,7 +855,7 @@ renderUrlsView = function()
                         end
                     end
                     saveLedger(currentLedger)
-                    showToast(string.format("Revoked trust for %s and linked submodules.", domain), false)
+                    showToast(string.format("Revoked trust for %s and linked submodules.", scriptName), false)
                     renderUrlsView()
                 end
             end)
@@ -973,7 +974,7 @@ renderUrlsView = function()
                         if isIdentical then
                             CheckBtn.Text = "✓ Up to Date"
                             CheckBtn.TextColor3 = Color3.fromRGB(100, 230, 130)
-                            showToast(string.format("Upstream for %s is verified and identical.", domain), false)
+                            showToast(string.format("Upstream for %s is verified and identical.", scriptName), false)
                         else
                             if entry.auto_update == true then
                                 CheckBtn.Text = "⚡ Auto-Updating..."
@@ -989,18 +990,18 @@ renderUrlsView = function()
                                 saveLedger(currentLedger)
                                 CheckBtn.Text = "⚡ Updated!"
                                 CheckBtn.TextColor3 = Color3.fromRGB(100, 230, 130)
-                                showToast(string.format("Auto-applied upstream update for %s!", domain), false)
+                                showToast(string.format("Auto-applied upstream update for %s!", scriptName), false)
                                 renderUrlsView()
                             else
                                 CheckBtn.Text = "⚠️ Update Pending"
                                 CheckBtn.TextColor3 = Color3.fromRGB(255, 170, 60)
-                                showToast(string.format("Author updated %s! Approval required on next execution.", domain), false)
+                                showToast(string.format("Author updated %s! Approval required on next execution.", scriptName), false)
                             end
                         end
                     else
                         CheckBtn.Text = "Error Checking"
                         CheckBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-                        showToast(string.format("Failed to fetch upstream URL: %s", tostring(remoteBody)), true)
+                        showToast(string.format("Failed to fetch upstream URL for %s: %s", scriptName, tostring(remoteBody)), true)
                     end
                 end)
             end)
