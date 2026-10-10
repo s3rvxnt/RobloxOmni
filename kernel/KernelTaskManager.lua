@@ -1394,7 +1394,7 @@ local function getCallingContext(minLvl)
                         anonymousCaller = string.format("ExecutorScript:%d", line)
                     end
                 else
-                    local cleanSrc = tostring(src):gsub("^[@%[]", ""):gsub("^string \"", ""):gsub("\"\]$", "")
+                    local cleanSrc = tostring(src):gsub("^[@%[]", ""):gsub("^string \"", ""):gsub("\"%%]$", "")
                     local fileName = cleanSrc:match("([^/\\]+)$") or cleanSrc
                     if not isSelfOrKernel(fileName) and not isSelfOrKernel(cleanSrc) then
                         if line and line > 0 then
@@ -3221,6 +3221,12 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
 end
 
 local function hookedTaskWait(duration)
+    -- Fast-path bypass when wait hooks are disabled
+    if getgenv()._OmniEnableWaitHooks == false or getgenv()._OmniDisableWaitHooks == true then
+        local waitFn = getgenv()._KernelOrigTaskWait or origTaskWait or rawTaskWait
+        return waitFn(duration)
+    end
+
     local curThread = coroutine.running()
     local waitFn = getgenv()._KernelOrigTaskWait or origTaskWait or rawTaskWait
 
@@ -3266,18 +3272,27 @@ local function hookedTaskWait(duration)
         return waitFn(duration)
     end
 
-    -- 1. Pause Trap: freeze loop while paused (only pause executor loops on Pause All)
-    while (loop.paused or (loopsPausedAll and loop.isExecutor)) and loop.alive do
+    -- 1. Game Script Protection Guard:
+    -- Game scripts are strictly Monitor-Only. We never alter game code timing,
+    -- never permanently suspend game threads, and never override game loop delays.
+    if not loop.isExecutor and not loop.allowGameOverride then
+        local res = waitFn(duration)
+        loop.iterationStart = os.clock()
+        return res
+    end
+
+    -- 2. Executor Script Management (Only executed for user/executor loops):
+    while (loop.paused or loopsPausedAll) and loop.alive do
         waitFn(0.1)
     end
 
-    -- 2. Clean Termination Check: yield permanently if loop is dead
+    -- Clean Termination Check: cleanly terminate executor thread if loop was killed
     if not loop.alive then
         coroutine.yield()
         return
     end
 
-    -- 3. Frequency Throttling Clamp:
+    -- Frequency Throttling Clamp (executor loops only):
     local numDelay = sanitizeWaitDelay(duration)
     local effectiveDelay = duration
     if loop.minDelay and loop.minDelay > numDelay then
@@ -3290,6 +3305,13 @@ local function hookedTaskWait(duration)
 end
 
 local function hookedWait(duration)
+    -- Fast-path bypass when wait hooks are disabled
+    if getgenv()._OmniEnableWaitHooks == false or getgenv()._OmniDisableWaitHooks == true then
+        local waitFn = getgenv()._KernelOrigWait or origWait or rawWait or getgenv()._KernelOrigTaskWait or origTaskWait or rawTaskWait
+        local d, t = waitFn(duration)
+        return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
+    end
+
     local curThread = coroutine.running()
     local waitFn = getgenv()._KernelOrigWait or origWait or rawWait or getgenv()._KernelOrigTaskWait or origTaskWait or rawTaskWait
 
@@ -3339,18 +3361,27 @@ local function hookedWait(duration)
         return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
     end
 
-    -- 1. Pause Trap: freeze loop while paused (only pause executor loops on Pause All)
-    while (loop.paused or (loopsPausedAll and loop.isExecutor)) and loop.alive do
+    -- 1. Game Script Protection Guard:
+    -- Game scripts are strictly Monitor-Only. We never alter game code timing,
+    -- never permanently suspend game threads, and never override game loop delays.
+    if not loop.isExecutor and not loop.allowGameOverride then
+        local d, t = waitFn(duration)
+        loop.iterationStart = os.clock()
+        return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
+    end
+
+    -- 2. Executor Script Management (Only executed for user/executor loops):
+    while (loop.paused or loopsPausedAll) and loop.alive do
         waitFn(0.1)
     end
 
-    -- 2. Clean Termination Check: yield permanently if loop is dead
+    -- Clean Termination Check: cleanly terminate executor thread if loop was killed
     if not loop.alive then
         coroutine.yield()
         return
     end
 
-    -- 3. Frequency Throttling Clamp:
+    -- 3. Frequency Throttling Clamp (executor loops only):
     local numDelay = sanitizeWaitDelay(duration)
     local effectiveDelay = duration
     if loop.minDelay and loop.minDelay > numDelay then
@@ -3365,6 +3396,9 @@ end
 local function SetLoopPaused(loopIdOrThread, isPaused)
     for thread, loop in pairs(loopRegistry) do
         if loop.id == loopIdOrThread or thread == loopIdOrThread or loop.name == loopIdOrThread or loop.caller == loopIdOrThread then
+            if not loop.isExecutor and not loop.allowGameOverride then
+                return false, "Cannot pause in-game script without explicit override"
+            end
             loop.paused = (isPaused == true)
             emitProfile()
             saveSchedulerOverrides()
@@ -3377,6 +3411,9 @@ end
 local function SetLoopFrequency(loopIdOrThread, targetHz, targetRatio)
     for thread, loop in pairs(loopRegistry) do
         if loop.id == loopIdOrThread or thread == loopIdOrThread or loop.name == loopIdOrThread or loop.caller == loopIdOrThread then
+            if not loop.isExecutor and not loop.allowGameOverride then
+                return false, "Cannot throttle in-game script without explicit override"
+            end
             if (targetRatio and targetRatio < 0.95) or (targetHz and targetHz > 0) then
                 local maxHz = math.max(60, measuredFps or 60)
                 local ratio = targetRatio or math.clamp((targetHz or maxHz) / maxHz, 0.01, 1.0)
@@ -3427,6 +3464,9 @@ end
 local function KillLoop(loopIdOrThread)
     for thread, loop in pairs(loopRegistry) do
         if loop.id == loopIdOrThread or thread == loopIdOrThread or loop.name == loopIdOrThread or loop.caller == loopIdOrThread then
+            if not loop.isExecutor and not loop.allowGameOverride then
+                return false, "Cannot kill in-game script loop without explicit override"
+            end
             loop.alive = false
             loop.paused = false
             pcall(function()
@@ -3451,7 +3491,9 @@ end
 local function PauseAllLoops(isPaused)
     loopsPausedAll = (isPaused ~= false)
     for _, loop in pairs(loopRegistry) do
-        loop.paused = loopsPausedAll
+        if loop.isExecutor then
+            loop.paused = loopsPausedAll
+        end
     end
     emitProfile()
     return loopsPausedAll
@@ -3459,18 +3501,25 @@ end
 
 local function KillAllLoops()
     local killedCount = 0
+    local survivingLoops = {}
+    local survivingOrder = {}
     for thread, loop in pairs(loopRegistry) do
-        loop.alive = false
-        loop.paused = false
-        pcall(function()
-            if coroutine.close then
-                coroutine.close(thread)
-            end
-        end)
-        killedCount = killedCount + 1
+        if loop.isExecutor then
+            loop.alive = false
+            loop.paused = false
+            pcall(function()
+                if coroutine.close then
+                    coroutine.close(thread)
+                end
+            end)
+            killedCount = killedCount + 1
+        else
+            survivingLoops[thread] = loop
+            table.insert(survivingOrder, loop.id)
+        end
     end
-    loopRegistry = {}
-    loopOrder = {}
+    loopRegistry = survivingLoops
+    loopOrder = survivingOrder
     emitProfile()
     return killedCount
 end

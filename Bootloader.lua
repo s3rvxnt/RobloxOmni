@@ -368,7 +368,24 @@ end
 if not getgenv()._KernelExemptScripts then
     getgenv()._KernelExemptScripts = {}
 end
-getgenv()._OmniEnableWaitHooks = true
+
+-- Wait Hook Governor Off-Switch & Configuration
+local _disableWaitHooks = false
+if getgenv()._OmniDisableWaitHooks == true or (type(_G) == "table" and _G._OmniDisableWaitHooks == true) then
+    _disableWaitHooks = true
+elseif isfile and isfile("Omni_Settings.json") then
+    pcall(function()
+        local raw = readfile("Omni_Settings.json")
+        if raw and raw ~= "" then
+            local HttpService = game:GetService("HttpService")
+            local settings = HttpService:JSONDecode(raw)
+            if type(settings) == "table" and settings.disable_wait_hooks == true then
+                _disableWaitHooks = true
+            end
+        end
+    end)
+end
+getgenv()._OmniEnableWaitHooks = not _disableWaitHooks
 getgenv()._OmniEnableMetamethodHooks = false
 getgenv()._OmniEnableGameProxy = false
 
@@ -1865,7 +1882,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "510030ea9d430d855b30537c32a3239994c3ccd6e8230b1c3011d5773e68b56c"
+        sha256 = "95d65c9f48dbd1d74ec4caf829a06bc3aea80b6213ae68736b60a7e2d0351aad"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
@@ -3412,7 +3429,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "510030ea9d430d855b30537c32a3239994c3ccd6e8230b1c3011d5773e68b56c"
+                    sha256 = "95d65c9f48dbd1d74ec4caf829a06bc3aea80b6213ae68736b60a7e2d0351aad"
                 }
             }
         end
