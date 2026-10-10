@@ -102,15 +102,58 @@ class TestIntegrityGuard(unittest.TestCase):
         self.assertIn("disable_wait_hooks", content)
         self.assertIn("_OmniDisableWaitHooks", content)
 
-    def test_sync_hashes_script_idempotent(self):
-        """Verify scripts/sync_hashes.py runs cleanly and is idempotent on an aligned tree."""
+    def test_sync_hashes_check_mode_non_mutating(self):
+        """Verify scripts/sync_hashes.py --check verifies alignment with zero disk mutation."""
         import sys
         scripts_dir = str(REPO_ROOT / "scripts")
         if scripts_dir not in sys.path:
             sys.path.insert(0, scripts_dir)
         import sync_hashes
-        success = sync_hashes.sync_hashes()
-        self.assertTrue(success, "scripts/sync_hashes.py sync_hashes() failed")
+
+        manifest_path = REPO_ROOT / "manifest.json"
+        bootloader_path = REPO_ROOT / "Bootloader.lua"
+        m_bytes_before = manifest_path.read_bytes()
+        b_bytes_before = bootloader_path.read_bytes()
+
+        success = sync_hashes.sync_hashes(check_only=True, repo_root=REPO_ROOT)
+        self.assertTrue(success, "scripts/sync_hashes.py --check failed on aligned tree")
+
+        # Guarantee zero disk mutation
+        self.assertEqual(manifest_path.read_bytes(), m_bytes_before, "manifest.json was mutated during check!")
+        self.assertEqual(bootloader_path.read_bytes(), b_bytes_before, "Bootloader.lua was mutated during check!")
+
+    def test_sync_hashes_drift_detection_and_repair(self):
+        """Verify scripts/sync_hashes.py catches drift and repairs it in an isolated temp directory."""
+        import shutil
+        import tempfile
+        import sys
+        scripts_dir = str(REPO_ROOT / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        import sync_hashes
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            for f in ["manifest.json", "Bootloader.lua"]:
+                shutil.copy2(REPO_ROOT / f, tmp_root / f)
+            for d in ["kernel", "gameloaded"]:
+                shutil.copytree(REPO_ROOT / d, tmp_root / d)
+
+            # 1. Mutate a kernel file in temp copy
+            ktm = tmp_root / "kernel" / "KernelTaskManager.lua"
+            ktm.write_bytes(ktm.read_bytes() + b"\n-- probe mutation\n")
+
+            # 2. check_only=True must catch the drift
+            drift_caught = not sync_hashes.sync_hashes(check_only=True, repo_root=tmp_root)
+            self.assertTrue(drift_caught, "sync_hashes --check failed to catch drift")
+
+            # 3. sync_hashes(check_only=False) must repair it in the temp directory
+            repair_ok = sync_hashes.sync_hashes(check_only=False, repo_root=tmp_root)
+            self.assertTrue(repair_ok, "sync_hashes repair failed in temp directory")
+
+            # 4. check_only=True must now pass on repaired temp directory
+            check_after_repair = sync_hashes.sync_hashes(check_only=True, repo_root=tmp_root)
+            self.assertTrue(check_after_repair, "sync_hashes --check failed after repair")
 
 if __name__ == "__main__":
     unittest.main()
