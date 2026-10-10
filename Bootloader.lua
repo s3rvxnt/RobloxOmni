@@ -2466,8 +2466,13 @@ initUpdateGate = function(guiParent, UpdateBadge)
         
         StatusSuccess = Color3.fromRGB(50, 220, 120), -- #32DC78: Green status / additions
         StatusWarning = Color3.fromRGB(255, 175, 50), -- #FFAF32: Yellow advisory / warnings
-        StatusDanger  = Color3.fromRGB(255, 75, 75),  -- #FF4B4B: Red errors / removals
     }
+
+    -- Update Gate & Security State Controllers
+    local isObfuscatedUpdateDetected = false
+    local forceInstallConfirmActive = false
+    local forceInstallResetThread = nil
+    local isSafetyAdvisoryActive = false
 
     -- 1. Floating Pill Toast (Top-Right)
     local PillToast = Instance.new("Frame")
@@ -2541,6 +2546,13 @@ initUpdateGate = function(guiParent, UpdateBadge)
     PillReviewStroke.Thickness = 1
     PillReviewStroke.Color = Theme.Accent
     PillReviewStroke.Parent = PillReviewBtn
+
+    PillReviewBtn.MouseEnter:Connect(function()
+        PillReviewBtn.BackgroundColor3 = Color3.fromRGB(38, 95, 165)
+    end)
+    PillReviewBtn.MouseLeave:Connect(function()
+        PillReviewBtn.BackgroundColor3 = Theme.PrimaryBtn
+    end)
 
     local PillDismissBtn = Instance.new("TextButton")
     PillDismissBtn.Name = "PillDismissBtn"
@@ -2834,6 +2846,27 @@ initUpdateGate = function(guiParent, UpdateBadge)
     CodeReviewFrame.Visible = false
     CodeReviewFrame.Parent = ContentFrame
 
+    TabBtnChangelog.MouseEnter:Connect(function()
+        if not ChangelogScroll.Visible then
+            TabBtnChangelog.TextColor3 = Theme.TextPrimary
+        end
+    end)
+    TabBtnChangelog.MouseLeave:Connect(function()
+        if not ChangelogScroll.Visible then
+            TabBtnChangelog.TextColor3 = Theme.TextSecondary
+        end
+    end)
+    TabBtnCode.MouseEnter:Connect(function()
+        if not CodeReviewFrame.Visible then
+            TabBtnCode.TextColor3 = Theme.TextPrimary
+        end
+    end)
+    TabBtnCode.MouseLeave:Connect(function()
+        if not CodeReviewFrame.Visible then
+            TabBtnCode.TextColor3 = Theme.TextSecondary
+        end
+    end)
+
     -- Stage selector sub-bar
     local StageBar = Instance.new("Frame")
     StageBar.Name = "StageBar"
@@ -2924,12 +2957,22 @@ initUpdateGate = function(guiParent, UpdateBadge)
     DismissStroke.Parent = DismissBtn
 
     DismissBtn.MouseEnter:Connect(function()
-        DismissBtn.BackgroundColor3 = Theme.CardSelected
-        DismissBtn.TextColor3 = Theme.TextPrimary
+        if isScriptReviewActive then
+            DismissBtn.BackgroundColor3 = Color3.fromRGB(90, 30, 40)
+            DismissBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
+        else
+            DismissBtn.BackgroundColor3 = Theme.CardSelected
+            DismissBtn.TextColor3 = Theme.TextPrimary
+        end
     end)
     DismissBtn.MouseLeave:Connect(function()
-        DismissBtn.BackgroundColor3 = Theme.Card
-        DismissBtn.TextColor3 = Theme.TextSecondary
+        if isScriptReviewActive then
+            DismissBtn.BackgroundColor3 = Theme.DangerBtn
+            DismissBtn.TextColor3 = Theme.StatusDanger
+        else
+            DismissBtn.BackgroundColor3 = Theme.Card
+            DismissBtn.TextColor3 = Theme.TextSecondary
+        end
     end)
 
     local ApplyUpdateBtn = Instance.new("TextButton")
@@ -2953,13 +2996,33 @@ initUpdateGate = function(guiParent, UpdateBadge)
     ApplyStroke.Color = Theme.Accent
     ApplyStroke.Parent = ApplyUpdateBtn
 
+    local function getApplyButtonColors()
+        if isScriptReviewActive then
+            if ApplyUpdateBtn.Text:find("Approve") then
+                return Color3.fromRGB(30, 140, 65), Color3.fromRGB(40, 170, 80)
+            else
+                return Theme.PrimaryBtn, Color3.fromRGB(38, 95, 165)
+            end
+        elseif isObfuscatedUpdateDetected then
+            if forceInstallConfirmActive then
+                return Color3.fromRGB(220, 20, 20), Color3.fromRGB(240, 50, 50)
+            else
+                return Color3.fromRGB(180, 40, 40), Color3.fromRGB(210, 50, 50)
+            end
+        elseif isSafetyAdvisoryActive then
+            return Color3.fromRGB(210, 100, 35), Color3.fromRGB(235, 120, 45)
+        else
+            return Theme.PrimaryBtn, Color3.fromRGB(38, 95, 165)
+        end
+    end
+
     ApplyUpdateBtn.MouseEnter:Connect(function()
-        ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(38, 95, 165)
+        local _, hoverCol = getApplyButtonColors()
+        ApplyUpdateBtn.BackgroundColor3 = hoverCol
     end)
     ApplyUpdateBtn.MouseLeave:Connect(function()
-        if not isObfuscatedUpdateDetected and not isSafetyAdvisoryActive then
-            ApplyUpdateBtn.BackgroundColor3 = Theme.PrimaryBtn
-        end
+        local baseCol, _ = getApplyButtonColors()
+        ApplyUpdateBtn.BackgroundColor3 = baseCol
     end)
 
     local SecondaryBtn = Instance.new("TextButton")
@@ -2984,11 +3047,16 @@ initUpdateGate = function(guiParent, UpdateBadge)
     SecondaryStroke.Color = Theme.CardStroke
     SecondaryStroke.Parent = SecondaryBtn
 
-    -- Option B: Obfuscation Protection State & UI Controller
-    local isObfuscatedUpdateDetected = false
-    local forceInstallConfirmActive = false
-    local forceInstallResetThread = nil
+    SecondaryBtn.MouseEnter:Connect(function()
+        SecondaryBtn.BackgroundColor3 = Theme.CardSelected
+        SecondaryBtn.TextColor3 = Theme.TextPrimary
+    end)
+    SecondaryBtn.MouseLeave:Connect(function()
+        SecondaryBtn.BackgroundColor3 = Theme.Card
+        SecondaryBtn.TextColor3 = Theme.TextSecondary
+    end)
 
+    -- Option B: Obfuscation Protection State & UI Controller
     local function refreshApplyButtonUI()
         if isObfuscatedUpdateDetected then
             if forceInstallConfirmActive then
@@ -2998,6 +3066,10 @@ initUpdateGate = function(guiParent, UpdateBadge)
                 ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
                 ApplyUpdateBtn.Text = "⚠️ Force Install Obfuscated Code (Unsafe)"
             end
+        elseif isSafetyAdvisoryActive then
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(210, 100, 35)
+            ApplyUpdateBtn.TextColor3 = Theme.TextPrimary
+            ApplyUpdateBtn.Text = "🛡️ Apply Verified Update"
         else
             ApplyUpdateBtn.BackgroundColor3 = Theme.PrimaryBtn
             ApplyUpdateBtn.TextColor3 = Theme.TextPrimary
@@ -3467,13 +3539,24 @@ initUpdateGate = function(guiParent, UpdateBadge)
             btnPadding.PaddingRight = UDim.new(0, 6)
             btnPadding.Parent = btn
 
+            btn.MouseEnter:Connect(function()
+                if selectedStageIdx ~= idx then
+                    btn.TextColor3 = Theme.TextPrimary
+                end
+            end)
+            btn.MouseLeave:Connect(function()
+                if selectedStageIdx ~= idx then
+                    btn.TextColor3 = Theme.TextSecondary
+                end
+            end)
+
             btn.MouseButton1Click:Connect(function()
                 renderStageDiff(idx)
             end)
         end
     end
 
-    local isSafetyAdvisoryActive = false
+    isSafetyAdvisoryActive = false
     local userConsentCallback = nil
     local closeUpdateModal = nil
     local openUpdateModal = nil
@@ -3713,10 +3796,28 @@ initUpdateGate = function(guiParent, UpdateBadge)
         if lockdownFlag == true or getgenv()._OmniLockdownActive == true then
             isSafetyAdvisoryActive = true
         else
-            if not isSafetyAdvisoryActive then
-                isSafetyAdvisoryActive = false
-            end
+            isSafetyAdvisoryActive = false
         end
+
+        isScriptReviewActive = false
+
+        -- Reset dialog layout to standard Update Gate modal
+        StageBar.Visible = true
+        AuditBar.Position = UDim2.new(0, 0, 0, 30)
+        CodeScroll.Position = UDim2.new(0, 0, 0, 56)
+        CodeScroll.Size = UDim2.new(1, 0, 1, -56)
+        TabBtnChangelog.Visible = true
+        TabBtnCode.Size = UDim2.new(0, 160, 1, 0)
+        TabBtnCode.Position = UDim2.new(0, 168, 0, 0)
+        KeybindBadge.Visible = true
+        ModalTitle.Size = UDim2.new(0, 260, 0, 20)
+        SecondaryBtn.Visible = false
+        DismissBtn.Size = UDim2.new(0, 140, 1, 0)
+        DismissBtn.Text = "Dismiss (Skip)"
+        DismissBtn.BackgroundColor3 = Theme.Card
+        DismissBtn.TextColor3 = Theme.TextSecondary
+        ApplyUpdateBtn.Position = UDim2.new(0, 148, 0, 0)
+        ApplyUpdateBtn.Size = UDim2.new(1, -148, 1, 0)
 
         if not currentUpdateData then
             currentUpdateData = {
@@ -4187,6 +4288,8 @@ initUpdateGate = function(guiParent, UpdateBadge)
         TabBtnChangelog.Visible = false
         TabBtnCode.Size = UDim2.new(1, 0, 1, 0)
         TabBtnCode.Position = UDim2.new(0, 0, 0, 0)
+        KeybindBadge.Visible = false
+        ModalTitle.Size = UDim2.new(1, -60, 0, 20)
 
         if mode == "script_update" then
             ModalTitle.Text = "⚠️ OMNI SECURITY GATE: SCRIPT UPDATED"
@@ -4483,6 +4586,8 @@ initUpdateGate = function(guiParent, UpdateBadge)
         TabBtnChangelog.Visible = true
         TabBtnCode.Size = UDim2.new(0, 160, 1, 0)
         TabBtnCode.Position = UDim2.new(0, 168, 0, 0)
+        KeybindBadge.Visible = true
+        ModalTitle.Size = UDim2.new(0, 260, 0, 20)
         SecondaryBtn.Visible = false
         DismissBtn.Size = UDim2.new(0, 140, 1, 0)
         DismissBtn.Text = "Dismiss (Skip)"

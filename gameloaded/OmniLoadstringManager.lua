@@ -522,6 +522,8 @@ NavStroke.Thickness = 1
 NavStroke.Color = Theme.CardStroke
 NavStroke.Parent = NavFrame
 
+local currentTab = "urls" -- "urls" or "hashes"
+
 local UrlsTabBtn = Instance.new("TextButton")
 UrlsTabBtn.Name = "UrlsTabBtn"
 UrlsTabBtn.Size = UDim2.new(0.5, -4, 1, -4)
@@ -572,6 +574,27 @@ HashesTabIndicator.BackgroundColor3 = Theme.Accent
 HashesTabIndicator.BorderSizePixel = 0
 HashesTabIndicator.Visible = false
 HashesTabIndicator.Parent = HashesTabBtn
+
+UrlsTabBtn.MouseEnter:Connect(function()
+    if currentTab ~= "urls" then
+        UrlsTabBtn.TextColor3 = Theme.TextPrimary
+    end
+end)
+UrlsTabBtn.MouseLeave:Connect(function()
+    if currentTab ~= "urls" then
+        UrlsTabBtn.TextColor3 = Theme.TextSecondary
+    end
+end)
+HashesTabBtn.MouseEnter:Connect(function()
+    if currentTab ~= "hashes" then
+        HashesTabBtn.TextColor3 = Theme.TextPrimary
+    end
+end)
+HashesTabBtn.MouseLeave:Connect(function()
+    if currentTab ~= "hashes" then
+        HashesTabBtn.TextColor3 = Theme.TextSecondary
+    end
+end)
 
 -- Search & Filter Bar
 local SearchFrame = Instance.new("Frame")
@@ -758,7 +781,7 @@ HashesListLayout.Padding = UDim.new(0, 6)
 HashesListLayout.Parent = HashesScroll
 
 -- Active View Controller
-local currentTab = "urls" -- "urls" or "hashes"
+currentTab = "urls" -- "urls" or "hashes"
 local currentLedger = { version = 1, urls = {}, hashes = {} }
 
 local renderUrlsView = nil
@@ -1108,6 +1131,13 @@ renderUrlsView = function()
             CheckCorner.CornerRadius = UDim.new(0, 4)
             CheckCorner.Parent = CheckBtn
 
+            CheckBtn.MouseEnter:Connect(function()
+                CheckBtn.BackgroundColor3 = Color3.fromRGB(38, 95, 165)
+            end)
+            CheckBtn.MouseLeave:Connect(function()
+                CheckBtn.BackgroundColor3 = Theme.PrimaryBtn
+            end)
+
             CheckBtn.MouseButton1Click:Connect(function()
                 CheckBtn.Text = "Checking..."
                 task.spawn(function()
@@ -1126,7 +1156,7 @@ renderUrlsView = function()
 
                         if isIdentical then
                             CheckBtn.Text = "✓ Up to Date"
-                            CheckBtn.TextColor3 = Color3.fromRGB(100, 230, 130)
+                            CheckBtn.TextColor3 = Theme.StatusSuccess
                             showToast(string.format("Upstream for %s is verified and identical.", scriptName), false)
                         else
                             if entry.auto_update == true then
@@ -1142,18 +1172,18 @@ renderUrlsView = function()
                                 if normRemHash then currentLedger.hashes[normRemHash] = true end
                                 saveLedger(currentLedger)
                                 CheckBtn.Text = "⚡ Updated!"
-                                CheckBtn.TextColor3 = Color3.fromRGB(100, 230, 130)
+                                CheckBtn.TextColor3 = Theme.StatusSuccess
                                 showToast(string.format("Auto-applied upstream update for %s!", scriptName), false)
                                 renderUrlsView()
                             else
                                 CheckBtn.Text = "⚠️ Update Pending"
-                                CheckBtn.TextColor3 = Color3.fromRGB(255, 170, 60)
+                                CheckBtn.TextColor3 = Theme.StatusWarning
                                 showToast(string.format("Author updated %s! Approval required on next execution.", scriptName), false)
                             end
                         end
                     else
                         CheckBtn.Text = "Error Checking"
-                        CheckBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
+                        CheckBtn.TextColor3 = Theme.StatusDanger
                         showToast(string.format("Failed to fetch upstream URL for %s: %s", scriptName, tostring(remoteBody)), true)
                     end
                 end)
@@ -1175,6 +1205,13 @@ renderUrlsView = function()
             local CopyCorner = Instance.new("UICorner")
             CopyCorner.CornerRadius = UDim.new(0, 4)
             CopyCorner.Parent = CopyBtn
+
+            CopyBtn.MouseEnter:Connect(function()
+                CopyBtn.TextColor3 = Theme.TextPrimary
+            end)
+            CopyBtn.MouseLeave:Connect(function()
+                CopyBtn.TextColor3 = Theme.TextSecondary
+            end)
 
             CopyBtn.MouseButton1Click:Connect(function()
                 if setclipboard then
@@ -1574,6 +1611,13 @@ renderHashesView = function()
                 PrimCopyCorner.CornerRadius = UDim.new(0, 4)
                 PrimCopyCorner.Parent = PrimCopyBtn
 
+                PrimCopyBtn.MouseEnter:Connect(function()
+                    PrimCopyBtn.TextColor3 = Theme.TextPrimary
+                end)
+                PrimCopyBtn.MouseLeave:Connect(function()
+                    PrimCopyBtn.TextColor3 = Theme.TextSecondary
+                end)
+
                 PrimCopyBtn.MouseButton1Click:Connect(function()
                     if setclipboard then
                         setclipboard(grp.primaryHash)
@@ -1677,6 +1721,13 @@ renderHashesView = function()
                     local SubCopyCorner = Instance.new("UICorner")
                     SubCopyCorner.CornerRadius = UDim.new(0, 3)
                     SubCopyCorner.Parent = SubCopyBtn
+
+                    SubCopyBtn.MouseEnter:Connect(function()
+                        SubCopyBtn.TextColor3 = Theme.TextPrimary
+                    end)
+                    SubCopyBtn.MouseLeave:Connect(function()
+                        SubCopyBtn.TextColor3 = Theme.TextSecondary
+                    end)
 
                     SubCopyBtn.MouseButton1Click:Connect(function()
                         if setclipboard then
@@ -1786,6 +1837,13 @@ renderHashesView = function()
                 local sCopyCorner = Instance.new("UICorner")
                 sCopyCorner.CornerRadius = UDim.new(0, 3)
                 sCopyCorner.Parent = sCopyBtn
+
+                sCopyBtn.MouseEnter:Connect(function()
+                    sCopyBtn.TextColor3 = Theme.TextPrimary
+                end)
+                sCopyBtn.MouseLeave:Connect(function()
+                    sCopyBtn.TextColor3 = Theme.TextSecondary
+                end)
 
                 sCopyBtn.MouseButton1Click:Connect(function()
                     if setclipboard then
