@@ -4435,7 +4435,10 @@ local function checkRemoteSafetyAdvisory()
             local okDec, localParsed = pcall(function() return HttpService:JSONDecode(localRaw) end)
             if okDec and type(localParsed) == "table" and type(localParsed.stages) == "table" then
                 for _, st in ipairs(localParsed.stages) do
-                    registerManifestStage(st)
+                    local existing = lookupManifestStage(st.name, st.localPath)
+                    if not existing or not existing.sha256 then
+                        registerManifestStage(st)
+                    end
                 end
             end
         end

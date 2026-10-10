@@ -102,6 +102,26 @@ class TestIntegrityGuard(unittest.TestCase):
         self.assertIn("disable_wait_hooks", content)
         self.assertIn("_OmniDisableWaitHooks", content)
 
+    def test_bootloader_manifest_stage_overwrite_guard(self):
+        """Verify Bootloader.lua protects embedded BOOTSTRAP_STAGES from stale manifest overwrites."""
+        bootloader_path = REPO_ROOT / "Bootloader.lua"
+        content = bootloader_path.read_text(encoding="utf-8")
+        
+        # Verify both local and remote manifest stage registration check existing sha256 before registering
+        pattern = re.compile(
+            r'for\s+_,\s*st\s+in\s+ipairs\([^\)]+\)\s+do\s+'
+            r'local\s+existing\s*=\s*lookupManifestStage\(st\.name,\s*st\.localPath\)\s+'
+            r'if\s+not\s+existing\s+or\s+not\s+existing\.sha256\s+then\s+'
+            r'registerManifestStage\(st\)\s+'
+            r'end\s+'
+            r'end'
+        )
+        matches = pattern.findall(content)
+        self.assertEqual(
+            len(matches), 2,
+            f"Expected exactly 2 guarded manifest stage registration loops (local and remote), found {len(matches)}"
+        )
+
     def test_sync_hashes_check_mode_non_mutating(self):
         """Verify scripts/sync_hashes.py --check verifies alignment with zero disk mutation."""
         import sys

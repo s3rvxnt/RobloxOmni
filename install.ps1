@@ -84,6 +84,14 @@ $components = [ordered]@{
         LocalPath = "gameloaded\OmniEnhancementSuite.lua"
         RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/gameloaded/OmniEnhancementSuite.lua"
     }
+    "OmniLoadstringManager" = @{
+        LocalPath = "gameloaded\OmniLoadstringManager.lua"
+        RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/gameloaded/OmniLoadstringManager.lua"
+    }
+    "manifest" = @{
+        LocalPath = "manifest.json"
+        RemoteUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/manifest.json"
+    }
 }
 
 $contents = @{}
@@ -168,6 +176,18 @@ foreach ($root in $detectedRoots) {
     $oesDest = Join-Path $targetGameloaded "OmniEnhancementSuite.lua"
     [IO.File]::WriteAllText($oesDest, $contents["OmniEnhancementSuite"], [Text.UTF8Encoding]::new($false))
 
+    # Deploy OmniLoadstringManager.lua
+    $olmDest = Join-Path $targetGameloaded "OmniLoadstringManager.lua"
+    [IO.File]::WriteAllText($olmDest, $contents["OmniLoadstringManager"], [Text.UTF8Encoding]::new($false))
+
+    # Deploy manifest.json (both root workspace and autoexec folder for zero-drift)
+    if ($contents["manifest"]) {
+        $manifestWsDest = Join-Path $workspaceDir "manifest.json"
+        [IO.File]::WriteAllText($manifestWsDest, $contents["manifest"], [Text.UTF8Encoding]::new($false))
+        $manifestAeDest = Join-Path (Join-Path $workspaceDir "autoexec") "manifest.json"
+        [IO.File]::WriteAllText($manifestAeDest, $contents["manifest"], [Text.UTF8Encoding]::new($false))
+    }
+
     # Write Omni_Autoexec.marker into workspace for zero-race teleport persistence
     $autoexecMarkerDest = Join-Path $workspaceDir "Omni_Autoexec.marker"
     [IO.File]::WriteAllText($autoexecMarkerDest, [string]$timestamp, [Text.UTF8Encoding]::new($false))
@@ -196,6 +216,12 @@ foreach ($root in $detectedRoots) {
                 path = "autoexec/gameloaded/OmniEnhancementSuite.lua"
                 updatedAt = [int]$timestamp
             }
+            OmniLoadstringManager = [PSCustomObject]@{
+                installed = $true
+                lastSeenVersion = "1.0.0"
+                path = "autoexec/gameloaded/OmniLoadstringManager.lua"
+                updatedAt = [int]$timestamp
+            }
         }
     }
     $ledgerJson = $ledgerObj | ConvertTo-Json -Depth 4
@@ -212,6 +238,8 @@ foreach ($root in $detectedRoots) {
     Write-Host "     -> Deployed Bootloader.lua to autoexec/ (UTF-8 without BOM)" -ForegroundColor Gray
     Write-Host "     -> Deployed KernelTaskManager.lua to workspace/autoexec/kernel/" -ForegroundColor Gray
     Write-Host "     -> Deployed OmniEnhancementSuite.lua to workspace/autoexec/gameloaded/" -ForegroundColor Gray
+    Write-Host "     -> Deployed OmniLoadstringManager.lua to workspace/autoexec/gameloaded/" -ForegroundColor Gray
+    Write-Host "     -> Deployed manifest.json to workspace/ and workspace/autoexec/" -ForegroundColor Gray
     Write-Host "     -> Created markers and initialized Omni_Ledger.json (v1.0.0)" -ForegroundColor Gray
 }
 
