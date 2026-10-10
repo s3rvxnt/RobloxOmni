@@ -94,7 +94,11 @@ def sync_hashes(check_only: bool = False, repo_root: Path | None = None) -> bool
 
         # Check / update in Bootloader.lua
         updated_bootloader, count = update_stage_in_lua(bootloader_text, repo_rel, new_sha256)
-        if updated_bootloader != bootloader_text:
+        if count == 0:
+            drift_detected = True
+            if check_only:
+                print(f"[DRIFT] Bootloader.lua missing stage definition for: {repo_rel}", file=sys.stderr)
+        elif updated_bootloader != bootloader_text:
             drift_detected = True
             if check_only:
                 print(f"[DRIFT] Bootloader.lua has stale hash for stage: {repo_rel}", file=sys.stderr)
