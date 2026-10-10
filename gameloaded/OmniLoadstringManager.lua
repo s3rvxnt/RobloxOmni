@@ -222,6 +222,34 @@ if existingGui then
 end
 
 -- ==============================================================================
+-- DESIGN SYSTEM TOKENS (Omni Unified UI Standard)
+-- ==============================================================================
+local Theme = {
+    Background    = Color3.fromRGB(15, 17, 23),   -- #0F1117: Main window background
+    TitleBar      = Color3.fromRGB(20, 24, 33),   -- #141821: Window header bar
+    Card          = Color3.fromRGB(24, 30, 42),   -- #181E2A: Content cards & panels
+    CardSelected  = Color3.fromRGB(30, 38, 52),   -- #1E2634: Active tabs & focused rows
+    Stroke        = Color3.fromRGB(45, 52, 68),   -- #2D3444: Main window outer border (1px)
+    CardStroke    = Color3.fromRGB(40, 50, 68),   -- #283244: Card & section border (1px)
+    Accent        = Color3.fromRGB(64, 196, 255), -- #40C4FF: Electric cyan primary accent
+    AccentHover   = Color3.fromRGB(20, 180, 255), -- #14B4FF: Active hover highlight
+    PrimaryBtn    = Color3.fromRGB(30, 80, 140),  -- #1E508C: Affirmative button background
+    DangerBtn     = Color3.fromRGB(60, 25, 32),   -- #3C1920: Destructive button background
+    CloseBtnBg    = Color3.fromRGB(28, 32, 42),   -- #1C202A: Window close button background
+    KeybindBg     = Color3.fromRGB(30, 36, 50),   -- #1E2432: Keybind pill background
+    
+    TextPrimary   = Color3.fromRGB(240, 244, 255),-- #F0F4FF: High-contrast title & tab text
+    TextSecondary = Color3.fromRGB(140, 155, 180),-- #8C9BB4: Subtitles & inactive tab labels
+    TextMuted     = Color3.fromRGB(85, 100, 125), -- #55647D: Placeholders & timestamps
+    KeybindText   = Color3.fromRGB(160, 175, 200),-- #A0AFCC: Keybind pill text
+    CloseBtnText  = Color3.fromRGB(200, 210, 225),-- #C8D2E1: Close button text ("X")
+    
+    StatusSuccess = Color3.fromRGB(50, 220, 120), -- #32DC78: Green status / additions
+    StatusWarning = Color3.fromRGB(255, 175, 50), -- #FFAF32: Yellow advisory / warnings
+    StatusDanger  = Color3.fromRGB(255, 75, 75),  -- #FF4B4B: Red errors / removals
+}
+
+-- ==============================================================================
 -- BUILD USER INTERFACE
 -- ==============================================================================
 local ScreenGui = Instance.new("ScreenGui")
@@ -246,133 +274,124 @@ local Window = Instance.new("Frame")
 Window.Name = "Window"
 Window.Size = UDim2.new(0, 720, 0, 560)
 Window.Position = UDim2.new(0.5, -360, 0.5, -280)
-Window.BackgroundColor3 = Color3.fromRGB(16, 20, 28)
+Window.BackgroundColor3 = Theme.Background
 Window.BorderSizePixel = 0
 Window.ClipsDescendants = true
 Window.Parent = Backdrop
 
 local WindowCorner = Instance.new("UICorner")
-WindowCorner.CornerRadius = UDim.new(0, 10)
+WindowCorner.CornerRadius = UDim.new(0, 8)
 WindowCorner.Parent = Window
 
 local WindowStroke = Instance.new("UIStroke")
-WindowStroke.Thickness = 1.5
-WindowStroke.Color = Color3.fromRGB(42, 54, 76)
+WindowStroke.Thickness = 1
+WindowStroke.Color = Theme.Stroke
 WindowStroke.Parent = Window
 
--- Draggable Header
+-- Standardized Draggable Header (38px standard)
 local Header = Instance.new("Frame")
 Header.Name = "Header"
-Header.Size = UDim2.new(1, 0, 0, 48)
-Header.BackgroundColor3 = Color3.fromRGB(22, 28, 40)
+Header.Size = UDim2.new(1, 0, 0, 38)
+Header.BackgroundColor3 = Theme.TitleBar
 Header.BorderSizePixel = 0
+Header.Active = true
 Header.Parent = Window
 
-local HeaderBottomBorder = Instance.new("Frame")
-HeaderBottomBorder.Size = UDim2.new(1, 0, 0, 1)
-HeaderBottomBorder.Position = UDim2.new(0, 0, 1, -1)
-HeaderBottomBorder.BackgroundColor3 = Color3.fromRGB(36, 46, 64)
-HeaderBottomBorder.BorderSizePixel = 0
-HeaderBottomBorder.Parent = Header
+local HeaderCorner = Instance.new("UICorner")
+HeaderCorner.CornerRadius = UDim.new(0, 8)
+HeaderCorner.Parent = Header
 
-local TitleIcon = Instance.new("TextLabel")
-TitleIcon.Size = UDim2.new(0, 36, 1, 0)
-TitleIcon.Position = UDim2.new(0, 12, 0, 0)
-TitleIcon.BackgroundTransparency = 1
-TitleIcon.Font = Enum.Font.GothamBold
-TitleIcon.TextSize = 20
-TitleIcon.Text = "🛡️"
-TitleIcon.TextColor3 = Color3.fromRGB(64, 196, 255)
-TitleIcon.Parent = Header
+local HeaderCover = Instance.new("Frame")
+HeaderCover.Name = "HeaderCover"
+HeaderCover.Size = UDim2.new(1, 0, 0, 8)
+HeaderCover.Position = UDim2.new(0, 0, 1, -8)
+HeaderCover.BackgroundColor3 = Theme.TitleBar
+HeaderCover.BorderSizePixel = 0
+HeaderCover.Parent = Header
 
 local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Name = "TitleLabel"
-TitleLabel.Size = UDim2.new(0, 380, 0, 24)
-TitleLabel.Position = UDim2.new(0, 48, 0.5, -12)
+TitleLabel.Size = UDim2.new(0, 310, 1, 0)
+TitleLabel.Position = UDim2.new(0, 12, 0, 0)
 TitleLabel.BackgroundTransparency = 1
+TitleLabel.Active = false
 TitleLabel.Font = Enum.Font.GothamBold
-TitleLabel.TextSize = 14
+TitleLabel.TextSize = 13
+TitleLabel.TextColor3 = Theme.Accent
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.TextYAlignment = Enum.TextYAlignment.Center
-TitleLabel.TextColor3 = Color3.fromRGB(64, 196, 255)
-TitleLabel.Text = "OMNI LOADSTRING & TRUST MANAGER"
+TitleLabel.Text = "⚡ OMNI LOADSTRING & TRUST MANAGER"
 TitleLabel.Parent = Header
 
--- Keybind Pill in Header
-local KeybindPill = Instance.new("Frame")
-KeybindPill.Size = UDim2.new(0, 80, 0, 24)
-KeybindPill.Position = UDim2.new(1, -145, 0, 12)
-KeybindPill.BackgroundColor3 = Color3.fromRGB(28, 36, 52)
-KeybindPill.BorderSizePixel = 0
-KeybindPill.Parent = Header
+-- Standard Keybind Badge in Header
+local KeybindBadge = Instance.new("TextLabel")
+KeybindBadge.Name = "KeybindBadge"
+KeybindBadge.Size = UDim2.new(0, 74, 0, 20)
+KeybindBadge.Position = UDim2.new(0, 326, 0.5, -10)
+KeybindBadge.BackgroundColor3 = Theme.KeybindBg
+KeybindBadge.Active = false
+KeybindBadge.Font = Enum.Font.GothamBold
+KeybindBadge.TextSize = 10
+KeybindBadge.TextColor3 = Theme.KeybindText
+KeybindBadge.Text = "Shift + F6"
+KeybindBadge.Parent = Header
 
-local KeybindPillCorner = Instance.new("UICorner")
-KeybindPillCorner.CornerRadius = UDim.new(0, 6)
-KeybindPillCorner.Parent = KeybindPill
+local KeybindBadgeCorner = Instance.new("UICorner")
+KeybindBadgeCorner.CornerRadius = UDim.new(0, 4)
+KeybindBadgeCorner.Parent = KeybindBadge
 
-local KeybindPillStroke = Instance.new("UIStroke")
-KeybindPillStroke.Thickness = 1
-KeybindPillStroke.Color = Color3.fromRGB(48, 64, 92)
-KeybindPillStroke.Parent = KeybindPill
-
-local KeybindPillText = Instance.new("TextLabel")
-KeybindPillText.Size = UDim2.new(1, 0, 1, 0)
-KeybindPillText.BackgroundTransparency = 1
-KeybindPillText.Font = Enum.Font.Code
-KeybindPillText.TextSize = 11
-KeybindPillText.TextColor3 = Color3.fromRGB(180, 200, 230)
-KeybindPillText.Text = "Shift + F6"
-KeybindPillText.Parent = KeybindPill
-
--- Refresh Button
+-- Refresh Button (Positioned next to Close Button)
 local RefreshBtn = Instance.new("TextButton")
 RefreshBtn.Name = "RefreshBtn"
 RefreshBtn.Size = UDim2.new(0, 28, 0, 28)
-RefreshBtn.Position = UDim2.new(1, -60, 0, 10)
-RefreshBtn.BackgroundColor3 = Color3.fromRGB(28, 36, 52)
+RefreshBtn.Position = UDim2.new(1, -66, 0.5, -14)
+RefreshBtn.BackgroundColor3 = Theme.CloseBtnBg
 RefreshBtn.BorderSizePixel = 0
 RefreshBtn.Font = Enum.Font.GothamBold
-RefreshBtn.TextSize = 14
-RefreshBtn.TextColor3 = Color3.fromRGB(180, 200, 230)
+RefreshBtn.TextSize = 13
+RefreshBtn.TextColor3 = Theme.CloseBtnText
 RefreshBtn.Text = "🔄"
 RefreshBtn.Parent = Header
 
 local RefreshBtnCorner = Instance.new("UICorner")
-RefreshBtnCorner.CornerRadius = UDim.new(0, 6)
+RefreshBtnCorner.CornerRadius = UDim.new(0, 4)
 RefreshBtnCorner.Parent = RefreshBtn
 
--- Close Button
+RefreshBtn.MouseEnter:Connect(function()
+    RefreshBtn.BackgroundColor3 = Theme.CardSelected
+    RefreshBtn.TextColor3 = Theme.TextPrimary
+end)
+RefreshBtn.MouseLeave:Connect(function()
+    RefreshBtn.BackgroundColor3 = Theme.CloseBtnBg
+    RefreshBtn.TextColor3 = Theme.CloseBtnText
+end)
+
+-- Standardized [X] Close Button (28x28px, 4px corner)
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Name = "CloseBtn"
 CloseBtn.Size = UDim2.new(0, 28, 0, 28)
-CloseBtn.Position = UDim2.new(1, -30, 0, 10)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(36, 24, 28)
+CloseBtn.Position = UDim2.new(1, -34, 0.5, -14)
+CloseBtn.BackgroundColor3 = Theme.CloseBtnBg
 CloseBtn.BorderSizePixel = 0
-CloseBtn.Text = ""
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 13
+CloseBtn.TextColor3 = Theme.CloseBtnText
+CloseBtn.Text = "X"
+CloseBtn.Modal = true
 CloseBtn.Parent = Header
 
 local CloseBtnCorner = Instance.new("UICorner")
-CloseBtnCorner.CornerRadius = UDim.new(0, 6)
+CloseBtnCorner.CornerRadius = UDim.new(0, 4)
 CloseBtnCorner.Parent = CloseBtn
 
-local CloseIcon = Instance.new("ImageLabel")
-CloseIcon.Name = "CloseIcon"
-CloseIcon.Size = UDim2.new(0, 14, 0, 14)
-CloseIcon.AnchorPoint = Vector2.new(0.5, 0.5)
-CloseIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
-CloseIcon.BackgroundTransparency = 1
-CloseIcon.Image = "rbxasset://textures/StudioSharedUI/close.png"
-CloseIcon.ImageColor3 = Color3.fromRGB(255, 100, 100)
-CloseIcon.Parent = CloseBtn
-
 CloseBtn.MouseEnter:Connect(function()
-    CloseBtn.BackgroundColor3 = Color3.fromRGB(56, 32, 38)
-    CloseIcon.ImageColor3 = Color3.fromRGB(255, 140, 140)
+    CloseBtn.BackgroundColor3 = Theme.DangerBtn
+    CloseBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
 end)
 
 CloseBtn.MouseLeave:Connect(function()
-    CloseBtn.BackgroundColor3 = Color3.fromRGB(36, 24, 28)
-    CloseIcon.ImageColor3 = Color3.fromRGB(255, 100, 100)
+    CloseBtn.BackgroundColor3 = Theme.CloseBtnBg
+    CloseBtn.TextColor3 = Theme.CloseBtnText
 end)
 
 -- Dragging Functionality for Header
@@ -488,59 +507,78 @@ end)
 -- Navigation Tabs Bar
 local NavFrame = Instance.new("Frame")
 NavFrame.Name = "NavFrame"
-NavFrame.Size = UDim2.new(1, -24, 0, 34)
-NavFrame.Position = UDim2.new(0, 12, 0, 56)
-NavFrame.BackgroundColor3 = Color3.fromRGB(12, 15, 22)
+NavFrame.Size = UDim2.new(1, -24, 0, 30)
+NavFrame.Position = UDim2.new(0, 12, 0, 46)
+NavFrame.BackgroundColor3 = Theme.TitleBar
 NavFrame.BorderSizePixel = 0
 NavFrame.Parent = Window
 
 local NavCorner = Instance.new("UICorner")
-NavCorner.CornerRadius = UDim.new(0, 8)
+NavCorner.CornerRadius = UDim.new(0, 6)
 NavCorner.Parent = NavFrame
 
 local NavStroke = Instance.new("UIStroke")
 NavStroke.Thickness = 1
-NavStroke.Color = Color3.fromRGB(28, 36, 50)
+NavStroke.Color = Theme.CardStroke
 NavStroke.Parent = NavFrame
 
 local UrlsTabBtn = Instance.new("TextButton")
 UrlsTabBtn.Name = "UrlsTabBtn"
 UrlsTabBtn.Size = UDim2.new(0.5, -4, 1, -4)
 UrlsTabBtn.Position = UDim2.new(0, 2, 0, 2)
-UrlsTabBtn.BackgroundColor3 = Color3.fromRGB(28, 38, 56)
+UrlsTabBtn.BackgroundColor3 = Theme.CardSelected
+UrlsTabBtn.BackgroundTransparency = 0
 UrlsTabBtn.BorderSizePixel = 0
 UrlsTabBtn.Font = Enum.Font.GothamBold
-UrlsTabBtn.TextSize = 12
-UrlsTabBtn.TextColor3 = Color3.fromRGB(64, 196, 255)
+UrlsTabBtn.TextSize = 11
+UrlsTabBtn.TextColor3 = Theme.TextPrimary
 UrlsTabBtn.Text = "🔗 Authorized URLs (0)"
 UrlsTabBtn.Parent = NavFrame
 
 local UrlsTabCorner = Instance.new("UICorner")
-UrlsTabCorner.CornerRadius = UDim.new(0, 6)
+UrlsTabCorner.CornerRadius = UDim.new(0, 4)
 UrlsTabCorner.Parent = UrlsTabBtn
+
+local UrlsTabIndicator = Instance.new("Frame")
+UrlsTabIndicator.Name = "Indicator"
+UrlsTabIndicator.Size = UDim2.new(1, 0, 0, 2)
+UrlsTabIndicator.Position = UDim2.new(0, 0, 1, -2)
+UrlsTabIndicator.BackgroundColor3 = Theme.Accent
+UrlsTabIndicator.BorderSizePixel = 0
+UrlsTabIndicator.Visible = true
+UrlsTabIndicator.Parent = UrlsTabBtn
 
 local HashesTabBtn = Instance.new("TextButton")
 HashesTabBtn.Name = "HashesTabBtn"
 HashesTabBtn.Size = UDim2.new(0.5, -4, 1, -4)
 HashesTabBtn.Position = UDim2.new(0.5, 2, 0, 2)
-HashesTabBtn.BackgroundColor3 = Color3.fromRGB(16, 20, 28)
+HashesTabBtn.BackgroundTransparency = 1
 HashesTabBtn.BorderSizePixel = 0
-HashesTabBtn.Font = Enum.Font.GothamMedium
-HashesTabBtn.TextSize = 12
-HashesTabBtn.TextColor3 = Color3.fromRGB(150, 165, 185)
+HashesTabBtn.Font = Enum.Font.GothamBold
+HashesTabBtn.TextSize = 11
+HashesTabBtn.TextColor3 = Theme.TextSecondary
 HashesTabBtn.Text = "🛡️ Return Hashes (0)"
 HashesTabBtn.Parent = NavFrame
 
 local HashesTabCorner = Instance.new("UICorner")
-HashesTabCorner.CornerRadius = UDim.new(0, 6)
+HashesTabCorner.CornerRadius = UDim.new(0, 4)
 HashesTabCorner.Parent = HashesTabBtn
+
+local HashesTabIndicator = Instance.new("Frame")
+HashesTabIndicator.Name = "Indicator"
+HashesTabIndicator.Size = UDim2.new(1, 0, 0, 2)
+HashesTabIndicator.Position = UDim2.new(0, 0, 1, -2)
+HashesTabIndicator.BackgroundColor3 = Theme.Accent
+HashesTabIndicator.BorderSizePixel = 0
+HashesTabIndicator.Visible = false
+HashesTabIndicator.Parent = HashesTabBtn
 
 -- Search & Filter Bar
 local SearchFrame = Instance.new("Frame")
 SearchFrame.Name = "SearchFrame"
 SearchFrame.Size = UDim2.new(1, -24, 0, 32)
-SearchFrame.Position = UDim2.new(0, 12, 0, 96)
-SearchFrame.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
+SearchFrame.Position = UDim2.new(0, 12, 0, 82)
+SearchFrame.BackgroundColor3 = Theme.TitleBar
 SearchFrame.BorderSizePixel = 0
 SearchFrame.Parent = Window
 
@@ -550,7 +588,7 @@ SearchCorner.Parent = SearchFrame
 
 local SearchStroke = Instance.new("UIStroke")
 SearchStroke.Thickness = 1
-SearchStroke.Color = Color3.fromRGB(36, 46, 64)
+SearchStroke.Color = Theme.CardStroke
 SearchStroke.Parent = SearchFrame
 
 local SearchIcon = Instance.new("TextLabel")
@@ -558,7 +596,7 @@ SearchIcon.Size = UDim2.new(0, 30, 1, 0)
 SearchIcon.BackgroundTransparency = 1
 SearchIcon.Font = Enum.Font.Gotham
 SearchIcon.TextSize = 13
-SearchIcon.TextColor3 = Color3.fromRGB(120, 135, 155)
+SearchIcon.TextColor3 = Theme.TextSecondary
 SearchIcon.Text = "🔍"
 SearchIcon.Parent = SearchFrame
 
@@ -567,11 +605,11 @@ SearchBox.Name = "SearchBox"
 SearchBox.Size = UDim2.new(1, -64, 1, 0)
 SearchBox.Position = UDim2.new(0, 32, 0, 0)
 SearchBox.BackgroundTransparency = 1
-SearchBox.Font = Enum.Font.Gotham
+SearchBox.Font = Enum.Font.GothamMedium
 SearchBox.TextSize = 12
-SearchBox.TextColor3 = Color3.fromRGB(220, 230, 245)
+SearchBox.TextColor3 = Theme.TextPrimary
 SearchBox.Text = ""
-SearchBox.PlaceholderColor3 = Color3.fromRGB(100, 115, 135)
+SearchBox.PlaceholderColor3 = Theme.TextMuted
 SearchBox.PlaceholderText = "Search authorized URLs, domains, or return hashes..."
 SearchBox.ClearTextOnFocus = false
 SearchBox.TextXAlignment = Enum.TextXAlignment.Left
@@ -582,7 +620,7 @@ SearchClearBtn.Name = "SearchClearBtn"
 SearchClearBtn.Size = UDim2.new(0, 24, 0, 24)
 SearchClearBtn.AnchorPoint = Vector2.new(1, 0.5)
 SearchClearBtn.Position = UDim2.new(1, -6, 0.5, 0)
-SearchClearBtn.BackgroundColor3 = Color3.fromRGB(36, 46, 64)
+SearchClearBtn.BackgroundColor3 = Theme.Card
 SearchClearBtn.BackgroundTransparency = 1
 SearchClearBtn.BorderSizePixel = 0
 SearchClearBtn.Text = ""
@@ -600,17 +638,17 @@ ClearIcon.AnchorPoint = Vector2.new(0.5, 0.5)
 ClearIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
 ClearIcon.BackgroundTransparency = 1
 ClearIcon.Image = "rbxasset://textures/StudioSharedUI/close.png"
-ClearIcon.ImageColor3 = Color3.fromRGB(120, 135, 160)
+ClearIcon.ImageColor3 = Theme.TextSecondary
 ClearIcon.Parent = SearchClearBtn
 
 SearchClearBtn.MouseEnter:Connect(function()
     SearchClearBtn.BackgroundTransparency = 0.5
-    ClearIcon.ImageColor3 = Color3.fromRGB(240, 245, 255)
+    ClearIcon.ImageColor3 = Theme.TextPrimary
 end)
 
 SearchClearBtn.MouseLeave:Connect(function()
     SearchClearBtn.BackgroundTransparency = 1
-    ClearIcon.ImageColor3 = Color3.fromRGB(120, 135, 160)
+    ClearIcon.ImageColor3 = Theme.TextSecondary
 end)
 
 SearchClearBtn.MouseButton1Click:Connect(function()
@@ -622,7 +660,7 @@ local Toast = Instance.new("Frame")
 Toast.Name = "Toast"
 Toast.Size = UDim2.new(1, -48, 0, 28)
 Toast.Position = UDim2.new(0, 24, 1, -40)
-Toast.BackgroundColor3 = Color3.fromRGB(24, 32, 46)
+Toast.BackgroundColor3 = Theme.TitleBar
 Toast.BorderSizePixel = 0
 Toast.ZIndex = 10
 Toast.Visible = false
@@ -634,7 +672,7 @@ ToastCorner.Parent = Toast
 
 local ToastStroke = Instance.new("UIStroke")
 ToastStroke.Thickness = 1
-ToastStroke.Color = Color3.fromRGB(64, 196, 255)
+ToastStroke.Color = Theme.Stroke
 ToastStroke.Parent = Toast
 
 local ToastText = Instance.new("TextLabel")
@@ -643,7 +681,7 @@ ToastText.Position = UDim2.new(0, 10, 0, 0)
 ToastText.BackgroundTransparency = 1
 ToastText.Font = Enum.Font.GothamMedium
 ToastText.TextSize = 11
-ToastText.TextColor3 = Color3.fromRGB(220, 240, 255)
+ToastText.TextColor3 = Theme.TextPrimary
 ToastText.Text = ""
 ToastText.TextXAlignment = Enum.TextXAlignment.Left
 ToastText.ZIndex = 11
@@ -654,11 +692,11 @@ local function showToast(message, isError)
     if toastThread then task.cancel(toastThread) end
     ToastText.Text = message
     if isError then
-        Toast.BackgroundColor3 = Color3.fromRGB(48, 20, 24)
-        ToastStroke.Color = Color3.fromRGB(255, 75, 75)
+        Toast.BackgroundColor3 = Theme.DangerBtn
+        ToastStroke.Color = Theme.StatusDanger
     else
         Toast.BackgroundColor3 = Color3.fromRGB(18, 36, 28)
-        ToastStroke.Color = Color3.fromRGB(70, 210, 130)
+        ToastStroke.Color = Theme.StatusSuccess
     end
     Toast.Visible = true
     toastThread = task.delay(3.5, function()
@@ -673,8 +711,8 @@ end
 -- 1. URL Content Frame
 local UrlsContainer = Instance.new("Frame")
 UrlsContainer.Name = "UrlsContainer"
-UrlsContainer.Size = UDim2.new(1, -24, 1, -145)
-UrlsContainer.Position = UDim2.new(0, 12, 0, 136)
+UrlsContainer.Size = UDim2.new(1, -24, 1, -130)
+UrlsContainer.Position = UDim2.new(0, 12, 0, 122)
 UrlsContainer.BackgroundTransparency = 1
 UrlsContainer.Parent = Window
 
@@ -684,7 +722,7 @@ UrlsScroll.Size = UDim2.new(1, 0, 1, 0)
 UrlsScroll.BackgroundTransparency = 1
 UrlsScroll.BorderSizePixel = 0
 UrlsScroll.ScrollBarThickness = 5
-UrlsScroll.ScrollBarImageColor3 = Color3.fromRGB(64, 196, 255)
+UrlsScroll.ScrollBarImageColor3 = Theme.Accent
 UrlsScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 UrlsScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 UrlsScroll.Parent = UrlsContainer
@@ -697,8 +735,8 @@ UrlsListLayout.Parent = UrlsScroll
 -- 2. Hashes Content Frame
 local HashesContainer = Instance.new("Frame")
 HashesContainer.Name = "HashesContainer"
-HashesContainer.Size = UDim2.new(1, -24, 1, -145)
-HashesContainer.Position = UDim2.new(0, 12, 0, 136)
+HashesContainer.Size = UDim2.new(1, -24, 1, -130)
+HashesContainer.Position = UDim2.new(0, 12, 0, 122)
 HashesContainer.BackgroundTransparency = 1
 HashesContainer.Visible = false
 HashesContainer.Parent = Window
@@ -709,7 +747,7 @@ HashesScroll.Size = UDim2.new(1, 0, 1, 0)
 HashesScroll.BackgroundTransparency = 1
 HashesScroll.BorderSizePixel = 0
 HashesScroll.ScrollBarThickness = 5
-HashesScroll.ScrollBarImageColor3 = Color3.fromRGB(64, 196, 255)
+HashesScroll.ScrollBarImageColor3 = Theme.Accent
 HashesScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 HashesScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 HashesScroll.Parent = HashesContainer
@@ -730,18 +768,28 @@ local expandedScriptGroups = {}
 local function switchTab(tab)
     currentTab = tab
     if tab == "urls" then
-        UrlsTabBtn.BackgroundColor3 = Color3.fromRGB(28, 38, 56)
-        UrlsTabBtn.TextColor3 = Color3.fromRGB(64, 196, 255)
-        HashesTabBtn.BackgroundColor3 = Color3.fromRGB(16, 20, 28)
-        HashesTabBtn.TextColor3 = Color3.fromRGB(150, 165, 185)
+        UrlsTabBtn.BackgroundColor3 = Theme.CardSelected
+        UrlsTabBtn.BackgroundTransparency = 0
+        UrlsTabBtn.TextColor3 = Theme.TextPrimary
+        UrlsTabIndicator.Visible = true
+
+        HashesTabBtn.BackgroundTransparency = 1
+        HashesTabBtn.TextColor3 = Theme.TextSecondary
+        HashesTabIndicator.Visible = false
+
         UrlsContainer.Visible = true
         HashesContainer.Visible = false
         if renderUrlsView then renderUrlsView() end
     else
-        HashesTabBtn.BackgroundColor3 = Color3.fromRGB(28, 38, 56)
-        HashesTabBtn.TextColor3 = Color3.fromRGB(64, 196, 255)
-        UrlsTabBtn.BackgroundColor3 = Color3.fromRGB(16, 20, 28)
-        UrlsTabBtn.TextColor3 = Color3.fromRGB(150, 165, 185)
+        HashesTabBtn.BackgroundColor3 = Theme.CardSelected
+        HashesTabBtn.BackgroundTransparency = 0
+        HashesTabBtn.TextColor3 = Theme.TextPrimary
+        HashesTabIndicator.Visible = true
+
+        UrlsTabBtn.BackgroundTransparency = 1
+        UrlsTabBtn.TextColor3 = Theme.TextSecondary
+        UrlsTabIndicator.Visible = false
+
         UrlsContainer.Visible = false
         HashesContainer.Visible = true
         if renderHashesView then renderHashesView() end
@@ -796,18 +844,18 @@ renderUrlsView = function()
             local Card = Instance.new("Frame")
             Card.Name = "UrlCard_" .. idx
             Card.Size = UDim2.new(1, 0, 0, 114)
-            Card.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
+            Card.BackgroundColor3 = Theme.Card
             Card.BorderSizePixel = 0
             Card.ClipsDescendants = true
             Card.Parent = UrlsScroll
 
             local CardCorner = Instance.new("UICorner")
-            CardCorner.CornerRadius = UDim.new(0, 8)
+            CardCorner.CornerRadius = UDim.new(0, 6)
             CardCorner.Parent = Card
 
             local CardStroke = Instance.new("UIStroke")
             CardStroke.Thickness = 1
-            CardStroke.Color = Color3.fromRGB(36, 46, 66)
+            CardStroke.Color = Theme.CardStroke
             CardStroke.Parent = Card
 
             -- Row 1: Left Container (Domain Pill + Script Title)
@@ -831,7 +879,7 @@ renderUrlsView = function()
             DomainPill.LayoutOrder = 1
             DomainPill.Size = UDim2.new(0, 0, 0, 20)
             DomainPill.AutomaticSize = Enum.AutomaticSize.X
-            DomainPill.BackgroundColor3 = Color3.fromRGB(28, 38, 56)
+            DomainPill.BackgroundColor3 = Theme.KeybindBg
             DomainPill.BorderSizePixel = 0
             DomainPill.Parent = TopLeft
 
@@ -850,7 +898,7 @@ renderUrlsView = function()
             DomainLabel.BackgroundTransparency = 1
             DomainLabel.Font = Enum.Font.GothamBold
             DomainLabel.TextSize = 10
-            DomainLabel.TextColor3 = Color3.fromRGB(64, 196, 255)
+            DomainLabel.TextColor3 = Theme.Accent
             DomainLabel.Text = domain
             DomainLabel.Parent = DomainPill
 
@@ -862,7 +910,7 @@ renderUrlsView = function()
             TitleLabel.BackgroundTransparency = 1
             TitleLabel.Font = Enum.Font.GothamBold
             TitleLabel.TextSize = 12
-            TitleLabel.TextColor3 = Color3.fromRGB(240, 245, 255)
+            TitleLabel.TextColor3 = Theme.TextPrimary
             TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
             TitleLabel.Text = entry.name or shortFile or domain
             TitleLabel.Parent = TopLeft
@@ -873,9 +921,9 @@ renderUrlsView = function()
             UrlLabel.Size = UDim2.new(1, -265, 0, 16)
             UrlLabel.Position = UDim2.new(0, 10, 0, 34)
             UrlLabel.BackgroundTransparency = 1
-            UrlLabel.Font = Enum.Font.Code
+            UrlLabel.Font = Enum.Font.RobotoMono
             UrlLabel.TextSize = 10
-            UrlLabel.TextColor3 = Color3.fromRGB(120, 140, 170)
+            UrlLabel.TextColor3 = Theme.TextSecondary
             UrlLabel.TextXAlignment = Enum.TextXAlignment.Left
             UrlLabel.TextTruncate = Enum.TextTruncate.AtEnd
             UrlLabel.Text = u
@@ -887,21 +935,21 @@ renderUrlsView = function()
             AutoToggleBtn.Name = "AutoToggleBtn"
             AutoToggleBtn.Size = UDim2.new(0, 150, 0, 24)
             AutoToggleBtn.Position = UDim2.new(1, -245, 0, 8)
-            AutoToggleBtn.BackgroundColor3 = isAuto and Color3.fromRGB(25, 80, 45) or Color3.fromRGB(34, 40, 52)
+            AutoToggleBtn.BackgroundColor3 = isAuto and Color3.fromRGB(20, 65, 38) or Theme.CardSelected
             AutoToggleBtn.BorderSizePixel = 0
             AutoToggleBtn.Font = Enum.Font.GothamBold
             AutoToggleBtn.TextSize = 11
-            AutoToggleBtn.TextColor3 = isAuto and Color3.fromRGB(110, 240, 150) or Color3.fromRGB(160, 175, 195)
+            AutoToggleBtn.TextColor3 = isAuto and Theme.StatusSuccess or Theme.TextSecondary
             AutoToggleBtn.Text = isAuto and "⚡ Auto-Update: ON" or "⏸️ Auto-Update: OFF"
             AutoToggleBtn.Parent = Card
 
             local AutoToggleCorner = Instance.new("UICorner")
-            AutoToggleCorner.CornerRadius = UDim.new(0, 6)
+            AutoToggleCorner.CornerRadius = UDim.new(0, 4)
             AutoToggleCorner.Parent = AutoToggleBtn
 
             local AutoToggleStroke = Instance.new("UIStroke")
             AutoToggleStroke.Thickness = 1
-            AutoToggleStroke.Color = isAuto and Color3.fromRGB(50, 150, 85) or Color3.fromRGB(50, 62, 82)
+            AutoToggleStroke.Color = isAuto and Theme.StatusSuccess or Theme.CardStroke
             AutoToggleStroke.Parent = AutoToggleBtn
 
             AutoToggleBtn.MouseButton1Click:Connect(function()
@@ -922,16 +970,16 @@ renderUrlsView = function()
             RevokeBtn.Name = "RevokeBtn"
             RevokeBtn.Size = UDim2.new(0, 80, 0, 24)
             RevokeBtn.Position = UDim2.new(1, -90, 0, 8)
-            RevokeBtn.BackgroundColor3 = Color3.fromRGB(42, 28, 36)
+            RevokeBtn.BackgroundColor3 = Theme.DangerBtn
             RevokeBtn.BorderSizePixel = 0
             RevokeBtn.Font = Enum.Font.GothamBold
             RevokeBtn.TextSize = 11
-            RevokeBtn.TextColor3 = Color3.fromRGB(255, 110, 110)
+            RevokeBtn.TextColor3 = Theme.StatusDanger
             RevokeBtn.Text = "🗑️ Revoke"
             RevokeBtn.Parent = Card
 
             local RevokeCorner = Instance.new("UICorner")
-            RevokeCorner.CornerRadius = UDim.new(0, 6)
+            RevokeCorner.CornerRadius = UDim.new(0, 4)
             RevokeCorner.Parent = RevokeBtn
 
             local revokeConfirm = false
@@ -945,8 +993,8 @@ renderUrlsView = function()
                     revokeReset = task.delay(4.0, function()
                         revokeConfirm = false
                         RevokeBtn.Text = "🗑️ Revoke"
-                        RevokeBtn.BackgroundColor3 = Color3.fromRGB(42, 28, 36)
-                        RevokeBtn.TextColor3 = Color3.fromRGB(255, 110, 110)
+                        RevokeBtn.BackgroundColor3 = Theme.DangerBtn
+                        RevokeBtn.TextColor3 = Theme.StatusDanger
                     end)
                 else
                     if revokeReset then task.cancel(revokeReset) end
@@ -975,11 +1023,11 @@ renderUrlsView = function()
             SigChip.Name = "SigChip"
             SigChip.Size = UDim2.new(0, 235, 0, 24)
             SigChip.Position = UDim2.new(1, -245, 0, 44)
-            SigChip.BackgroundColor3 = Color3.fromRGB(26, 34, 48)
+            SigChip.BackgroundColor3 = Theme.KeybindBg
             SigChip.BorderSizePixel = 0
             SigChip.Font = Enum.Font.GothamMedium
             SigChip.TextSize = 10
-            SigChip.TextColor3 = Color3.fromRGB(130, 195, 255)
+            SigChip.TextColor3 = Theme.KeybindText
             if subCount > 0 then
                 SigChip.Text = string.format("🔒 %d Signatures (%d Subs)", totalSigs, subCount)
             else
@@ -988,12 +1036,12 @@ renderUrlsView = function()
             SigChip.Parent = Card
 
             local SigChipCorner = Instance.new("UICorner")
-            SigChipCorner.CornerRadius = UDim.new(0, 6)
+            SigChipCorner.CornerRadius = UDim.new(0, 4)
             SigChipCorner.Parent = SigChip
 
             local SigChipStroke = Instance.new("UIStroke")
             SigChipStroke.Thickness = 1
-            SigChipStroke.Color = Color3.fromRGB(44, 58, 82)
+            SigChipStroke.Color = Theme.CardStroke
             SigChipStroke.Parent = SigChip
 
             SigChip.MouseButton1Click:Connect(function()
@@ -1007,9 +1055,9 @@ renderUrlsView = function()
             HashLabel.Size = UDim2.new(1, -265, 0, 16)
             HashLabel.Position = UDim2.new(0, 10, 0, 52)
             HashLabel.BackgroundTransparency = 1
-            HashLabel.Font = Enum.Font.Code
+            HashLabel.Font = Enum.Font.RobotoMono
             HashLabel.TextSize = 10
-            HashLabel.TextColor3 = Color3.fromRGB(140, 160, 190)
+            HashLabel.TextColor3 = Theme.TextSecondary
             HashLabel.TextXAlignment = Enum.TextXAlignment.Left
             HashLabel.TextTruncate = Enum.TextTruncate.AtEnd
             local shortH = (h and #h >= 16) and (h:sub(1, 14) .. "..." .. h:sub(-8)) or (h or "N/A")
@@ -1023,7 +1071,7 @@ renderUrlsView = function()
             CacheLabel.BackgroundTransparency = 1
             CacheLabel.Font = Enum.Font.Gotham
             CacheLabel.TextSize = 10
-            CacheLabel.TextColor3 = Color3.fromRGB(110, 125, 145)
+            CacheLabel.TextColor3 = Theme.TextMuted
             CacheLabel.TextXAlignment = Enum.TextXAlignment.Left
             CacheLabel.TextTruncate = Enum.TextTruncate.AtEnd
             local fileExists = localFile ~= "" and isfile and isfile(localFile)
@@ -1037,7 +1085,7 @@ renderUrlsView = function()
             TimeLabel.BackgroundTransparency = 1
             TimeLabel.Font = Enum.Font.Gotham
             TimeLabel.TextSize = 10
-            TimeLabel.TextColor3 = Color3.fromRGB(100, 115, 135)
+            TimeLabel.TextColor3 = Theme.TextMuted
             TimeLabel.TextXAlignment = Enum.TextXAlignment.Left
             TimeLabel.TextTruncate = Enum.TextTruncate.AtEnd
             TimeLabel.Text = string.format("First Trusted: %s | Last Updated: %s", formatTimestamp(entry.first_trusted), formatTimestamp(entry.last_updated))
@@ -1048,16 +1096,16 @@ renderUrlsView = function()
             CheckBtn.Name = "CheckBtn"
             CheckBtn.Size = UDim2.new(0, 150, 0, 24)
             CheckBtn.Position = UDim2.new(1, -245, 0, 80)
-            CheckBtn.BackgroundColor3 = Color3.fromRGB(30, 38, 54)
+            CheckBtn.BackgroundColor3 = Theme.PrimaryBtn
             CheckBtn.BorderSizePixel = 0
             CheckBtn.Font = Enum.Font.GothamBold
             CheckBtn.TextSize = 10
-            CheckBtn.TextColor3 = Color3.fromRGB(180, 210, 245)
+            CheckBtn.TextColor3 = Theme.TextPrimary
             CheckBtn.Text = "🌐 Check Upstream"
             CheckBtn.Parent = Card
 
             local CheckCorner = Instance.new("UICorner")
-            CheckCorner.CornerRadius = UDim.new(0, 6)
+            CheckCorner.CornerRadius = UDim.new(0, 4)
             CheckCorner.Parent = CheckBtn
 
             CheckBtn.MouseButton1Click:Connect(function()
@@ -1116,16 +1164,16 @@ renderUrlsView = function()
             CopyBtn.Name = "CopyBtn"
             CopyBtn.Size = UDim2.new(0, 80, 0, 24)
             CopyBtn.Position = UDim2.new(1, -90, 0, 80)
-            CopyBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 44)
+            CopyBtn.BackgroundColor3 = Theme.CardSelected
             CopyBtn.BorderSizePixel = 0
             CopyBtn.Font = Enum.Font.GothamMedium
             CopyBtn.TextSize = 10
-            CopyBtn.TextColor3 = Color3.fromRGB(160, 180, 205)
+            CopyBtn.TextColor3 = Theme.TextSecondary
             CopyBtn.Text = "📋 Copy URL"
             CopyBtn.Parent = Card
 
             local CopyCorner = Instance.new("UICorner")
-            CopyCorner.CornerRadius = UDim.new(0, 6)
+            CopyCorner.CornerRadius = UDim.new(0, 4)
             CopyCorner.Parent = CopyBtn
 
             CopyBtn.MouseButton1Click:Connect(function()
@@ -1143,12 +1191,12 @@ renderUrlsView = function()
     if matches == 0 then
         local EmptyNotice = Instance.new("Frame")
         EmptyNotice.Size = UDim2.new(1, 0, 0, 80)
-        EmptyNotice.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
+        EmptyNotice.BackgroundColor3 = Theme.TitleBar
         EmptyNotice.BorderSizePixel = 0
         EmptyNotice.Parent = UrlsScroll
 
         local EmptyCorner = Instance.new("UICorner")
-        EmptyCorner.CornerRadius = UDim.new(0, 8)
+        EmptyCorner.CornerRadius = UDim.new(0, 6)
         EmptyCorner.Parent = EmptyNotice
 
         local EmptyLabel = Instance.new("TextLabel")
@@ -1156,7 +1204,7 @@ renderUrlsView = function()
         EmptyLabel.BackgroundTransparency = 1
         EmptyLabel.Font = Enum.Font.GothamMedium
         EmptyLabel.TextSize = 12
-        EmptyLabel.TextColor3 = Color3.fromRGB(140, 155, 175)
+        EmptyLabel.TextColor3 = Theme.TextSecondary
         if #urlList == 0 then
             EmptyLabel.Text = "No authorized URLs recorded yet.\nRun a script via loadstring() to authorize it at the Permission Gate."
         elseif query ~= "" then
@@ -1273,17 +1321,17 @@ renderHashesView = function()
             GroupCard.Name = "ScriptGroupCard_" .. grpIdx
             GroupCard.Size = UDim2.new(1, 0, 0, 0)
             GroupCard.AutomaticSize = Enum.AutomaticSize.Y
-            GroupCard.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
+            GroupCard.BackgroundColor3 = Theme.Card
             GroupCard.BorderSizePixel = 0
             GroupCard.Parent = HashesScroll
 
             local GroupCorner = Instance.new("UICorner")
-            GroupCorner.CornerRadius = UDim.new(0, 8)
+            GroupCorner.CornerRadius = UDim.new(0, 6)
             GroupCorner.Parent = GroupCard
 
             local GroupStroke = Instance.new("UIStroke")
             GroupStroke.Thickness = 1
-            GroupStroke.Color = Color3.fromRGB(36, 46, 66)
+            GroupStroke.Color = Theme.CardStroke
             GroupStroke.Parent = GroupCard
 
             local GroupLayout = Instance.new("UIListLayout")
@@ -1298,12 +1346,12 @@ renderHashesView = function()
             HeaderBar.Name = "HeaderBar"
             HeaderBar.LayoutOrder = 1
             HeaderBar.Size = UDim2.new(1, 0, 0, 44)
-            HeaderBar.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+            HeaderBar.BackgroundColor3 = Theme.TitleBar
             HeaderBar.BorderSizePixel = 0
             HeaderBar.Parent = GroupCard
 
             local HeaderCorner = Instance.new("UICorner")
-            HeaderCorner.CornerRadius = UDim.new(0, 8)
+            HeaderCorner.CornerRadius = UDim.new(0, 6)
             HeaderCorner.Parent = HeaderBar
 
             -- Left Cluster: Domain Pill, Script Title, Signatures Badge (Automatic horizontal flow)
@@ -1327,7 +1375,7 @@ renderHashesView = function()
             DomainPill.LayoutOrder = 1
             DomainPill.Size = UDim2.new(0, 0, 0, 20)
             DomainPill.AutomaticSize = Enum.AutomaticSize.X
-            DomainPill.BackgroundColor3 = Color3.fromRGB(28, 38, 56)
+            DomainPill.BackgroundColor3 = Theme.KeybindBg
             DomainPill.BorderSizePixel = 0
             DomainPill.Parent = HeaderLeft
 
@@ -1346,7 +1394,7 @@ renderHashesView = function()
             DomainLabel.BackgroundTransparency = 1
             DomainLabel.Font = Enum.Font.GothamBold
             DomainLabel.TextSize = 10
-            DomainLabel.TextColor3 = Color3.fromRGB(64, 196, 255)
+            DomainLabel.TextColor3 = Theme.Accent
             DomainLabel.Text = grp.domain
             DomainLabel.Parent = DomainPill
 
@@ -1359,7 +1407,7 @@ renderHashesView = function()
             TitleLabel.BackgroundTransparency = 1
             TitleLabel.Font = Enum.Font.GothamBold
             TitleLabel.TextSize = 12
-            TitleLabel.TextColor3 = Color3.fromRGB(240, 245, 255)
+            TitleLabel.TextColor3 = Theme.TextPrimary
             TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
             TitleLabel.Text = grp.name
             TitleLabel.Parent = HeaderLeft
@@ -1374,7 +1422,7 @@ renderHashesView = function()
             SigPill.LayoutOrder = 3
             SigPill.Size = UDim2.new(0, 0, 0, 20)
             SigPill.AutomaticSize = Enum.AutomaticSize.X
-            SigPill.BackgroundColor3 = Color3.fromRGB(28, 36, 52)
+            SigPill.BackgroundColor3 = Theme.KeybindBg
             SigPill.BorderSizePixel = 0
             SigPill.Parent = HeaderLeft
 
@@ -1393,7 +1441,7 @@ renderHashesView = function()
             SigLabel.BackgroundTransparency = 1
             SigLabel.Font = Enum.Font.GothamMedium
             SigLabel.TextSize = 10
-            SigLabel.TextColor3 = Color3.fromRGB(130, 195, 255)
+            SigLabel.TextColor3 = Theme.KeybindText
             SigLabel.Text = sigPillText
             SigLabel.Parent = SigPill
 
@@ -1419,16 +1467,16 @@ renderHashesView = function()
             CopyAllBtn.LayoutOrder = 1
             CopyAllBtn.Size = UDim2.new(0, 0, 0, 26)
             CopyAllBtn.AutomaticSize = Enum.AutomaticSize.X
-            CopyAllBtn.BackgroundColor3 = Color3.fromRGB(30, 40, 58)
+            CopyAllBtn.BackgroundColor3 = Theme.CardSelected
             CopyAllBtn.BorderSizePixel = 0
             CopyAllBtn.Font = Enum.Font.GothamMedium
             CopyAllBtn.TextSize = 10
-            CopyAllBtn.TextColor3 = Color3.fromRGB(160, 200, 240)
+            CopyAllBtn.TextColor3 = Theme.TextPrimary
             CopyAllBtn.Text = "📋 Copy All"
             CopyAllBtn.Parent = HeaderRight
 
             local CopyAllCorner = Instance.new("UICorner")
-            CopyAllCorner.CornerRadius = UDim.new(0, 6)
+            CopyAllCorner.CornerRadius = UDim.new(0, 4)
             CopyAllCorner.Parent = CopyAllBtn
 
             local CopyAllPadding = Instance.new("UIPadding")
@@ -1453,16 +1501,16 @@ renderHashesView = function()
                 ToggleBtn.LayoutOrder = 2
                 ToggleBtn.Size = UDim2.new(0, 0, 0, 26)
                 ToggleBtn.AutomaticSize = Enum.AutomaticSize.X
-                ToggleBtn.BackgroundColor3 = isExpanded and Color3.fromRGB(42, 54, 76) or Color3.fromRGB(32, 42, 60)
+                ToggleBtn.BackgroundColor3 = isExpanded and Theme.CardSelected or Theme.TitleBar
                 ToggleBtn.BorderSizePixel = 0
                 ToggleBtn.Font = Enum.Font.GothamBold
                 ToggleBtn.TextSize = 10
-                ToggleBtn.TextColor3 = isExpanded and Color3.fromRGB(100, 220, 255) or Color3.fromRGB(160, 195, 230)
+                ToggleBtn.TextColor3 = isExpanded and Theme.Accent or Theme.TextSecondary
                 ToggleBtn.Text = isExpanded and "▲ Hide Submodules" or string.format("▼ View %d Submodules", subCount)
                 ToggleBtn.Parent = HeaderRight
 
                 local ToggleCorner = Instance.new("UICorner")
-                ToggleCorner.CornerRadius = UDim.new(0, 6)
+                ToggleCorner.CornerRadius = UDim.new(0, 4)
                 ToggleCorner.Parent = ToggleBtn
 
                 local TogglePadding = Instance.new("UIPadding")
@@ -1484,7 +1532,7 @@ renderHashesView = function()
                 PrimRow.Name = "PrimaryRow"
                 PrimRow.LayoutOrder = 2
                 PrimRow.Size = UDim2.new(1, 0, 0, 36)
-                PrimRow.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+                PrimRow.BackgroundColor3 = Color3.fromRGB(18, 22, 30)
                 PrimRow.BorderSizePixel = 0
                 PrimRow.Parent = GroupCard
 
@@ -1494,7 +1542,7 @@ renderHashesView = function()
                 PrimBadge.BackgroundTransparency = 1
                 PrimBadge.Font = Enum.Font.GothamBold
                 PrimBadge.TextSize = 10
-                PrimBadge.TextColor3 = Color3.fromRGB(100, 230, 130)
+                PrimBadge.TextColor3 = Theme.StatusSuccess
                 PrimBadge.TextXAlignment = Enum.TextXAlignment.Left
                 PrimBadge.Text = "★ Primary Entrypoint"
                 PrimBadge.Parent = PrimRow
@@ -1503,9 +1551,9 @@ renderHashesView = function()
                 PrimHash.Size = UDim2.new(1, -230, 1, 0)
                 PrimHash.Position = UDim2.new(0, 155, 0, 0)
                 PrimHash.BackgroundTransparency = 1
-                PrimHash.Font = Enum.Font.Code
+                PrimHash.Font = Enum.Font.RobotoMono
                 PrimHash.TextSize = 11
-                PrimHash.TextColor3 = Color3.fromRGB(220, 235, 250)
+                PrimHash.TextColor3 = Theme.TextPrimary
                 PrimHash.TextXAlignment = Enum.TextXAlignment.Left
                 PrimHash.TextTruncate = Enum.TextTruncate.AtEnd
                 PrimHash.Text = grp.primaryHash
@@ -1514,11 +1562,11 @@ renderHashesView = function()
                 local PrimCopyBtn = Instance.new("TextButton")
                 PrimCopyBtn.Size = UDim2.new(0, 60, 0, 22)
                 PrimCopyBtn.Position = UDim2.new(1, -72, 0, 7)
-                PrimCopyBtn.BackgroundColor3 = Color3.fromRGB(26, 34, 48)
+                PrimCopyBtn.BackgroundColor3 = Theme.CardSelected
                 PrimCopyBtn.BorderSizePixel = 0
                 PrimCopyBtn.Font = Enum.Font.GothamMedium
                 PrimCopyBtn.TextSize = 10
-                PrimCopyBtn.TextColor3 = Color3.fromRGB(160, 185, 215)
+                PrimCopyBtn.TextColor3 = Theme.TextSecondary
                 PrimCopyBtn.Text = "Copy"
                 PrimCopyBtn.Parent = PrimRow
 
@@ -1544,7 +1592,7 @@ renderHashesView = function()
                 Drawer.LayoutOrder = 3
                 Drawer.Size = UDim2.new(1, 0, 0, 0)
                 Drawer.AutomaticSize = Enum.AutomaticSize.Y
-                Drawer.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
+                Drawer.BackgroundColor3 = Color3.fromRGB(14, 18, 24)
                 Drawer.BorderSizePixel = 0
                 Drawer.Parent = GroupCard
 
@@ -1571,7 +1619,7 @@ renderHashesView = function()
                 DrawerTitle.BackgroundTransparency = 1
                 DrawerTitle.Font = Enum.Font.GothamBold
                 DrawerTitle.TextSize = 10
-                DrawerTitle.TextColor3 = Color3.fromRGB(130, 150, 180)
+                DrawerTitle.TextColor3 = Theme.TextSecondary
                 DrawerTitle.TextXAlignment = Enum.TextXAlignment.Left
                 DrawerTitle.Text = string.format("🧩 OBFUSCATED CHILD CHUNKS (%d VERIFIED AT RUNTIME)", #matchedSubmodules)
                 DrawerTitle.Parent = DrawerHeader
@@ -1584,7 +1632,7 @@ renderHashesView = function()
                     SubRow.Name = "SubRow_" .. sNum
                     SubRow.LayoutOrder = subIdx + 1
                     SubRow.Size = UDim2.new(1, 0, 0, 24)
-                    SubRow.BackgroundColor3 = (subIdx % 2 == 0) and Color3.fromRGB(18, 23, 34) or Color3.fromRGB(14, 18, 26)
+                    SubRow.BackgroundColor3 = (subIdx % 2 == 0) and Color3.fromRGB(20, 24, 34) or Color3.fromRGB(16, 20, 28)
                     SubRow.BorderSizePixel = 0
                     SubRow.Parent = Drawer
 
@@ -1598,7 +1646,7 @@ renderHashesView = function()
                     IndexLabel.BackgroundTransparency = 1
                     IndexLabel.Font = Enum.Font.GothamMedium
                     IndexLabel.TextSize = 10
-                    IndexLabel.TextColor3 = Color3.fromRGB(100, 120, 145)
+                    IndexLabel.TextColor3 = Theme.TextMuted
                     IndexLabel.TextXAlignment = Enum.TextXAlignment.Left
                     IndexLabel.Text = string.format("#%02d", sNum)
                     IndexLabel.Parent = SubRow
@@ -1607,9 +1655,9 @@ renderHashesView = function()
                     HashLabel.Size = UDim2.new(1, -110, 1, 0)
                     HashLabel.Position = UDim2.new(0, 42, 0, 0)
                     HashLabel.BackgroundTransparency = 1
-                    HashLabel.Font = Enum.Font.Code
+                    HashLabel.Font = Enum.Font.RobotoMono
                     HashLabel.TextSize = 10
-                    HashLabel.TextColor3 = Color3.fromRGB(190, 205, 230)
+                    HashLabel.TextColor3 = Theme.TextPrimary
                     HashLabel.TextXAlignment = Enum.TextXAlignment.Left
                     HashLabel.TextTruncate = Enum.TextTruncate.AtEnd
                     HashLabel.Text = sH
@@ -1618,11 +1666,11 @@ renderHashesView = function()
                     local SubCopyBtn = Instance.new("TextButton")
                     SubCopyBtn.Size = UDim2.new(0, 48, 0, 18)
                     SubCopyBtn.Position = UDim2.new(1, -54, 0, 3)
-                    SubCopyBtn.BackgroundColor3 = Color3.fromRGB(24, 32, 46)
+                    SubCopyBtn.BackgroundColor3 = Theme.CardSelected
                     SubCopyBtn.BorderSizePixel = 0
                     SubCopyBtn.Font = Enum.Font.GothamMedium
                     SubCopyBtn.TextSize = 9
-                    SubCopyBtn.TextColor3 = Color3.fromRGB(140, 170, 205)
+                    SubCopyBtn.TextColor3 = Theme.TextSecondary
                     SubCopyBtn.Text = "Copy"
                     SubCopyBtn.Parent = SubRow
 
@@ -1658,17 +1706,17 @@ renderHashesView = function()
             StandaloneCard.Name = "StandaloneHashesCard"
             StandaloneCard.Size = UDim2.new(1, 0, 0, 0)
             StandaloneCard.AutomaticSize = Enum.AutomaticSize.Y
-            StandaloneCard.BackgroundColor3 = Color3.fromRGB(28, 22, 24)
+            StandaloneCard.BackgroundColor3 = Theme.Card
             StandaloneCard.BorderSizePixel = 0
             StandaloneCard.Parent = HashesScroll
 
             local StandaloneCorner = Instance.new("UICorner")
-            StandaloneCorner.CornerRadius = UDim.new(0, 8)
+            StandaloneCorner.CornerRadius = UDim.new(0, 6)
             StandaloneCorner.Parent = StandaloneCard
 
             local StandaloneStroke = Instance.new("UIStroke")
             StandaloneStroke.Thickness = 1
-            StandaloneStroke.Color = Color3.fromRGB(68, 38, 44)
+            StandaloneStroke.Color = Theme.CardStroke
             StandaloneStroke.Parent = StandaloneCard
 
             local StandaloneLayout = Instance.new("UIListLayout")
@@ -1694,7 +1742,7 @@ renderHashesView = function()
             SHeaderLabel.BackgroundTransparency = 1
             SHeaderLabel.Font = Enum.Font.GothamBold
             SHeaderLabel.TextSize = 11
-            SHeaderLabel.TextColor3 = Color3.fromRGB(255, 170, 90)
+            SHeaderLabel.TextColor3 = Theme.StatusWarning
             SHeaderLabel.TextXAlignment = Enum.TextXAlignment.Left
             SHeaderLabel.Text = string.format("⚡ Standalone & Dynamic Hashes (%d)", #matchedStandalone)
             SHeaderLabel.Parent = StandaloneHeader
@@ -1704,7 +1752,7 @@ renderHashesView = function()
                 sRow.Name = "StandaloneRow_" .. sIdx
                 sRow.LayoutOrder = sIdx + 1
                 sRow.Size = UDim2.new(1, 0, 0, 28)
-                sRow.BackgroundColor3 = Color3.fromRGB(36, 26, 30)
+                sRow.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
                 sRow.BorderSizePixel = 0
                 sRow.Parent = StandaloneCard
 
@@ -1716,9 +1764,9 @@ renderHashesView = function()
                 sHashText.Size = UDim2.new(1, -140, 1, 0)
                 sHashText.Position = UDim2.new(0, 8, 0, 0)
                 sHashText.BackgroundTransparency = 1
-                sHashText.Font = Enum.Font.Code
+                sHashText.Font = Enum.Font.RobotoMono
                 sHashText.TextSize = 10
-                sHashText.TextColor3 = Color3.fromRGB(255, 215, 215)
+                sHashText.TextColor3 = Theme.TextPrimary
                 sHashText.TextXAlignment = Enum.TextXAlignment.Left
                 sHashText.TextTruncate = Enum.TextTruncate.AtEnd
                 sHashText.Text = sH
@@ -1727,11 +1775,11 @@ renderHashesView = function()
                 local sCopyBtn = Instance.new("TextButton")
                 sCopyBtn.Size = UDim2.new(0, 55, 0, 20)
                 sCopyBtn.Position = UDim2.new(1, -125, 0, 4)
-                sCopyBtn.BackgroundColor3 = Color3.fromRGB(48, 36, 42)
+                sCopyBtn.BackgroundColor3 = Theme.CardSelected
                 sCopyBtn.BorderSizePixel = 0
                 sCopyBtn.Font = Enum.Font.GothamMedium
                 sCopyBtn.TextSize = 9
-                sCopyBtn.TextColor3 = Color3.fromRGB(230, 190, 200)
+                sCopyBtn.TextColor3 = Theme.TextSecondary
                 sCopyBtn.Text = "Copy"
                 sCopyBtn.Parent = sRow
 
@@ -1750,11 +1798,11 @@ renderHashesView = function()
                 local sRevokeBtn = Instance.new("TextButton")
                 sRevokeBtn.Size = UDim2.new(0, 60, 0, 20)
                 sRevokeBtn.Position = UDim2.new(1, -65, 0, 4)
-                sRevokeBtn.BackgroundColor3 = Color3.fromRGB(58, 24, 28)
+                sRevokeBtn.BackgroundColor3 = Theme.DangerBtn
                 sRevokeBtn.BorderSizePixel = 0
                 sRevokeBtn.Font = Enum.Font.GothamBold
                 sRevokeBtn.TextSize = 9
-                sRevokeBtn.TextColor3 = Color3.fromRGB(255, 110, 110)
+                sRevokeBtn.TextColor3 = Theme.StatusDanger
                 sRevokeBtn.Text = "Revoke"
                 sRevokeBtn.Parent = sRow
 
@@ -1776,7 +1824,7 @@ renderHashesView = function()
     if totalRenderedCards == 0 then
         local EmptyNotice = Instance.new("Frame")
         EmptyNotice.Size = UDim2.new(1, 0, 0, 60)
-        EmptyNotice.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
+        EmptyNotice.BackgroundColor3 = Theme.TitleBar
         EmptyNotice.BorderSizePixel = 0
         EmptyNotice.Parent = HashesScroll
 
@@ -1789,7 +1837,7 @@ renderHashesView = function()
         EmptyLabel.BackgroundTransparency = 1
         EmptyLabel.Font = Enum.Font.GothamMedium
         EmptyLabel.TextSize = 12
-        EmptyLabel.TextColor3 = Color3.fromRGB(140, 155, 175)
+        EmptyLabel.TextColor3 = Theme.TextSecondary
         if #hashList == 0 then
             EmptyLabel.Text = "No return hashes recorded yet."
         elseif query ~= "" then
