@@ -507,9 +507,9 @@ end)
 -- Navigation Tabs Bar
 local NavFrame = Instance.new("Frame")
 NavFrame.Name = "NavFrame"
-NavFrame.Size = UDim2.new(1, -24, 0, 30)
-NavFrame.Position = UDim2.new(0, 12, 0, 46)
-NavFrame.BackgroundColor3 = Theme.TitleBar
+NavFrame.Size = UDim2.new(1, -24, 0, 28)
+NavFrame.Position = UDim2.new(0, 12, 0, 44)
+NavFrame.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
 NavFrame.BorderSizePixel = 0
 NavFrame.Parent = Window
 
@@ -519,99 +519,94 @@ NavCorner.Parent = NavFrame
 
 local NavStroke = Instance.new("UIStroke")
 NavStroke.Thickness = 1
-NavStroke.Color = Theme.CardStroke
+NavStroke.Color = Color3.fromRGB(35, 41, 55)
 NavStroke.Parent = NavFrame
 
 local currentTab = "urls" -- "urls" or "hashes"
 
 local UrlsTabBtn = Instance.new("TextButton")
 UrlsTabBtn.Name = "UrlsTabBtn"
-UrlsTabBtn.Size = UDim2.new(0.5, -4, 1, -4)
-UrlsTabBtn.Position = UDim2.new(0, 2, 0, 2)
-UrlsTabBtn.BackgroundColor3 = Theme.CardSelected
+UrlsTabBtn.Size = UDim2.new(0.5, -2, 1, 0)
+UrlsTabBtn.Position = UDim2.new(0, 0, 0, 0)
+UrlsTabBtn.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
 UrlsTabBtn.BackgroundTransparency = 0
 UrlsTabBtn.BorderSizePixel = 0
 UrlsTabBtn.Font = Enum.Font.GothamBold
 UrlsTabBtn.TextSize = 11
-UrlsTabBtn.TextColor3 = Theme.TextPrimary
+UrlsTabBtn.TextColor3 = Color3.fromRGB(80, 200, 255)
 UrlsTabBtn.Text = "🔗 Authorized URLs (0)"
 UrlsTabBtn.Parent = NavFrame
 
 local UrlsTabCorner = Instance.new("UICorner")
-UrlsTabCorner.CornerRadius = UDim.new(0, 4)
+UrlsTabCorner.CornerRadius = UDim.new(0, 6)
 UrlsTabCorner.Parent = UrlsTabBtn
 
 local UrlsTabIndicator = Instance.new("Frame")
 UrlsTabIndicator.Name = "Indicator"
-UrlsTabIndicator.Size = UDim2.new(1, 0, 0, 2)
-UrlsTabIndicator.Position = UDim2.new(0, 0, 1, -2)
-UrlsTabIndicator.BackgroundColor3 = Theme.Accent
-UrlsTabIndicator.BorderSizePixel = 0
-UrlsTabIndicator.Visible = true
+UrlsTabIndicator.Size = UDim2.new(0, 0, 0, 0)
+UrlsTabIndicator.Visible = false
 UrlsTabIndicator.Parent = UrlsTabBtn
 
 local HashesTabBtn = Instance.new("TextButton")
 HashesTabBtn.Name = "HashesTabBtn"
-HashesTabBtn.Size = UDim2.new(0.5, -4, 1, -4)
-HashesTabBtn.Position = UDim2.new(0.5, 2, 0, 2)
-HashesTabBtn.BackgroundTransparency = 1
+HashesTabBtn.Size = UDim2.new(0.5, -2, 1, 0)
+HashesTabBtn.Position = UDim2.new(0.5, 2, 0, 0)
+HashesTabBtn.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
+HashesTabBtn.BackgroundTransparency = 0
 HashesTabBtn.BorderSizePixel = 0
 HashesTabBtn.Font = Enum.Font.GothamBold
 HashesTabBtn.TextSize = 11
-HashesTabBtn.TextColor3 = Theme.TextSecondary
+HashesTabBtn.TextColor3 = Color3.fromRGB(130, 145, 170)
 HashesTabBtn.Text = "🛡️ Return Hashes (0)"
 HashesTabBtn.Parent = NavFrame
 
 local HashesTabCorner = Instance.new("UICorner")
-HashesTabCorner.CornerRadius = UDim.new(0, 4)
+HashesTabCorner.CornerRadius = UDim.new(0, 6)
 HashesTabCorner.Parent = HashesTabBtn
 
 local HashesTabIndicator = Instance.new("Frame")
 HashesTabIndicator.Name = "Indicator"
-HashesTabIndicator.Size = UDim2.new(1, 0, 0, 2)
-HashesTabIndicator.Position = UDim2.new(0, 0, 1, -2)
-HashesTabIndicator.BackgroundColor3 = Theme.Accent
-HashesTabIndicator.BorderSizePixel = 0
+HashesTabIndicator.Size = UDim2.new(0, 0, 0, 0)
 HashesTabIndicator.Visible = false
 HashesTabIndicator.Parent = HashesTabBtn
 
 UrlsTabBtn.MouseEnter:Connect(function()
     if currentTab ~= "urls" then
-        UrlsTabBtn.TextColor3 = Theme.TextPrimary
+        UrlsTabBtn.TextColor3 = Color3.fromRGB(200, 215, 240)
     end
 end)
 UrlsTabBtn.MouseLeave:Connect(function()
     if currentTab ~= "urls" then
-        UrlsTabBtn.TextColor3 = Theme.TextSecondary
+        UrlsTabBtn.TextColor3 = Color3.fromRGB(130, 145, 170)
     end
 end)
 HashesTabBtn.MouseEnter:Connect(function()
     if currentTab ~= "hashes" then
-        HashesTabBtn.TextColor3 = Theme.TextPrimary
+        HashesTabBtn.TextColor3 = Color3.fromRGB(200, 215, 240)
     end
 end)
 HashesTabBtn.MouseLeave:Connect(function()
     if currentTab ~= "hashes" then
-        HashesTabBtn.TextColor3 = Theme.TextSecondary
+        HashesTabBtn.TextColor3 = Color3.fromRGB(130, 145, 170)
     end
 end)
 
 -- Search & Filter Bar
 local SearchFrame = Instance.new("Frame")
 SearchFrame.Name = "SearchFrame"
-SearchFrame.Size = UDim2.new(1, -24, 0, 32)
-SearchFrame.Position = UDim2.new(0, 12, 0, 82)
-SearchFrame.BackgroundColor3 = Theme.TitleBar
+SearchFrame.Size = UDim2.new(1, -24, 0, 28)
+SearchFrame.Position = UDim2.new(0, 12, 0, 78)
+SearchFrame.BackgroundColor3 = Color3.fromRGB(22, 26, 36)
 SearchFrame.BorderSizePixel = 0
 SearchFrame.Parent = Window
 
 local SearchCorner = Instance.new("UICorner")
-SearchCorner.CornerRadius = UDim.new(0, 6)
+SearchCorner.CornerRadius = UDim.new(0, 4)
 SearchCorner.Parent = SearchFrame
 
 local SearchStroke = Instance.new("UIStroke")
 SearchStroke.Thickness = 1
-SearchStroke.Color = Theme.CardStroke
+SearchStroke.Color = Color3.fromRGB(35, 41, 55)
 SearchStroke.Parent = SearchFrame
 
 local SearchIcon = Instance.new("TextLabel")
@@ -734,8 +729,8 @@ end
 -- 1. URL Content Frame
 local UrlsContainer = Instance.new("Frame")
 UrlsContainer.Name = "UrlsContainer"
-UrlsContainer.Size = UDim2.new(1, -24, 1, -130)
-UrlsContainer.Position = UDim2.new(0, 12, 0, 122)
+UrlsContainer.Size = UDim2.new(1, -24, 1, -122)
+UrlsContainer.Position = UDim2.new(0, 12, 0, 114)
 UrlsContainer.BackgroundTransparency = 1
 UrlsContainer.Parent = Window
 
@@ -758,8 +753,8 @@ UrlsListLayout.Parent = UrlsScroll
 -- 2. Hashes Content Frame
 local HashesContainer = Instance.new("Frame")
 HashesContainer.Name = "HashesContainer"
-HashesContainer.Size = UDim2.new(1, -24, 1, -130)
-HashesContainer.Position = UDim2.new(0, 12, 0, 122)
+HashesContainer.Size = UDim2.new(1, -24, 1, -122)
+HashesContainer.Position = UDim2.new(0, 12, 0, 114)
 HashesContainer.BackgroundTransparency = 1
 HashesContainer.Visible = false
 HashesContainer.Parent = Window
@@ -791,27 +786,25 @@ local expandedScriptGroups = {}
 local function switchTab(tab)
     currentTab = tab
     if tab == "urls" then
-        UrlsTabBtn.BackgroundColor3 = Theme.CardSelected
+        UrlsTabBtn.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
         UrlsTabBtn.BackgroundTransparency = 0
-        UrlsTabBtn.TextColor3 = Theme.TextPrimary
-        UrlsTabIndicator.Visible = true
+        UrlsTabBtn.TextColor3 = Color3.fromRGB(80, 200, 255)
 
-        HashesTabBtn.BackgroundTransparency = 1
-        HashesTabBtn.TextColor3 = Theme.TextSecondary
-        HashesTabIndicator.Visible = false
+        HashesTabBtn.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
+        HashesTabBtn.BackgroundTransparency = 0
+        HashesTabBtn.TextColor3 = Color3.fromRGB(130, 145, 170)
 
         UrlsContainer.Visible = true
         HashesContainer.Visible = false
         if renderUrlsView then renderUrlsView() end
     else
-        HashesTabBtn.BackgroundColor3 = Theme.CardSelected
+        HashesTabBtn.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
         HashesTabBtn.BackgroundTransparency = 0
-        HashesTabBtn.TextColor3 = Theme.TextPrimary
-        HashesTabIndicator.Visible = true
+        HashesTabBtn.TextColor3 = Color3.fromRGB(80, 200, 255)
 
-        UrlsTabBtn.BackgroundTransparency = 1
-        UrlsTabBtn.TextColor3 = Theme.TextSecondary
-        UrlsTabIndicator.Visible = false
+        UrlsTabBtn.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
+        UrlsTabBtn.BackgroundTransparency = 0
+        UrlsTabBtn.TextColor3 = Color3.fromRGB(130, 145, 170)
 
         UrlsContainer.Visible = false
         HashesContainer.Visible = true

@@ -1894,7 +1894,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "gameloaded/OmniLoadstringManager.lua",
         localPath = "autoexec/gameloaded/OmniLoadstringManager.lua",
         name = "OmniLoadstringManager",
-        sha256 = "f626eb043d474b3ee3db772996716a76b25cfdd1f6a899934bb0f9dad75aa113"
+        sha256 = "3b0a8e13254972d317df6b663261821e3c8dfd0f4dafee0fd4fe0f8f8ecd2acb"
     }
 }
 
@@ -2578,8 +2578,8 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
     local ModalFrame = Instance.new("Frame")
     ModalFrame.Name = "ModalFrame"
-    ModalFrame.Size = UDim2.new(0, 580, 0, 480)
-    ModalFrame.Position = UDim2.new(0.5, -290, 0.5, -240)
+    ModalFrame.Size = UDim2.new(0, 720, 0, 520)
+    ModalFrame.Position = UDim2.new(0.5, -360, 0.5, -260)
     ModalFrame.BackgroundColor3 = Theme.Background
     ModalFrame.BorderSizePixel = 0
     ModalFrame.ClipsDescendants = true
@@ -2595,10 +2595,10 @@ initUpdateGate = function(guiParent, UpdateBadge)
     ModalStroke.Color = Theme.Stroke
     ModalStroke.Parent = ModalFrame
 
-    -- Modal Header (Standardized 42px height)
+    -- Modal Header (Standardized 38px height matching Task Manager)
     local ModalHeader = Instance.new("Frame")
     ModalHeader.Name = "ModalHeader"
-    ModalHeader.Size = UDim2.new(1, 0, 0, 42)
+    ModalHeader.Size = UDim2.new(1, 0, 0, 38)
     ModalHeader.BackgroundColor3 = Theme.TitleBar
     ModalHeader.BorderSizePixel = 0
     ModalHeader.Parent = ModalFrame
@@ -2617,20 +2617,21 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
     local ModalTitle = Instance.new("TextLabel")
     ModalTitle.Name = "ModalTitle"
-    ModalTitle.Size = UDim2.new(0, 260, 0, 20)
-    ModalTitle.Position = UDim2.new(0, 12, 0, 4)
+    ModalTitle.Size = UDim2.new(0, 310, 1, 0)
+    ModalTitle.Position = UDim2.new(0, 12, 0, 0)
     ModalTitle.BackgroundTransparency = 1
     ModalTitle.Font = Enum.Font.GothamBold
     ModalTitle.TextSize = 13
     ModalTitle.TextColor3 = Theme.Accent
     ModalTitle.TextXAlignment = Enum.TextXAlignment.Left
+    ModalTitle.TextYAlignment = Enum.TextYAlignment.Center
     ModalTitle.Text = "⚡ OMNI UPDATE & SECURITY GATE"
     ModalTitle.Parent = ModalHeader
 
     local KeybindBadge = Instance.new("TextLabel")
     KeybindBadge.Name = "KeybindBadge"
     KeybindBadge.Size = UDim2.new(0, 74, 0, 20)
-    KeybindBadge.Position = UDim2.new(0, 276, 0, 4)
+    KeybindBadge.Position = UDim2.new(0, 326, 0.5, -10)
     KeybindBadge.BackgroundColor3 = Theme.KeybindBg
     KeybindBadge.Active = false
     KeybindBadge.Font = Enum.Font.GothamBold
@@ -2645,17 +2646,11 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
     local ModalSubtitle = Instance.new("TextLabel")
     ModalSubtitle.Name = "ModalSubtitle"
-    ModalSubtitle.Size = UDim2.new(1, -60, 0, 14)
-    ModalSubtitle.Position = UDim2.new(0, 12, 0, 24)
-    ModalSubtitle.BackgroundTransparency = 1
-    ModalSubtitle.Font = Enum.Font.Gotham
-    ModalSubtitle.TextSize = 10
-    ModalSubtitle.TextColor3 = Theme.TextSecondary
-    ModalSubtitle.TextXAlignment = Enum.TextXAlignment.Left
-    ModalSubtitle.Text = "Verified code changes • Complete transparency before updating local files"
+    ModalSubtitle.Size = UDim2.new(0, 0, 0, 0)
+    ModalSubtitle.Visible = false
     ModalSubtitle.Parent = ModalHeader
 
-    -- Standardized 28x28px [X] Close Button
+    -- Standardized 28x28px [X] Close Button (6px corner)
     local ModalCloseBtn = Instance.new("TextButton")
     ModalCloseBtn.Name = "ModalCloseBtn"
     ModalCloseBtn.Size = UDim2.new(0, 28, 0, 28)
@@ -2669,7 +2664,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
     ModalCloseBtn.Parent = ModalHeader
 
     local ModalCloseCorner = Instance.new("UICorner")
-    ModalCloseCorner.CornerRadius = UDim.new(0, 4)
+    ModalCloseCorner.CornerRadius = UDim.new(0, 6)
     ModalCloseCorner.Parent = ModalCloseBtn
 
     ModalCloseBtn.MouseEnter:Connect(function()
@@ -2681,127 +2676,145 @@ initUpdateGate = function(guiParent, UpdateBadge)
         ModalCloseBtn.TextColor3 = Theme.CloseBtnText
     end)
 
-    -- Version Diff Card
-    local DiffCard = Instance.new("Frame")
-    DiffCard.Name = "DiffCard"
-    DiffCard.Size = UDim2.new(1, -32, 0, 38)
-    DiffCard.Position = UDim2.new(0, 16, 0, 48)
-    DiffCard.BackgroundColor3 = Theme.Card
-    DiffCard.BorderSizePixel = 0
-    DiffCard.Parent = ModalFrame
+    -- ==============================================================================
+    -- DASHBOARD STATUS & VERSION CARDS (Task Manager createMetricCard Standard)
+    -- ==============================================================================
+    local DashContainer = Instance.new("Frame")
+    DashContainer.Name = "DashContainer"
+    DashContainer.Size = UDim2.new(1, -24, 0, 56)
+    DashContainer.Position = UDim2.new(0, 12, 0, 44)
+    DashContainer.BackgroundTransparency = 1
+    DashContainer.Parent = ModalFrame
 
-    local DiffCorner = Instance.new("UICorner")
-    DiffCorner.CornerRadius = UDim.new(0, 6)
-    DiffCorner.Parent = DiffCard
+    local DashLayout = Instance.new("UIListLayout")
+    DashLayout.FillDirection = Enum.FillDirection.Horizontal
+    DashLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    DashLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    DashLayout.Padding = UDim.new(0, 8)
+    DashLayout.Parent = DashContainer
 
-    local DiffStroke = Instance.new("UIStroke")
-    DiffStroke.Thickness = 1
-    DiffStroke.Color = Theme.CardStroke
-    DiffStroke.Parent = DiffCard
+    local function createGateMetricCard(name, order, title, primaryDefault, subDefault)
+        local card = Instance.new("Frame")
+        card.Name = name
+        card.Size = UDim2.new(0.333, -6, 1, 0)
+        card.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
+        card.BorderSizePixel = 0
+        card.LayoutOrder = order
+        card.Parent = DashContainer
 
-    local DiffCurrent = Instance.new("TextLabel")
-    DiffCurrent.Name = "DiffCurrent"
-    DiffCurrent.Size = UDim2.new(0, 150, 1, 0)
-    DiffCurrent.Position = UDim2.new(0, 12, 0, 0)
-    DiffCurrent.BackgroundTransparency = 1
-    DiffCurrent.Font = Enum.Font.GothamMedium
-    DiffCurrent.TextSize = 11
-    DiffCurrent.TextColor3 = Theme.TextSecondary
-    DiffCurrent.TextXAlignment = Enum.TextXAlignment.Left
-    DiffCurrent.Text = "Installed: v" .. CURRENT_OMNI_VERSION
-    DiffCurrent.Parent = DiffCard
+        local cardCorner = Instance.new("UICorner")
+        cardCorner.CornerRadius = UDim.new(0, 6)
+        cardCorner.Parent = card
 
+        local cardStroke = Instance.new("UIStroke")
+        cardStroke.Thickness = 1
+        cardStroke.Color = Color3.fromRGB(35, 41, 55)
+        cardStroke.Parent = card
+
+        local header = Instance.new("TextLabel")
+        header.Size = UDim2.new(1, -12, 0, 15)
+        header.Position = UDim2.new(0, 8, 0, 5)
+        header.BackgroundTransparency = 1
+        header.Font = Enum.Font.Gotham
+        header.TextSize = 9
+        header.TextColor3 = Color3.fromRGB(130, 145, 170)
+        header.TextXAlignment = Enum.TextXAlignment.Left
+        header.Text = title
+        header.Parent = card
+
+        local primary = Instance.new("TextLabel")
+        primary.Name = "Primary"
+        primary.Size = UDim2.new(1, -12, 0, 20)
+        primary.Position = UDim2.new(0, 8, 0, 18)
+        primary.BackgroundTransparency = 1
+        primary.Font = Enum.Font.GothamBold
+        primary.TextSize = 13
+        primary.TextColor3 = Color3.fromRGB(255, 255, 255)
+        primary.TextXAlignment = Enum.TextXAlignment.Left
+        primary.Text = primaryDefault
+        primary.Parent = card
+
+        local sub = Instance.new("TextLabel")
+        sub.Name = "Sub"
+        sub.Size = UDim2.new(1, -12, 0, 14)
+        sub.Position = UDim2.new(0, 8, 0, 37)
+        sub.BackgroundTransparency = 1
+        sub.Font = Enum.Font.Gotham
+        sub.TextSize = 9
+        sub.TextColor3 = Color3.fromRGB(110, 125, 150)
+        sub.TextXAlignment = Enum.TextXAlignment.Left
+        sub.Text = subDefault
+        sub.Parent = card
+
+        return card, primary, sub, cardStroke
+    end
+
+    local CardInstalled, DiffCurrent, LblInstalledSub, StrokeInstalled = createGateMetricCard("CardInstalled", 1, "INSTALLED BUILD", "v" .. CURRENT_OMNI_VERSION, "Local Runtime Component")
+    local CardAvailable, DiffAvailable, DiffDate, StrokeAvailable = createGateMetricCard("CardAvailable", 2, "AVAILABLE UPDATE", "v1.0.0", "Release Date: 2026-10-06")
+    local CardStatus, DiffStatusPrimary, DiffStatusSub, DiffStroke = createGateMetricCard("CardStatus", 3, "SECURITY STATUS", "VERIFIED", "Cryptographic SHA-256 Validated")
+    local DiffCard = CardStatus
     local DiffArrow = Instance.new("TextLabel")
-    DiffArrow.Size = UDim2.new(0, 30, 1, 0)
-    DiffArrow.Position = UDim2.new(0, 165, 0, 0)
-    DiffArrow.BackgroundTransparency = 1
-    DiffArrow.Font = Enum.Font.GothamBold
-    DiffArrow.TextSize = 14
-    DiffArrow.TextColor3 = Theme.Accent
-    DiffArrow.Text = "➔"
-    DiffArrow.Parent = DiffCard
+    DiffArrow.Visible = false
 
-    local DiffAvailable = Instance.new("TextLabel")
-    DiffAvailable.Name = "DiffAvailable"
-    DiffAvailable.Size = UDim2.new(0, 160, 1, 0)
-    DiffAvailable.Position = UDim2.new(0, 200, 0, 0)
-    DiffAvailable.BackgroundTransparency = 1
-    DiffAvailable.Font = Enum.Font.GothamBold
-    DiffAvailable.TextSize = 12
-    DiffAvailable.TextColor3 = Theme.Accent
-    DiffAvailable.TextXAlignment = Enum.TextXAlignment.Left
-    DiffAvailable.Text = "Available: v1.0"
-    DiffAvailable.Parent = DiffCard
-
-    local DiffDate = Instance.new("TextLabel")
-    DiffDate.Name = "DiffDate"
-    DiffDate.Size = UDim2.new(0, 120, 1, 0)
-    DiffDate.Position = UDim2.new(1, -132, 0, 0)
-    DiffDate.BackgroundTransparency = 1
-    DiffDate.Font = Enum.Font.Gotham
-    DiffDate.TextSize = 10
-    DiffDate.TextColor3 = Theme.TextMuted
-    DiffDate.TextXAlignment = Enum.TextXAlignment.Right
-    DiffDate.Text = "2026-10-02"
-    DiffDate.Parent = DiffCard
-
-    -- Tab Switcher Bar
+    -- ==============================================================================
+    -- TAB BAR NAVIGATION (Exact Task Manager TabBar Style)
+    -- ==============================================================================
     local TabBar = Instance.new("Frame")
     TabBar.Name = "TabBar"
-    TabBar.Size = UDim2.new(1, -32, 0, 28)
-    TabBar.Position = UDim2.new(0, 16, 0, 92)
-    TabBar.BackgroundTransparency = 1
+    TabBar.Size = UDim2.new(1, -24, 0, 28)
+    TabBar.Position = UDim2.new(0, 12, 0, 108)
+    TabBar.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
+    TabBar.BorderSizePixel = 0
     TabBar.Parent = ModalFrame
+
+    local TabBarCorner = Instance.new("UICorner")
+    TabBarCorner.CornerRadius = UDim.new(0, 6)
+    TabBarCorner.Parent = TabBar
+
+    local TabBarLayout = Instance.new("UIListLayout")
+    TabBarLayout.FillDirection = Enum.FillDirection.Horizontal
+    TabBarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    TabBarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    TabBarLayout.Padding = UDim.new(0, 4)
+    TabBarLayout.Parent = TabBar
 
     local TabBtnChangelog = Instance.new("TextButton")
     TabBtnChangelog.Name = "TabBtnChangelog"
-    TabBtnChangelog.Size = UDim2.new(0, 160, 1, 0)
-    TabBtnChangelog.Position = UDim2.new(0, 0, 0, 0)
-    TabBtnChangelog.BackgroundColor3 = Theme.PrimaryBtn
+    TabBtnChangelog.Size = UDim2.new(0.5, -2, 1, 0)
+    TabBtnChangelog.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
     TabBtnChangelog.BorderSizePixel = 0
     TabBtnChangelog.Font = Enum.Font.GothamBold
     TabBtnChangelog.TextSize = 11
-    TabBtnChangelog.TextColor3 = Theme.TextPrimary
+    TabBtnChangelog.TextColor3 = Color3.fromRGB(80, 200, 255)
     TabBtnChangelog.Text = "📋 Changelog & Notes"
+    TabBtnChangelog.LayoutOrder = 1
     TabBtnChangelog.Parent = TabBar
 
     local TabChangelogCorner = Instance.new("UICorner")
-    TabChangelogCorner.CornerRadius = UDim.new(0, 4)
+    TabChangelogCorner.CornerRadius = UDim.new(0, 6)
     TabChangelogCorner.Parent = TabBtnChangelog
-
-    local TabChangelogStroke = Instance.new("UIStroke")
-    TabChangelogStroke.Thickness = 1
-    TabChangelogStroke.Color = Theme.Accent
-    TabChangelogStroke.Enabled = true
-    TabChangelogStroke.Parent = TabBtnChangelog
 
     local TabBtnCode = Instance.new("TextButton")
     TabBtnCode.Name = "TabBtnCode"
-    TabBtnCode.Size = UDim2.new(0, 160, 1, 0)
-    TabBtnCode.Position = UDim2.new(0, 168, 0, 0)
-    TabBtnCode.BackgroundColor3 = Theme.Card
+    TabBtnCode.Size = UDim2.new(0.5, -2, 1, 0)
+    TabBtnCode.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
     TabBtnCode.BorderSizePixel = 0
     TabBtnCode.Font = Enum.Font.GothamBold
     TabBtnCode.TextSize = 11
-    TabBtnCode.TextColor3 = Theme.TextSecondary
+    TabBtnCode.TextColor3 = Color3.fromRGB(130, 145, 170)
     TabBtnCode.Text = "🔍 Review Code & Diff"
+    TabBtnCode.LayoutOrder = 2
     TabBtnCode.Parent = TabBar
 
     local TabCodeCorner = Instance.new("UICorner")
-    TabCodeCorner.CornerRadius = UDim.new(0, 4)
+    TabCodeCorner.CornerRadius = UDim.new(0, 6)
     TabCodeCorner.Parent = TabBtnCode
-
-    local TabCodeStroke = Instance.new("UIStroke")
-    TabCodeStroke.Thickness = 1
-    TabCodeStroke.Color = Theme.Accent
-    TabCodeStroke.Enabled = false
-    TabCodeStroke.Parent = TabBtnCode
 
     -- Content Frame
     local ContentFrame = Instance.new("Frame")
     ContentFrame.Name = "ContentFrame"
-    ContentFrame.Size = UDim2.new(1, -32, 1, -176)
-    ContentFrame.Position = UDim2.new(0, 16, 0, 126)
+    ContentFrame.Size = UDim2.new(1, -24, 1, -188)
+    ContentFrame.Position = UDim2.new(0, 12, 0, 142)
     ContentFrame.BackgroundTransparency = 1
     ContentFrame.Parent = ModalFrame
 
@@ -2809,7 +2822,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
     local ChangelogScroll = Instance.new("ScrollingFrame")
     ChangelogScroll.Name = "ChangelogScroll"
     ChangelogScroll.Size = UDim2.new(1, 0, 1, 0)
-    ChangelogScroll.BackgroundColor3 = Color3.fromRGB(12, 14, 19)
+    ChangelogScroll.BackgroundColor3 = Color3.fromRGB(15, 17, 23)
     ChangelogScroll.BorderSizePixel = 0
     ChangelogScroll.ScrollBarThickness = 4
     ChangelogScroll.ScrollBarImageColor3 = Theme.Accent
@@ -2823,7 +2836,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
     local ChangelogStroke = Instance.new("UIStroke")
     ChangelogStroke.Thickness = 1
-    ChangelogStroke.Color = Theme.CardStroke
+    ChangelogStroke.Color = Color3.fromRGB(35, 41, 55)
     ChangelogStroke.Parent = ChangelogScroll
 
     local ChangelogLayout = Instance.new("UIListLayout")
@@ -2912,7 +2925,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
     local CodeScrollStroke = Instance.new("UIStroke")
     CodeScrollStroke.Thickness = 1
-    CodeScrollStroke.Color = Theme.CardStroke
+    CodeScrollStroke.Color = Color3.fromRGB(35, 41, 55)
     CodeScrollStroke.Parent = CodeScroll
 
     local CodeScrollLayout = Instance.new("UIListLayout")
@@ -2927,23 +2940,23 @@ initUpdateGate = function(guiParent, UpdateBadge)
     CodeScrollPadding.PaddingRight = UDim.new(0, 8)
     CodeScrollPadding.Parent = CodeScroll
 
-    -- Footer Action Buttons
+    -- Footer Action Buttons (Task Manager compact footer button style)
     local FooterFrame = Instance.new("Frame")
     FooterFrame.Name = "FooterFrame"
-    FooterFrame.Size = UDim2.new(1, -32, 0, 36)
-    FooterFrame.Position = UDim2.new(0, 16, 1, -44)
+    FooterFrame.Size = UDim2.new(1, -24, 0, 32)
+    FooterFrame.Position = UDim2.new(0, 12, 1, -40)
     FooterFrame.BackgroundTransparency = 1
     FooterFrame.Parent = ModalFrame
 
     local DismissBtn = Instance.new("TextButton")
     DismissBtn.Name = "DismissBtn"
-    DismissBtn.Size = UDim2.new(0, 140, 1, 0)
-    DismissBtn.Position = UDim2.new(0, 0, 0, 0)
-    DismissBtn.BackgroundColor3 = Theme.Card
+    DismissBtn.Size = UDim2.new(0, 110, 0, 26)
+    DismissBtn.Position = UDim2.new(0, 0, 0.5, -13)
+    DismissBtn.BackgroundColor3 = Color3.fromRGB(28, 32, 42)
     DismissBtn.BorderSizePixel = 0
     DismissBtn.Font = Enum.Font.GothamBold
     DismissBtn.TextSize = 11
-    DismissBtn.TextColor3 = Theme.TextSecondary
+    DismissBtn.TextColor3 = Color3.fromRGB(160, 175, 200)
     DismissBtn.Text = "Dismiss (Skip)"
     DismissBtn.Parent = FooterFrame
 
@@ -2951,39 +2964,60 @@ initUpdateGate = function(guiParent, UpdateBadge)
     DismissCorner.CornerRadius = UDim.new(0, 4)
     DismissCorner.Parent = DismissBtn
 
-    local DismissStroke = Instance.new("UIStroke")
-    DismissStroke.Thickness = 1
-    DismissStroke.Color = Theme.CardStroke
-    DismissStroke.Parent = DismissBtn
-
     DismissBtn.MouseEnter:Connect(function()
         if isScriptReviewActive then
-            DismissBtn.BackgroundColor3 = Color3.fromRGB(90, 30, 40)
+            DismissBtn.BackgroundColor3 = Color3.fromRGB(80, 25, 35)
             DismissBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
         else
-            DismissBtn.BackgroundColor3 = Theme.CardSelected
-            DismissBtn.TextColor3 = Theme.TextPrimary
+            DismissBtn.BackgroundColor3 = Color3.fromRGB(38, 44, 58)
+            DismissBtn.TextColor3 = Color3.fromRGB(220, 230, 245)
         end
     end)
     DismissBtn.MouseLeave:Connect(function()
         if isScriptReviewActive then
-            DismissBtn.BackgroundColor3 = Theme.DangerBtn
-            DismissBtn.TextColor3 = Theme.StatusDanger
+            DismissBtn.BackgroundColor3 = Color3.fromRGB(60, 25, 30)
+            DismissBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
         else
-            DismissBtn.BackgroundColor3 = Theme.Card
-            DismissBtn.TextColor3 = Theme.TextSecondary
+            DismissBtn.BackgroundColor3 = Color3.fromRGB(28, 32, 42)
+            DismissBtn.TextColor3 = Color3.fromRGB(160, 175, 200)
         end
+    end)
+
+    local SecondaryBtn = Instance.new("TextButton")
+    SecondaryBtn.Name = "SecondaryBtn"
+    SecondaryBtn.Size = UDim2.new(0, 185, 0, 26)
+    SecondaryBtn.Position = UDim2.new(1, -395, 0.5, -13)
+    SecondaryBtn.BackgroundColor3 = Color3.fromRGB(28, 38, 55)
+    SecondaryBtn.BorderSizePixel = 0
+    SecondaryBtn.Font = Enum.Font.GothamBold
+    SecondaryBtn.TextSize = 11
+    SecondaryBtn.TextColor3 = Color3.fromRGB(120, 180, 255)
+    SecondaryBtn.Text = "🛡️ Run Previous Safe"
+    SecondaryBtn.Visible = false
+    SecondaryBtn.Parent = FooterFrame
+
+    local SecondaryCorner = Instance.new("UICorner")
+    SecondaryCorner.CornerRadius = UDim.new(0, 4)
+    SecondaryCorner.Parent = SecondaryBtn
+
+    SecondaryBtn.MouseEnter:Connect(function()
+        SecondaryBtn.BackgroundColor3 = Color3.fromRGB(36, 50, 75)
+        SecondaryBtn.TextColor3 = Color3.fromRGB(160, 210, 255)
+    end)
+    SecondaryBtn.MouseLeave:Connect(function()
+        SecondaryBtn.BackgroundColor3 = Color3.fromRGB(28, 38, 55)
+        SecondaryBtn.TextColor3 = Color3.fromRGB(120, 180, 255)
     end)
 
     local ApplyUpdateBtn = Instance.new("TextButton")
     ApplyUpdateBtn.Name = "ApplyUpdateBtn"
-    ApplyUpdateBtn.Size = UDim2.new(1, -148, 1, 0)
-    ApplyUpdateBtn.Position = UDim2.new(0, 148, 0, 0)
-    ApplyUpdateBtn.BackgroundColor3 = Theme.PrimaryBtn
+    ApplyUpdateBtn.Size = UDim2.new(0, 195, 0, 26)
+    ApplyUpdateBtn.Position = UDim2.new(1, -195, 0.5, -13)
+    ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(28, 45, 70)
     ApplyUpdateBtn.BorderSizePixel = 0
     ApplyUpdateBtn.Font = Enum.Font.GothamBold
-    ApplyUpdateBtn.TextSize = 12
-    ApplyUpdateBtn.TextColor3 = Theme.TextPrimary
+    ApplyUpdateBtn.TextSize = 11
+    ApplyUpdateBtn.TextColor3 = Color3.fromRGB(100, 180, 255)
     ApplyUpdateBtn.Text = "⬇️ Update & Apply Now"
     ApplyUpdateBtn.Parent = FooterFrame
 
@@ -2993,26 +3027,22 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
     local ApplyStroke = Instance.new("UIStroke")
     ApplyStroke.Thickness = 1
-    ApplyStroke.Color = Theme.Accent
+    ApplyStroke.Color = Color3.fromRGB(50, 100, 160)
     ApplyStroke.Parent = ApplyUpdateBtn
 
     local function getApplyButtonColors()
         if isScriptReviewActive then
-            if ApplyUpdateBtn.Text:find("Approve") then
-                return Color3.fromRGB(30, 140, 65), Color3.fromRGB(40, 170, 80)
+            if ApplyUpdateBtn.Text:find("Approve") or ApplyUpdateBtn.Text:find("Trust") then
+                return Color3.fromRGB(25, 55, 35), Color3.fromRGB(35, 75, 45)
             else
-                return Theme.PrimaryBtn, Color3.fromRGB(38, 95, 165)
+                return Color3.fromRGB(28, 45, 70), Color3.fromRGB(38, 65, 100)
             end
         elseif isObfuscatedUpdateDetected then
-            if forceInstallConfirmActive then
-                return Color3.fromRGB(220, 20, 20), Color3.fromRGB(240, 50, 50)
-            else
-                return Color3.fromRGB(180, 40, 40), Color3.fromRGB(210, 50, 50)
-            end
+            return Color3.fromRGB(60, 25, 30), Color3.fromRGB(80, 30, 35)
         elseif isSafetyAdvisoryActive then
-            return Color3.fromRGB(210, 100, 35), Color3.fromRGB(235, 120, 45)
+            return Color3.fromRGB(65, 45, 20), Color3.fromRGB(85, 55, 25)
         else
-            return Theme.PrimaryBtn, Color3.fromRGB(38, 95, 165)
+            return Color3.fromRGB(28, 45, 70), Color3.fromRGB(38, 65, 100)
         end
     end
 
@@ -3025,54 +3055,28 @@ initUpdateGate = function(guiParent, UpdateBadge)
         ApplyUpdateBtn.BackgroundColor3 = baseCol
     end)
 
-    local SecondaryBtn = Instance.new("TextButton")
-    SecondaryBtn.Name = "SecondaryBtn"
-    SecondaryBtn.Size = UDim2.new(0, 200, 1, 0)
-    SecondaryBtn.Position = UDim2.new(0, 116, 0, 0)
-    SecondaryBtn.BackgroundColor3 = Theme.Card
-    SecondaryBtn.BorderSizePixel = 0
-    SecondaryBtn.Font = Enum.Font.GothamBold
-    SecondaryBtn.TextSize = 11
-    SecondaryBtn.TextColor3 = Theme.TextSecondary
-    SecondaryBtn.Text = "🛡️ Run Previous Safe Version"
-    SecondaryBtn.Visible = false
-    SecondaryBtn.Parent = FooterFrame
-
-    local SecondaryCorner = Instance.new("UICorner")
-    SecondaryCorner.CornerRadius = UDim.new(0, 4)
-    SecondaryCorner.Parent = SecondaryBtn
-
-    local SecondaryStroke = Instance.new("UIStroke")
-    SecondaryStroke.Thickness = 1
-    SecondaryStroke.Color = Theme.CardStroke
-    SecondaryStroke.Parent = SecondaryBtn
-
-    SecondaryBtn.MouseEnter:Connect(function()
-        SecondaryBtn.BackgroundColor3 = Theme.CardSelected
-        SecondaryBtn.TextColor3 = Theme.TextPrimary
-    end)
-    SecondaryBtn.MouseLeave:Connect(function()
-        SecondaryBtn.BackgroundColor3 = Theme.Card
-        SecondaryBtn.TextColor3 = Theme.TextSecondary
-    end)
-
-    -- Option B: Obfuscation Protection State & UI Controller
     local function refreshApplyButtonUI()
         if isObfuscatedUpdateDetected then
             if forceInstallConfirmActive then
-                ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(220, 20, 20)
-                ApplyUpdateBtn.Text = "🛑 Are you sure? Click again to Force Install"
+                ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(60, 25, 30)
+                ApplyUpdateBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
+                ApplyStroke.Color = Color3.fromRGB(140, 35, 45)
+                ApplyUpdateBtn.Text = "🛑 Click again to Force Install"
             else
-                ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
-                ApplyUpdateBtn.Text = "⚠️ Force Install Obfuscated Code (Unsafe)"
+                ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(60, 25, 30)
+                ApplyUpdateBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
+                ApplyStroke.Color = Color3.fromRGB(120, 40, 50)
+                ApplyUpdateBtn.Text = "⚠️ Force Install (Unsafe)"
             end
         elseif isSafetyAdvisoryActive then
-            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(210, 100, 35)
-            ApplyUpdateBtn.TextColor3 = Theme.TextPrimary
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(65, 45, 20)
+            ApplyUpdateBtn.TextColor3 = Color3.fromRGB(255, 180, 80)
+            ApplyStroke.Color = Color3.fromRGB(130, 80, 30)
             ApplyUpdateBtn.Text = "🛡️ Apply Verified Update"
         else
-            ApplyUpdateBtn.BackgroundColor3 = Theme.PrimaryBtn
-            ApplyUpdateBtn.TextColor3 = Theme.TextPrimary
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(28, 45, 70)
+            ApplyUpdateBtn.TextColor3 = Color3.fromRGB(100, 180, 255)
+            ApplyStroke.Color = Color3.fromRGB(50, 100, 160)
             ApplyUpdateBtn.Text = "⬇️ Update & Apply Now"
         end
     end
@@ -3082,21 +3086,17 @@ initUpdateGate = function(guiParent, UpdateBadge)
         if tabName == "Changelog" then
             ChangelogScroll.Visible = true
             CodeReviewFrame.Visible = false
-            TabBtnChangelog.BackgroundColor3 = Theme.PrimaryBtn
-            TabBtnChangelog.TextColor3 = Theme.TextPrimary
-            TabChangelogStroke.Enabled = true
-            TabBtnCode.BackgroundColor3 = Theme.Card
-            TabBtnCode.TextColor3 = Theme.TextSecondary
-            TabCodeStroke.Enabled = false
+            TabBtnChangelog.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
+            TabBtnChangelog.TextColor3 = Color3.fromRGB(80, 200, 255)
+            TabBtnCode.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
+            TabBtnCode.TextColor3 = Color3.fromRGB(130, 145, 170)
         else
             ChangelogScroll.Visible = false
             CodeReviewFrame.Visible = true
-            TabBtnCode.BackgroundColor3 = Theme.PrimaryBtn
-            TabBtnCode.TextColor3 = Theme.TextPrimary
-            TabCodeStroke.Enabled = true
-            TabBtnChangelog.BackgroundColor3 = Theme.Card
-            TabBtnChangelog.TextColor3 = Theme.TextSecondary
-            TabChangelogStroke.Enabled = false
+            TabBtnCode.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
+            TabBtnCode.TextColor3 = Color3.fromRGB(80, 200, 255)
+            TabBtnChangelog.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
+            TabBtnChangelog.TextColor3 = Color3.fromRGB(130, 145, 170)
         end
     end
 
@@ -3111,9 +3111,9 @@ initUpdateGate = function(guiParent, UpdateBadge)
         for idx, item in ipairs(items) do
             local row = Instance.new("Frame")
             row.Name = "ChangeRow_" .. idx
-            row.Size = UDim2.new(1, 0, 0, 0)
+            row.Size = UDim2.new(1, 0, 0, 30)
             row.AutomaticSize = Enum.AutomaticSize.Y
-            row.BackgroundColor3 = Theme.Card
+            row.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
             row.BorderSizePixel = 0
             row.LayoutOrder = idx
             row.Parent = ChangelogScroll
@@ -3124,34 +3124,34 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
             local rowStroke = Instance.new("UIStroke")
             rowStroke.Thickness = 1
-            rowStroke.Color = Theme.CardStroke
+            rowStroke.Color = Color3.fromRGB(30, 36, 48)
             rowStroke.Parent = row
 
             local rowPadding = Instance.new("UIPadding")
-            rowPadding.PaddingTop = UDim.new(0, 6)
-            rowPadding.PaddingBottom = UDim.new(0, 6)
-            rowPadding.PaddingLeft = UDim.new(0, 8)
-            rowPadding.PaddingRight = UDim.new(0, 8)
+            rowPadding.PaddingTop = UDim.new(0, 7)
+            rowPadding.PaddingBottom = UDim.new(0, 7)
+            rowPadding.PaddingLeft = UDim.new(0, 10)
+            rowPadding.PaddingRight = UDim.new(0, 10)
             rowPadding.Parent = row
 
-            local icon = Instance.new("TextLabel")
-            icon.Size = UDim2.new(0, 16, 0, 16)
-            icon.Position = UDim2.new(0, 0, 0, 0)
-            icon.BackgroundTransparency = 1
-            icon.Font = Enum.Font.GothamBold
-            icon.TextSize = 10
-            icon.TextColor3 = Theme.Accent
-            icon.Text = "🔹"
-            icon.Parent = row
+            local dot = Instance.new("TextLabel")
+            dot.Size = UDim2.new(0, 12, 0, 16)
+            dot.Position = UDim2.new(0, 0, 0, 0)
+            dot.BackgroundTransparency = 1
+            dot.Font = Enum.Font.GothamBold
+            dot.TextSize = 10
+            dot.TextColor3 = Theme.Accent
+            dot.Text = "●"
+            dot.Parent = row
 
             local desc = Instance.new("TextLabel")
-            desc.Size = UDim2.new(1, -22, 0, 0)
-            desc.Position = UDim2.new(0, 22, 0, 0)
+            desc.Size = UDim2.new(1, -18, 0, 0)
+            desc.Position = UDim2.new(0, 18, 0, 0)
             desc.AutomaticSize = Enum.AutomaticSize.Y
             desc.BackgroundTransparency = 1
-            desc.Font = Enum.Font.Gotham
+            desc.Font = Enum.Font.GothamMedium
             desc.TextSize = 11
-            desc.TextColor3 = Theme.TextPrimary
+            desc.TextColor3 = Color3.fromRGB(220, 230, 245)
             desc.TextXAlignment = Enum.TextXAlignment.Left
             desc.TextWrapped = true
             desc.Text = tostring(item)
@@ -3210,8 +3210,8 @@ initUpdateGate = function(guiParent, UpdateBadge)
         for _, btn in ipairs(StageBar:GetChildren()) do
             if btn:IsA("TextButton") then
                 local isThis = (btn.Name == "StageBtn_" .. stageIdx)
-                btn.BackgroundColor3 = isThis and Theme.PrimaryBtn or Theme.Card
-                btn.TextColor3 = isThis and Theme.TextPrimary or Theme.TextSecondary
+                btn.BackgroundColor3 = isThis and Color3.fromRGB(35, 45, 65) or Color3.fromRGB(20, 24, 33)
+                btn.TextColor3 = isThis and Color3.fromRGB(80, 200, 255) or Color3.fromRGB(130, 145, 170)
             end
         end
 
@@ -3521,11 +3521,11 @@ initUpdateGate = function(guiParent, UpdateBadge)
             btn.Name = "StageBtn_" .. idx
             btn.Size = UDim2.new(0, 0, 1, 0)
             btn.AutomaticSize = Enum.AutomaticSize.X
-            btn.BackgroundColor3 = (idx == selectedStageIdx) and Theme.PrimaryBtn or Theme.Card
+            btn.BackgroundColor3 = (idx == selectedStageIdx) and Color3.fromRGB(35, 45, 65) or Color3.fromRGB(20, 24, 33)
             btn.BorderSizePixel = 0
             btn.Font = Enum.Font.GothamBold
             btn.TextSize = 10
-            btn.TextColor3 = (idx == selectedStageIdx) and Theme.TextPrimary or Theme.TextSecondary
+            btn.TextColor3 = (idx == selectedStageIdx) and Color3.fromRGB(80, 200, 255) or Color3.fromRGB(130, 145, 170)
             btn.Text = " " .. (stage.name or "Component") .. " "
             btn.LayoutOrder = idx
             btn.Parent = StageBar
@@ -3564,7 +3564,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
     local isModalAnimating = false
     local lastModalToggleTime = 0
     local MODAL_DEBOUNCE_DELAY = 0.35
-    local modalRestingPos = UDim2.new(0.5, -290, 0.5, -240)
+    local modalRestingPos = UDim2.new(0.5, -360, 0.5, -260)
 
     local function animateModalIn()
         isModalOpen = true
@@ -3807,17 +3807,21 @@ initUpdateGate = function(guiParent, UpdateBadge)
         CodeScroll.Position = UDim2.new(0, 0, 0, 56)
         CodeScroll.Size = UDim2.new(1, 0, 1, -56)
         TabBtnChangelog.Visible = true
-        TabBtnCode.Size = UDim2.new(0, 160, 1, 0)
-        TabBtnCode.Position = UDim2.new(0, 168, 0, 0)
+        TabBtnChangelog.Size = UDim2.new(0.5, -2, 1, 0)
+        TabBtnChangelog.Position = UDim2.new(0, 0, 0, 0)
+        TabBtnCode.Visible = true
+        TabBtnCode.Size = UDim2.new(0.5, -2, 1, 0)
+        TabBtnCode.Position = UDim2.new(0.5, 2, 0, 0)
         KeybindBadge.Visible = true
-        ModalTitle.Size = UDim2.new(0, 260, 0, 20)
+        ModalTitle.Size = UDim2.new(0, 310, 1, 0)
         SecondaryBtn.Visible = false
-        DismissBtn.Size = UDim2.new(0, 140, 1, 0)
+        DismissBtn.Size = UDim2.new(0, 110, 0, 26)
+        DismissBtn.Position = UDim2.new(0, 0, 0.5, -13)
         DismissBtn.Text = "Dismiss (Skip)"
-        DismissBtn.BackgroundColor3 = Theme.Card
-        DismissBtn.TextColor3 = Theme.TextSecondary
-        ApplyUpdateBtn.Position = UDim2.new(0, 148, 0, 0)
-        ApplyUpdateBtn.Size = UDim2.new(1, -148, 1, 0)
+        DismissBtn.BackgroundColor3 = Color3.fromRGB(28, 32, 42)
+        DismissBtn.TextColor3 = Color3.fromRGB(160, 175, 200)
+        ApplyUpdateBtn.Position = UDim2.new(1, -195, 0.5, -13)
+        ApplyUpdateBtn.Size = UDim2.new(0, 195, 0, 26)
 
         if not currentUpdateData then
             currentUpdateData = {
@@ -3839,22 +3843,27 @@ initUpdateGate = function(guiParent, UpdateBadge)
         if isSafetyAdvisoryActive then
             ModalTitle.Text = "🛡️ OMNI SAFETY ADVISORY"
             ModalTitle.TextColor3 = Color3.fromRGB(255, 170, 60)
-            ModalSubtitle.Text = "Core components paused to protect your account • Review details below"
-            ModalSubtitle.TextColor3 = Color3.fromRGB(200, 200, 200)
             ApplyUpdateBtn.Text = "🛡️ Apply Verified Update"
-            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(210, 100, 35)
-            DiffCard.BackgroundColor3 = Color3.fromRGB(32, 24, 20)
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(65, 45, 20)
+            ApplyUpdateBtn.TextColor3 = Color3.fromRGB(255, 180, 80)
+            ApplyStroke.Color = Color3.fromRGB(130, 80, 30)
+            CardStatus.BackgroundColor3 = Color3.fromRGB(45, 30, 18)
             DiffStroke.Color = Color3.fromRGB(180, 110, 45)
+            DiffStatusPrimary.Text = "ADVISORY"
+            DiffStatusPrimary.TextColor3 = Color3.fromRGB(255, 175, 50)
+            DiffStatusSub.Text = "Execution Paused"
         else
             ModalTitle.Text = "⚡ OMNI UPDATE & SECURITY GATE"
             ModalTitle.TextColor3 = Theme.Accent
-            ModalSubtitle.Text = "Verified code changes • Complete transparency before updating local files"
-            ModalSubtitle.TextColor3 = Theme.TextSecondary
             ApplyUpdateBtn.Text = "⬇️ Update & Apply Now"
-            ApplyUpdateBtn.BackgroundColor3 = Theme.PrimaryBtn
-            ApplyUpdateBtn.TextColor3 = Theme.TextPrimary
-            DiffCard.BackgroundColor3 = Theme.Card
-            DiffStroke.Color = Theme.CardStroke
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(28, 45, 70)
+            ApplyUpdateBtn.TextColor3 = Color3.fromRGB(100, 180, 255)
+            ApplyStroke.Color = Color3.fromRGB(50, 100, 160)
+            CardStatus.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
+            DiffStroke.Color = Color3.fromRGB(35, 41, 55)
+            DiffStatusPrimary.Text = "VERIFIED"
+            DiffStatusPrimary.TextColor3 = Color3.fromRGB(50, 220, 120)
+            DiffStatusSub.Text = "SHA-256 Validated"
         end
 
         -- Pre-scan stage contents for obfuscation
@@ -3875,7 +3884,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
         ApplyUpdateBtn.Active = true
         if isSafetyAdvisoryActive then
-            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(210, 100, 35)
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(65, 45, 20)
             ApplyUpdateBtn.Text = "🛡️ Apply Verified Update"
         else
             refreshApplyButtonUI()
@@ -3883,9 +3892,9 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
         local ledger = loadLedger()
         local installedVersion = (ledger and ledger.version) or CURRENT_OMNI_VERSION
-        DiffCurrent.Text = "Installed: v" .. tostring(installedVersion)
-        DiffAvailable.Text = "Available: v" .. tostring(currentUpdateData.version)
-        DiffDate.Text = tostring(currentUpdateData.releaseDate or "Latest")
+        DiffCurrent.Text = "v" .. tostring(installedVersion)
+        DiffAvailable.Text = "v" .. tostring(currentUpdateData.version)
+        DiffDate.Text = "Release: " .. tostring(currentUpdateData.releaseDate or "Latest")
 
         local changelogItems = {}
         if isSafetyAdvisoryActive then
@@ -4288,37 +4297,43 @@ initUpdateGate = function(guiParent, UpdateBadge)
         TabBtnChangelog.Visible = false
         TabBtnCode.Size = UDim2.new(1, 0, 1, 0)
         TabBtnCode.Position = UDim2.new(0, 0, 0, 0)
+        TabBtnCode.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
+        TabBtnCode.TextColor3 = Color3.fromRGB(80, 200, 255)
         KeybindBadge.Visible = false
-        ModalTitle.Size = UDim2.new(1, -60, 0, 20)
+        ModalTitle.Size = UDim2.new(1, -60, 1, 0)
 
         if mode == "script_update" then
             ModalTitle.Text = "⚠️ OMNI SECURITY GATE: SCRIPT UPDATED"
             ModalTitle.TextColor3 = Theme.StatusWarning
-            ModalSubtitle.Text = "Remote author updated code • Review diff before execution"
-            ModalSubtitle.TextColor3 = Theme.TextSecondary
 
-            DiffCurrent.Text = "Target:"
-            DiffAvailable.Text = (url and (#url > 40 and (url:sub(1, 40) .. "...") or url)) or "Remote Script"
-            DiffDate.Text = "UPDATED"
-            DiffDate.TextColor3 = Theme.StatusWarning
+            DiffCurrent.Text = "Target Script"
+            DiffAvailable.Text = (url and (#url > 36 and (url:sub(1, 36) .. "...") or url)) or "Remote Script"
+            DiffDate.Text = "Status: Modified"
+            DiffStatusPrimary.Text = "CHANGED"
+            DiffStatusPrimary.TextColor3 = Theme.StatusWarning
+            DiffStatusSub.Text = "Diff Review Required"
+            CardStatus.BackgroundColor3 = Color3.fromRGB(45, 32, 18)
+            DiffStroke.Color = Color3.fromRGB(180, 110, 45)
 
-            DismissBtn.Size = UDim2.new(0, 110, 1, 0)
+            DismissBtn.Size = UDim2.new(0, 110, 0, 26)
+            DismissBtn.Position = UDim2.new(0, 0, 0.5, -13)
             DismissBtn.Text = "🛑 Block"
-            DismissBtn.BackgroundColor3 = Theme.DangerBtn
-            DismissBtn.TextColor3 = Theme.StatusDanger
+            DismissBtn.BackgroundColor3 = Color3.fromRGB(60, 25, 30)
+            DismissBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
 
             SecondaryBtn.Visible = true
-            SecondaryBtn.Position = UDim2.new(0, 116, 0, 0)
-            SecondaryBtn.Size = UDim2.new(0, 200, 1, 0)
-            SecondaryBtn.Text = "🛡️ Run Previous Safe Version"
-            SecondaryBtn.BackgroundColor3 = Theme.Card
-            SecondaryBtn.TextColor3 = Theme.TextSecondary
+            SecondaryBtn.Position = UDim2.new(1, -395, 0.5, -13)
+            SecondaryBtn.Size = UDim2.new(0, 185, 0, 26)
+            SecondaryBtn.Text = "🛡️ Run Previous Safe"
+            SecondaryBtn.BackgroundColor3 = Color3.fromRGB(28, 38, 55)
+            SecondaryBtn.TextColor3 = Color3.fromRGB(120, 180, 255)
 
-            ApplyUpdateBtn.Position = UDim2.new(0, 322, 0, 0)
-            ApplyUpdateBtn.Size = UDim2.new(1, -322, 1, 0)
-            ApplyUpdateBtn.Text = "✅ Approve Changes & Run"
-            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(30, 140, 65)
-            ApplyUpdateBtn.TextColor3 = Theme.TextPrimary
+            ApplyUpdateBtn.Position = UDim2.new(1, -195, 0.5, -13)
+            ApplyUpdateBtn.Size = UDim2.new(0, 195, 0, 26)
+            ApplyUpdateBtn.Text = "✅ Approve & Run"
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(25, 55, 35)
+            ApplyUpdateBtn.TextColor3 = Color3.fromRGB(100, 240, 150)
+            ApplyStroke.Color = Color3.fromRGB(45, 110, 65)
 
             local diffEntries = computeLineDiff(oldCode, newCode)
             for _, c in ipairs(AuditBar:GetChildren()) do
@@ -4432,26 +4447,30 @@ initUpdateGate = function(guiParent, UpdateBadge)
             -- "script_new" or "script_inline"
             ModalTitle.Text = (mode == "script_new") and "🛡️ OMNI SECURITY GATE: NEW REMOTE SCRIPT" or "🛡️ OMNI SECURITY GATE: DYNAMIC CODE"
             ModalTitle.TextColor3 = Theme.Accent
-            ModalSubtitle.Text = (mode == "script_new") and "First-time remote execution • Review code before trusting" or "Dynamic execution attempt • Review code before executing"
-            ModalSubtitle.TextColor3 = Theme.TextSecondary
 
-            DiffCurrent.Text = "Target:"
-            DiffAvailable.Text = (url and (#url > 40 and (url:sub(1, 40) .. "...") or url)) or (opts.chunkname or "Inline Script")
-            DiffDate.Text = "NEW"
-            DiffDate.TextColor3 = Theme.Accent
+            DiffCurrent.Text = "Target Script"
+            DiffAvailable.Text = (url and (#url > 36 and (url:sub(1, 36) .. "...") or url)) or (opts.chunkname or "Inline Script")
+            DiffDate.Text = "Status: Untrusted"
+            DiffStatusPrimary.Text = "UNTRUSTED"
+            DiffStatusPrimary.TextColor3 = Color3.fromRGB(64, 196, 255)
+            DiffStatusSub.Text = "Review Code"
+            CardStatus.BackgroundColor3 = Color3.fromRGB(20, 24, 33)
+            DiffStroke.Color = Color3.fromRGB(35, 41, 55)
 
-            DismissBtn.Size = UDim2.new(0, 140, 1, 0)
+            DismissBtn.Size = UDim2.new(0, 130, 0, 26)
+            DismissBtn.Position = UDim2.new(0, 0, 0.5, -13)
             DismissBtn.Text = "🛑 Block Execution"
-            DismissBtn.BackgroundColor3 = Theme.DangerBtn
-            DismissBtn.TextColor3 = Theme.StatusDanger
+            DismissBtn.BackgroundColor3 = Color3.fromRGB(60, 25, 30)
+            DismissBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
 
             SecondaryBtn.Visible = false
 
-            ApplyUpdateBtn.Position = UDim2.new(0, 148, 0, 0)
-            ApplyUpdateBtn.Size = UDim2.new(1, -148, 1, 0)
+            ApplyUpdateBtn.Position = UDim2.new(1, -195, 0.5, -13)
+            ApplyUpdateBtn.Size = UDim2.new(0, 195, 0, 26)
             ApplyUpdateBtn.Text = "🛡️ Trust & Execute"
-            ApplyUpdateBtn.BackgroundColor3 = Theme.PrimaryBtn
-            ApplyUpdateBtn.TextColor3 = Theme.TextPrimary
+            ApplyUpdateBtn.BackgroundColor3 = Color3.fromRGB(28, 45, 70)
+            ApplyUpdateBtn.TextColor3 = Color3.fromRGB(100, 180, 255)
+            ApplyStroke.Color = Color3.fromRGB(50, 100, 160)
 
             for _, c in ipairs(AuditBar:GetChildren()) do
                 if not c:IsA("UIListLayout") then c:Destroy() end
@@ -4584,17 +4603,21 @@ initUpdateGate = function(guiParent, UpdateBadge)
         CodeScroll.Position = UDim2.new(0, 0, 0, 56)
         CodeScroll.Size = UDim2.new(1, 0, 1, -56)
         TabBtnChangelog.Visible = true
-        TabBtnCode.Size = UDim2.new(0, 160, 1, 0)
-        TabBtnCode.Position = UDim2.new(0, 168, 0, 0)
+        TabBtnChangelog.Size = UDim2.new(0.5, -2, 1, 0)
+        TabBtnChangelog.Position = UDim2.new(0, 0, 0, 0)
+        TabBtnCode.Visible = true
+        TabBtnCode.Size = UDim2.new(0.5, -2, 1, 0)
+        TabBtnCode.Position = UDim2.new(0.5, 2, 0, 0)
         KeybindBadge.Visible = true
-        ModalTitle.Size = UDim2.new(0, 260, 0, 20)
+        ModalTitle.Size = UDim2.new(0, 310, 1, 0)
         SecondaryBtn.Visible = false
-        DismissBtn.Size = UDim2.new(0, 140, 1, 0)
+        DismissBtn.Size = UDim2.new(0, 110, 0, 26)
+        DismissBtn.Position = UDim2.new(0, 0, 0.5, -13)
         DismissBtn.Text = "Dismiss (Skip)"
-        DismissBtn.BackgroundColor3 = Theme.Card
-        DismissBtn.TextColor3 = Theme.TextSecondary
-        ApplyUpdateBtn.Position = UDim2.new(0, 148, 0, 0)
-        ApplyUpdateBtn.Size = UDim2.new(1, -148, 1, 0)
+        DismissBtn.BackgroundColor3 = Color3.fromRGB(28, 32, 42)
+        DismissBtn.TextColor3 = Color3.fromRGB(160, 175, 200)
+        ApplyUpdateBtn.Position = UDim2.new(1, -195, 0.5, -13)
+        ApplyUpdateBtn.Size = UDim2.new(0, 195, 0, 26)
         refreshApplyButtonUI()
 
         return decision
