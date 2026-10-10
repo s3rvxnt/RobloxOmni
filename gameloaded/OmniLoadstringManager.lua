@@ -945,17 +945,17 @@ renderUrlsView = function()
             UrlLabel.Text = u
             UrlLabel.Parent = Card
 
-            -- Auto-Update Status Badge & Toggle Button
+            -- Auto-Update Status Badge & Toggle Button (Task Manager High-Contrast Utility Style)
             local isAuto = (entry.auto_update == true)
             local AutoToggleBtn = Instance.new("TextButton")
             AutoToggleBtn.Name = "AutoToggleBtn"
             AutoToggleBtn.Size = UDim2.new(0, 150, 0, 24)
             AutoToggleBtn.Position = UDim2.new(1, -245, 0, 8)
-            AutoToggleBtn.BackgroundColor3 = isAuto and Color3.fromRGB(20, 65, 38) or Theme.CardSelected
+            AutoToggleBtn.BackgroundColor3 = isAuto and Color3.fromRGB(22, 48, 34) or Color3.fromRGB(28, 32, 42)
             AutoToggleBtn.BorderSizePixel = 0
             AutoToggleBtn.Font = Enum.Font.GothamBold
-            AutoToggleBtn.TextSize = 11
-            AutoToggleBtn.TextColor3 = isAuto and Theme.StatusSuccess or Theme.TextSecondary
+            AutoToggleBtn.TextSize = 10
+            AutoToggleBtn.TextColor3 = isAuto and Color3.fromRGB(100, 240, 150) or Color3.fromRGB(160, 175, 200)
             AutoToggleBtn.Text = isAuto and "⚡ Auto-Update: ON" or "⏸️ Auto-Update: OFF"
             AutoToggleBtn.Parent = Card
 
@@ -965,8 +965,23 @@ renderUrlsView = function()
 
             local AutoToggleStroke = Instance.new("UIStroke")
             AutoToggleStroke.Thickness = 1
-            AutoToggleStroke.Color = isAuto and Theme.StatusSuccess or Theme.CardStroke
+            AutoToggleStroke.Color = isAuto and Color3.fromRGB(36, 75, 52) or Color3.fromRGB(38, 48, 64)
             AutoToggleStroke.Parent = AutoToggleBtn
+
+            AutoToggleBtn.MouseEnter:Connect(function()
+                if entry.auto_update == true then
+                    AutoToggleBtn.BackgroundColor3 = Color3.fromRGB(28, 60, 42)
+                    AutoToggleBtn.TextColor3 = Color3.fromRGB(130, 255, 175)
+                else
+                    AutoToggleBtn.BackgroundColor3 = Color3.fromRGB(36, 42, 54)
+                    AutoToggleBtn.TextColor3 = Color3.fromRGB(200, 215, 240)
+                end
+            end)
+            AutoToggleBtn.MouseLeave:Connect(function()
+                local curAuto = (entry.auto_update == true)
+                AutoToggleBtn.BackgroundColor3 = curAuto and Color3.fromRGB(22, 48, 34) or Color3.fromRGB(28, 32, 42)
+                AutoToggleBtn.TextColor3 = curAuto and Color3.fromRGB(100, 240, 150) or Color3.fromRGB(160, 175, 200)
+            end)
 
             AutoToggleBtn.MouseButton1Click:Connect(function()
                 entry.auto_update = not (entry.auto_update == true)
