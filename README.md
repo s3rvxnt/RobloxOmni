@@ -118,6 +118,18 @@ Omni includes an open, transparent safety switch checked via `manifest.json` on 
 
 ---
 
+### Global Wait Hooking & Game Loop Isolation
+
+The kernel installs `hookfunction` trampolines over global `task.wait` and `wait`, routing all wait calls in the client through Omni's loop governor:
+* **Global Waits Intercepted**: Every wait call across the client — including game engine and game script threads — routes through Omni's wait trampolines for CPU accounting and HUD telemetry.
+* **Monitor-Only Boundary for Game Scripts**: Game loops are strictly monitored, never controlled. They are timed for the HUD but never paused, never `coroutine.yield`-ed, and never delay-clamped. Control functions `SetLoopPaused`, `SetLoopFrequency`, and `KillLoop` refuse non-executor loops, and bulk actions `PauseAllLoops` / `KillAllLoops` only touch executor loops.
+* **Wait Hook Off-Switch**: Wait hooking can be completely bypassed at any time via three mechanisms:
+  * `getgenv()._OmniDisableWaitHooks = true` (takes effect on the next wait call, no rejoin needed)
+  * `_G._OmniDisableWaitHooks = true` (takes effect on the next wait call, no rejoin needed)
+  * `{"disable_wait_hooks": true}` in `Omni_Settings.json` in the workspace folder.
+
+---
+
 ### License
 
 Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).  

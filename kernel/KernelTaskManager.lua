@@ -2185,6 +2185,7 @@ installGlobalHooks()
 -- Transparent GameProxy Provider for Un-Obfuscated Scripts
 -- ==============================================================================
 local origGame = (workspace and workspace.Parent) or game
+local ProxiedRunService
 local function createGameProxy(proxiedRS)
     proxiedRS = proxiedRS or ProxiedRunService or getgenv()._VirtualSchedulerProxiedRunService or getgenv().RunService
     local gameProxy = newproxy(true)
@@ -3734,6 +3735,7 @@ local function buildProfile()
 local lastProfileEmitTime = 0
 local emitProfileScheduled = false
 local cachedProfile = nil
+local profilingActive = true
 
 emitProfile = function(force)
     if profilingActive == false then
@@ -4134,7 +4136,7 @@ local function GetGlobalPriorityOverride()
 end
 
 -- Background 2-second profiling loop
-local profilingActive = true
+profilingActive = true
 task.spawn(function()
     local myThread = coroutine.running()
     if ignoredThreads then ignoredThreads[myThread] = true end
@@ -4209,7 +4211,7 @@ local function cleanUpScheduler(isTeardown)
 end
 
 -- Export proxied RunService to getgenv() for direct executor script access
-local ProxiedRunService = setmetatable({
+ProxiedRunService = setmetatable({
     Heartbeat = ProxiedSignals.Heartbeat,
     Stepped = ProxiedSignals.Stepped,
     RenderStepped = ProxiedSignals.RenderStepped,
