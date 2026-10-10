@@ -24,11 +24,11 @@ def update_stage_in_lua(content: str, repo_path: str, new_hash: str) -> tuple[st
     """Replace sha256 for a given stage repoPath inside table blocks."""
     # Order 1: repoPath followed by sha256 in same table
     pattern1 = re.compile(
-        r'(repoPath\s*=\s*["\']' + re.escape(repo_path) + r'["\'][^}]*?sha256\s*=\s*["\'])[0-9a-fA-F]{64}(["\'])'
+        r'(repoPath\s*=\s*["\']' + re.escape(repo_path) + r'["\'][^}]*?sha256\s*=\s*["\'])[^"\']*(["\'])'
     )
     # Order 2: sha256 followed by repoPath in same table
     pattern2 = re.compile(
-        r'(sha256\s*=\s*["\'])[0-9a-fA-F]{64}(["\'][^}]*?repoPath\s*=\s*["\']' + re.escape(repo_path) + r'["\'])'
+        r'(sha256\s*=\s*["\'])[^"\']*(["\'][^}]*?repoPath\s*=\s*["\']' + re.escape(repo_path) + r'["\'])'
     )
     new_content, count1 = pattern1.subn(r'\g<1>' + new_hash + r'\g<2>', content)
     new_content, count2 = pattern2.subn(r'\g<1>' + new_hash + r'\g<2>', new_content)

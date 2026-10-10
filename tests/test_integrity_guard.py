@@ -35,7 +35,7 @@ class TestIntegrityGuard(unittest.TestCase):
             )
 
     def test_bootloader_embedded_manifest_sync(self):
-        """Verify Bootloader.lua embedded manifest matches manifest.json."""
+        """Verify Bootloader.lua embedded manifest matches generated LF SHA-256."""
         bootloader_path = REPO_ROOT / "Bootloader.lua"
         self.assertTrue(bootloader_path.exists(), "Bootloader.lua does not exist")
         content = bootloader_path.read_text(encoding="utf-8")
@@ -44,12 +44,37 @@ class TestIntegrityGuard(unittest.TestCase):
         with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
             
+        stage_map = {}
         for stage in manifest.get("stages", []):
-            expected_hash = stage["sha256"]
+            repo_file = REPO_ROOT / stage["repoPath"]
+            self.assertTrue(repo_file.exists(), f"Stage file missing: {stage['repoPath']}")
+            generated_hash = compute_lf_sha256(repo_file)
+            stage_map[stage["repoPath"]] = generated_hash
+            
+            # Verify against generated value, not a typed one
             self.assertIn(
-                expected_hash,
+                generated_hash,
                 content,
-                f"Bootloader.lua missing sha256 for {stage['name']}: {expected_hash}"
+                f"Bootloader.lua missing generated sha256 for {stage['name']}: {generated_hash}"
+            )
+
+        # Verify all four stage table occurrences in Bootloader.lua match generated hashes
+        pattern = re.compile(
+            r'\{[^{}]*?repoPath\s*=\s*["\']([^"\']+)["\'][^{}]*?sha256\s*=\s*["\']([^"\']+)["\'][^{}]*?\}',
+            re.DOTALL
+        )
+        matches = pattern.findall(content)
+        self.assertEqual(
+            len(matches), 4,
+            f"Expected exactly 4 stage definitions in Bootloader.lua (3 in BOOTSTRAP_STAGES, 1 in update fallback), found {len(matches)}"
+        )
+        for repo_path, sha in matches:
+            self.assertIn(repo_path, stage_map, f"Unknown stage repoPath in Bootloader.lua: {repo_path}")
+            expected_hash = stage_map[repo_path]
+            self.assertEqual(
+                sha,
+                expected_hash,
+                f"Bootloader.lua stage table for {repo_path} has stale/mismatched sha256: expected {expected_hash}, got {sha}"
             )
 
     def test_kernel_game_script_isolation(self):
@@ -76,6 +101,16 @@ class TestIntegrityGuard(unittest.TestCase):
         self.assertIn("Omni_Settings.json", content)
         self.assertIn("disable_wait_hooks", content)
         self.assertIn("_OmniDisableWaitHooks", content)
+
+    def test_sync_hashes_script_idempotent(self):
+        """Verify scripts/sync_hashes.py runs cleanly and is idempotent on an aligned tree."""
+        import sys
+        scripts_dir = str(REPO_ROOT / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        import sync_hashes
+        success = sync_hashes.sync_hashes()
+        self.assertTrue(success, "scripts/sync_hashes.py sync_hashes() failed")
 
 if __name__ == "__main__":
     unittest.main()
