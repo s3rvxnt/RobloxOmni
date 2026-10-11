@@ -1,0 +1,41 @@
+{
+  "version": "1.0.0",
+  "releaseDate": "2026-10-06",
+  "title": "Omni v1.0 - Runtime Micro-Kernel & Enhancement Suite",
+  "lockdown": false,
+  "lockdown_message": "Omni remote safety advisory: Core components are paused to protect against detected game/engine changes. Please review the latest update.",
+  "changelog": [
+    "Adaptive 6.0ms frame-budgeted bootloader with automated crash recovery and Safe Mode",
+    "Kernel Task Manager HUD and adaptive loop governor with per-task CPU telemetry (Shift + F8)",
+    "Zero-trust update transparency gate with line-by-line diff inspection and security scanner (Shift + F7)",
+    "Real-time game connection ingestion, priority bands, and instant hot-reloading",
+    "Omni Enhancement Suite: Streamer mode, Personal Space Bubble, Player ESP, Anti-AFK, and native ESC settings",
+    "Omni Loadstring & Trust Manager: Manage authorized script URLs, return hashes, and per-script auto-updates (Shift + F6)"
+  ],
+  "stages": [
+    {
+      "repoPath": "kernel/KernelTaskManager.lua",
+      "localPath": "autoexec/kernel/KernelTaskManager.lua",
+      "stage": "Kernel",
+      "name": "KernelTaskManager",
+      "desc": "Kernel Task Manager & Runtime Micro-Kernel (Shift + F8)",
+      "sha256": "64b0edf8821e12f666bbb6b3c814c4a5dfde846f1adecc36c389121991151f82"
+    },
+    {
+      "repoPath": "gameloaded/OmniEnhancementSuite.lua",
+      "localPath": "autoexec/gameloaded/OmniEnhancementSuite.lua",
+      "stage": "GameLoaded",
+      "name": "OmniEnhancementSuite",
+      "desc": "Omni Enhancement Suite (Streamer Mode, Space Bubble, Player ESP, Anti-AFK)",
+      "sha256": "441a6d794aed012c313ee8d419c07b9005d98cd86000418993f0db96f7121639"
+    },
+    {
+      "repoPath": "gameloaded/OmniLoadstringManager.lua",
+      "localPath": "autoexec/gameloaded/OmniLoadstringManager.lua",
+      "stage": "GameLoaded",
+      "name": "OmniLoadstringManager",
+      "desc": "Omni Loadstring & Trust Manager (F6 or Shift + F6)",
+      "sha256": "afed8c8ebd767ad56da40149fe0787d79bfa50f16ca5add5a307cca1eb24c909"
+    }
+  ]
+}
