@@ -49,14 +49,15 @@ end
 -- ENGINE CONFIGURATION
 -- ==============================================================================
 local CFG = {
-    CELL_SIZE = 28,               -- Voxel cell cube edge (studs)
-    MAX_CULL_RADIUS = 380,        -- Maximum distance from camera to cull geometry
-    MIN_CULL_DIST = 16,           -- Minimum distance (never cull parts inside near bubble)
+    CELL_SIZE = 14,               -- Voxel cell cube edge (studs) - tightened from 28 to 14
+    MAX_PROP_SIZE = 15,           -- Max dimension for cull candidate (walls/floors > 15 never cull)
+    MAX_CULL_RADIUS = 300,        -- Maximum distance from camera to cull geometry
+    MIN_CULL_DIST = 22,           -- Minimum distance (never cull parts inside near room/corridor)
     FRAME_BUDGET_MS = 0.95,       -- Maximum CPU ms per frame on Heartbeat
     CELLS_PER_SLICE = 80,         -- Maximum cells to raycast-probe per frame
     HYSTERESIS_FRAMES = 2,        -- Consecutive occluded evaluations before culling
     PERIPHERAL_PADDING_DEG = 12,  -- Extra FOV padding (degrees) to eliminate turn popping
-    MIN_OCCLUDER_AREA = 55,       -- Min square stud surface area to count as major occluder
+    MIN_OCCLUDER_AREA = 45,       -- Min square stud surface area to count as major occluder
     IGNORE_CHARACTER = true,      -- Never cull player characters or dynamic models
 }
 
@@ -178,8 +179,13 @@ end
 local function isCullCandidate(part)
     if not part:IsA("BasePart") then return false end
     if part.Transparency >= 0.99 then return false end -- Already invisible trigger/zone
-    if part.Parent and part.Parent:IsA("Accessory") then return false end
-    if part.Parent and part.Parent:FindFirstChildOfClass("Humanoid") then return false end
+    local s = part.Size
+    -- Smarter Anchoring: Large structural geometry (walls, floors, ceilings, roads) NEVER cull!
+    if math.max(s.X, s.Y, s.Z) > CFG.MAX_PROP_SIZE then return false end
+    local parent = part.Parent
+    if parent and (parent:IsA("Accessory") or parent:FindFirstChildOfClass("Humanoid") or (parent.Parent and parent.Parent:FindFirstChildOfClass("Humanoid"))) then
+        return false
+    end
     if isMajorOccluder(part) then return false end -- Major occluders always render
     return true
 end
@@ -197,7 +203,8 @@ local function registerPart(part)
         cell = {
             key = key,
             center = Vector3.new((cx + 0.5) * CFG.CELL_SIZE, (cy + 0.5) * CFG.CELL_SIZE, (cz + 0.5) * CFG.CELL_SIZE),
-            radius = CFG.CELL_SIZE * 0.707, -- Half-diagonal of 28-stud cube (~19.8 studs)
+            radius = CFG.CELL_SIZE * 0.707, -- Max theoretical radius (~9.9 studs)
+            actualRadius = 2,               -- Dynamically expands to fit enclosed props
             parts = {},
             isOccluded = false,
             consecutiveOccluded = 0,
@@ -209,6 +216,11 @@ local function registerPart(part)
     end
 
     table.insert(cell.parts, part)
+    local s = part.Size
+    local partExt = (p - cell.center).Magnitude + (math.max(s.X, s.Y, s.Z) * 0.5)
+    if partExt > cell.actualRadius then
+        cell.actualRadius = math.min(cell.radius, partExt)
+    end
     totalTrackedParts = totalTrackedParts + 1
 end
 
@@ -269,6 +281,7 @@ task.spawn(indexWorldIncrementally)
 local globalCulledPartsCount = 0
 local globalFrustumPartsCount = 0
 local frameParity = 0
+local candidateCursor = 1
 
 local function evaluateOcclusionCycle()
     if not isEngineEnabled then return end
@@ -321,38 +334,50 @@ local function evaluateOcclusionCycle()
         end
     end
 
-    -- 2. Interleaved Multi-Probe Raycasting across Candidates
-    frameParity = (frameParity + 1) % 2
+    -- 2. Rotating Sliced Multi-Probe Raycasting across Candidates (Fair Scheduling)
     local candCount = #candidates
-
-    for idx = 1, candCount do
-        -- Interleaved evaluation: Even on frame 0, Odd on frame 1 (or all if candCount <= 35)
-        if (candCount <= 35) or (idx % 2 == frameParity) then
+    if candCount > 0 then
+        local sliceLimit = math.min(candCount, CFG.CELLS_PER_SLICE)
+        local stepsRun = 0
+        for step = 1, sliceLimit do
+            stepsRun = step
+            local idx = ((candidateCursor + step - 2) % candCount) + 1
             local cell = candidates[idx]
             local toCell = cell.center - camPos
             local dist = toCell.Magnitude
 
+            -- True Geometric Clearance:
+            -- The occluding wall must be strictly in front of the entire cluster of props in this cell
+            local aRad = cell.actualRadius or 2
+            local clearanceDist = dist - aRad - 0.5
+
             -- Probe 1: Center Point (punches through transparent glass and invisible triggers)
             local hitCenter = raycastOpaque(camPos, toCell)
-            local isCenterBlocked = hitCenter and (((hitCenter.Position - camPos).Magnitude) < (dist - cell.radius * 0.4))
+            local isCenterBlocked = hitCenter and (((hitCenter.Position - camPos).Magnitude) < clearanceDist)
             local isFullyOccluded = false
 
             if isCenterBlocked then
-                -- Probe 2 & 3: Anti-Popping Diagonal Corners
-                local rightVec = Camera.CFrame.RightVector * (cell.radius * 0.5)
-                local upVec = Camera.CFrame.UpVector * (cell.radius * 0.5)
-
-                local toCornerA = (cell.center + rightVec + upVec) - camPos
-                local toCornerB = (cell.center - rightVec - upVec) - camPos
-
-                local hitA = raycastOpaque(camPos, toCornerA)
-                local hitB = raycastOpaque(camPos, toCornerB)
-
-                local isABlocked = hitA and (((hitA.Position - camPos).Magnitude) < (toCornerA.Magnitude - cell.radius * 0.4))
-                local isBBlocked = hitB and (((hitB.Position - camPos).Magnitude) < (toCornerB.Magnitude - cell.radius * 0.4))
-
-                if isABlocked and isBBlocked then
+                if cell.isOccluded then
+                    -- Already occluded: 1 confirmed probe is sufficient to maintain state
                     isFullyOccluded = true
+                else
+                    -- Not yet occluded: require 3-point hull confirmation to prevent false culling
+                    local rOffset = aRad * 0.65
+                    local rightVec = Camera.CFrame.RightVector * rOffset
+                    local upVec = Camera.CFrame.UpVector * rOffset
+
+                    local toCornerA = (cell.center + rightVec + upVec) - camPos
+                    local toCornerB = (cell.center - rightVec - upVec) - camPos
+
+                    local hitA = raycastOpaque(camPos, toCornerA)
+                    local hitB = raycastOpaque(camPos, toCornerB)
+
+                    local isABlocked = hitA and (((hitA.Position - camPos).Magnitude) < (toCornerA.Magnitude - aRad * 0.5))
+                    local isBBlocked = hitB and (((hitB.Position - camPos).Magnitude) < (toCornerB.Magnitude - aRad * 0.5))
+
+                    if isABlocked and isBBlocked then
+                        isFullyOccluded = true
+                    end
                 end
             end
 
@@ -380,12 +405,13 @@ local function evaluateOcclusionCycle()
                     end
                 end
             end
-        end
 
-        -- Frame budget safety valve
-        if (os.clock() - tStart) * 1000 >= CFG.FRAME_BUDGET_MS then
-            break
+            -- Frame budget safety valve
+            if (os.clock() - tStart) * 1000 >= CFG.FRAME_BUDGET_MS then
+                break
+            end
         end
+        candidateCursor = ((candidateCursor + stepsRun - 1) % candCount) + 1
     end
 
     globalFrustumPartsCount = frustumPartsSum
