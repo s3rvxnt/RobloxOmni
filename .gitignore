@@ -1,0 +1,9 @@
+scratch/
+*.tmp
+*.log
+.env
+*config*.json
+*.key
+__pycache__/
+*.pyc
+video_frames/
