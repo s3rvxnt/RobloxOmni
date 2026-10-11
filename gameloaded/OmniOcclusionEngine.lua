@@ -77,21 +77,85 @@ local isHudVisible = true
 local currentCulledPartsCount = 0
 local currentFrustumPartsCount = 0
 local lastFrameExecutionTimeMs = 0
-local fpsCounter = 60
-
-local raycastParams = RaycastParams.new()
-raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-raycastParams.IgnoreWater = true
+local probeParams = RaycastParams.new()
+probeParams.FilterType = Enum.RaycastFilterType.Exclude
+probeParams.IgnoreWater = true
+local ignoreList = {}
 
 local function updateRaycastFilter()
-    local filterList = {}
+    table.clear(ignoreList)
     if LocalPlayer.Character then
-        table.insert(filterList, LocalPlayer.Character)
+        table.insert(ignoreList, LocalPlayer.Character)
     end
-    raycastParams.FilterDescendantsInstances = filterList
+    probeParams.FilterDescendantsInstances = ignoreList
 end
 updateRaycastFilter()
 LocalPlayer.CharacterAdded:Connect(updateRaycastFilter)
+
+-- Penetrative raycaster: Punches through transparent windows, glass, water, and invisible trigger zones
+-- Only genuine, anchored, opaque geometry (transparency <= 0.05 and Anchored == true) counts as an occluder
+local function isOpaqueOccluder(inst)
+    if inst:IsA("Terrain") then
+        return true
+    end
+    if not inst:IsA("BasePart") then
+        return false
+    end
+    -- Must be opaque (transparency <= 0.05) - punches through glass, windows, water, triggers
+    if inst.Transparency > 0.05 then
+        return false
+    end
+    -- Must be anchored static geometry (walls, floors, ceilings, foundations)
+    if not inst.Anchored then
+        return false
+    end
+    -- Dynamic characters (players, NPCs, accessories) should never occlude world geometry
+    local parent = inst.Parent
+    if parent and (parent:IsA("Accessory") or parent:FindFirstChildOfClass("Humanoid") or (parent.Parent and parent.Parent:FindFirstChildOfClass("Humanoid"))) then
+        return false
+    end
+    return true
+end
+
+local function raycastOpaque(origin, direction, maxHops)
+    local curOrigin = origin
+    local remaining = direction
+    local hops = 0
+    maxHops = maxHops or 4
+    local hasPunched = false
+
+    while hops < maxHops do
+        hops = hops + 1
+        local hit = workspace:Raycast(curOrigin, remaining, probeParams)
+        if not hit then break end
+
+        local inst = hit.Instance
+        if isOpaqueOccluder(inst) then
+            if hasPunched then
+                local baseCount = LocalPlayer.Character and 1 or 0
+                while #ignoreList > baseCount do table.remove(ignoreList) end
+                probeParams.FilterDescendantsInstances = ignoreList
+            end
+            return hit
+        end
+
+        -- Transparent glass, window, water, invisible trigger, or dynamic character: PUNCH THROUGH!
+        hasPunched = true
+        table.insert(ignoreList, inst)
+        probeParams.FilterDescendantsInstances = ignoreList
+
+        curOrigin = hit.Position + remaining.Unit * 0.08
+        remaining = (origin + direction) - curOrigin
+        if remaining:Dot(direction) <= 0 then break end
+    end
+
+    if hasPunched then
+        local baseCount = LocalPlayer.Character and 1 or 0
+        while #ignoreList > baseCount do table.remove(ignoreList) end
+        probeParams.FilterDescendantsInstances = ignoreList
+    end
+    return nil
+end
 
 -- ==============================================================================
 -- SPATIAL VOXEL CLASSIFICATION
@@ -113,6 +177,7 @@ end
 
 local function isCullCandidate(part)
     if not part:IsA("BasePart") then return false end
+    if part.Transparency >= 0.99 then return false end -- Already invisible trigger/zone
     if part.Parent and part.Parent:IsA("Accessory") then return false end
     if part.Parent and part.Parent:FindFirstChildOfClass("Humanoid") then return false end
     if isMajorOccluder(part) then return false end -- Major occluders always render
@@ -242,10 +307,12 @@ local function evaluateOcclusionCycle()
                             if part.Parent then part.LocalTransparencyModifier = 0 end
                         end
                     end
+                    cell.consecutiveOccluded = 0
                 end
             elseif cell.isOccluded then
                 -- Out of range: restore
                 cell.isOccluded = false
+                cell.consecutiveOccluded = 0
                 globalCulledPartsCount = math.max(0, globalCulledPartsCount - #cell.parts)
                 for _, part in ipairs(cell.parts) do
                     if part.Parent then part.LocalTransparencyModifier = 0 end
@@ -265,9 +332,9 @@ local function evaluateOcclusionCycle()
             local toCell = cell.center - camPos
             local dist = toCell.Magnitude
 
-            -- Probe 1: Center Point
-            local hitCenter = workspace:Raycast(camPos, toCell, raycastParams)
-            local isCenterBlocked = hitCenter and (hitCenter.Distance < (dist - cell.radius * 0.4))
+            -- Probe 1: Center Point (punches through transparent glass and invisible triggers)
+            local hitCenter = raycastOpaque(camPos, toCell)
+            local isCenterBlocked = hitCenter and (((hitCenter.Position - camPos).Magnitude) < (dist - cell.radius * 0.4))
             local isFullyOccluded = false
 
             if isCenterBlocked then
@@ -278,20 +345,21 @@ local function evaluateOcclusionCycle()
                 local toCornerA = (cell.center + rightVec + upVec) - camPos
                 local toCornerB = (cell.center - rightVec - upVec) - camPos
 
-                local hitA = workspace:Raycast(camPos, toCornerA, raycastParams)
-                local hitB = workspace:Raycast(camPos, toCornerB, raycastParams)
+                local hitA = raycastOpaque(camPos, toCornerA)
+                local hitB = raycastOpaque(camPos, toCornerB)
 
-                local isABlocked = hitA and (hitA.Distance < (toCornerA.Magnitude - cell.radius * 0.4))
-                local isBBlocked = hitB and (hitB.Distance < (toCornerB.Magnitude - cell.radius * 0.4))
+                local isABlocked = hitA and (((hitA.Position - camPos).Magnitude) < (toCornerA.Magnitude - cell.radius * 0.4))
+                local isBBlocked = hitB and (((hitB.Position - camPos).Magnitude) < (toCornerB.Magnitude - cell.radius * 0.4))
 
                 if isABlocked and isBBlocked then
                     isFullyOccluded = true
                 end
             end
 
-            -- State Diffing: Only write properties when visibility state changes
+            -- State Diffing & Hysteresis: Only cull when consistently occluded across frames
             if isFullyOccluded then
-                if not cell.isOccluded then
+                cell.consecutiveOccluded = cell.consecutiveOccluded + 1
+                if cell.consecutiveOccluded >= CFG.HYSTERESIS_FRAMES and not cell.isOccluded then
                     cell.isOccluded = true
                     globalCulledPartsCount = globalCulledPartsCount + #cell.parts
                     for _, part in ipairs(cell.parts) do
@@ -301,6 +369,7 @@ local function evaluateOcclusionCycle()
                     end
                 end
             else
+                cell.consecutiveOccluded = 0
                 if cell.isOccluded then
                     cell.isOccluded = false
                     globalCulledPartsCount = math.max(0, globalCulledPartsCount - #cell.parts)
