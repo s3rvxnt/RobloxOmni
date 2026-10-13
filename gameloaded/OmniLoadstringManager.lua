@@ -45,6 +45,63 @@ local function getGuiParent()
 end
 
 -- Cryptographic Hash Utility (SHA-256)
+local _K_SHA256 = {
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+}
+
+local function pureLuauSha256(msg)
+    local band, bnot, bxor, rrotate, rshift = bit32.band, bit32.bnot, bit32.bxor, bit32.rrotate, bit32.rshift
+    local h0, h1, h2, h3, h4, h5, h6, h7 = 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+    local len = #msg
+    local bitLen = len * 8
+    local padLen = (55 - (len % 64)) % 64
+    local pad = string.char(0x80) .. string.rep(string.char(0), padLen)
+    local highBits = math.floor(bitLen / 0x100000000)
+    local lowBits = bitLen % 0x100000000
+    local lenBytes = string.char(
+        rshift(highBits, 24) % 256, rshift(highBits, 16) % 256, rshift(highBits, 8) % 256, highBits % 256,
+        rshift(lowBits, 24) % 256, rshift(lowBits, 16) % 256, rshift(lowBits, 8) % 256, lowBits % 256
+    )
+    local full = msg .. pad .. lenBytes
+    local totalBlocks = #full / 64
+    local w = table.create(64, 0)
+    for b = 0, totalBlocks - 1 do
+        local offset = b * 64
+        for i = 1, 16 do
+            local idx = offset + (i - 1) * 4 + 1
+            local b1, b2, b3, b4 = string.byte(full, idx, idx + 3)
+            w[i] = b1 * 16777216 + b2 * 65536 + b3 * 256 + b4
+        end
+        for i = 17, 64 do
+            local v1 = w[i - 15]
+            local s0 = bxor(rrotate(v1, 7), rrotate(v1, 18), rshift(v1, 3))
+            local v2 = w[i - 2]
+            local s1 = bxor(rrotate(v2, 17), rrotate(v2, 19), rshift(v2, 10))
+            w[i] = (w[i - 16] + s0 + w[i - 7] + s1) % 0x100000000
+        end
+        local a, b2, c, d, e, f, g, h = h0, h1, h2, h3, h4, h5, h6, h7
+        for i = 1, 64 do
+            local S1 = bxor(rrotate(e, 6), rrotate(e, 11), rrotate(e, 25))
+            local ch = bxor(band(e, f), band(bnot(e), g))
+            local temp1 = (h + S1 + ch + _K_SHA256[i] + w[i]) % 0x100000000
+            local S0 = bxor(rrotate(a, 2), rrotate(a, 13), rrotate(a, 22))
+            local maj = bxor(bxor(band(a, b2), band(a, c)), band(b2, c))
+            local temp2 = (S0 + maj) % 0x100000000
+            h = g; g = f; f = e; e = (d + temp1) % 0x100000000; d = c; c = b2; b2 = a; a = (temp1 + temp2) % 0x100000000
+        end
+        h0 = (h0 + a) % 0x100000000; h1 = (h1 + b2) % 0x100000000; h2 = (h2 + c) % 0x100000000; h3 = (h3 + d) % 0x100000000
+        h4 = (h4 + e) % 0x100000000; h5 = (h5 + f) % 0x100000000; h6 = (h6 + g) % 0x100000000; h7 = (h7 + h) % 0x100000000
+    end
+    return string.format("%08x%08x%08x%08x%08x%08x%08x%08x", h0, h1, h2, h3, h4, h5, h6, h7)
+end
+
 local function computeSha256(str)
     if not str or type(str) ~= "string" then return nil end
     local cryptHash = (type(crypt) == "table" and type(crypt.hash) == "function" and crypt.hash)
@@ -63,7 +120,7 @@ local function computeSha256(str)
         local ok, h = pcall(sha256Fn, str)
         if ok and type(h) == "string" and #h == 64 then return h:lower() end
     end
-    return nil
+    return pureLuauSha256(str)
 end
 
 -- Ledger Helpers
@@ -401,6 +458,7 @@ CloseBtn.MouseLeave:Connect(function()
 end)
 
 -- Dragging Functionality for Header
+local managerConnections = {}
 local dragging = false
 local dragInput, dragStart, startPos
 local restingPos = UDim2.new(0.5, -360, 0.5, -280)
@@ -411,12 +469,6 @@ Header.InputBegan:Connect(function(input)
         dragStart = input.Position
         startPos = Window.Position
         restingPos = Window.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-                restingPos = Window.Position
-            end
-        end)
     end
 end)
 
@@ -426,7 +478,7 @@ Header.InputChanged:Connect(function(input)
     end
 end)
 
-UserInputService.InputChanged:Connect(function(input)
+table.insert(managerConnections, UserInputService.InputChanged:Connect(function(input)
     if input == dragInput and dragging then
         local delta = input.Position - dragStart
         Window.Position = UDim2.new(
@@ -437,16 +489,16 @@ UserInputService.InputChanged:Connect(function(input)
         )
         restingPos = Window.Position
     end
-end)
+end))
 
-UserInputService.InputEnded:Connect(function(input)
+table.insert(managerConnections, UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         if dragging then
             restingPos = Window.Position
         end
         dragging = false
     end
-end)
+end))
 
 -- ==============================================================================
 -- RESIZABLE WINDOW ENGINE (Bottom-Right Resize Grip)
@@ -492,23 +544,23 @@ ResizeGrip.InputBegan:Connect(function(input)
     end
 end)
 
-UserInputService.InputChanged:Connect(function(input)
+table.insert(managerConnections, UserInputService.InputChanged:Connect(function(input)
     if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - resizeStart
         local newW = math.clamp(startSize.X + delta.X, MIN_WIDTH, MAX_WIDTH)
         local newH = math.clamp(startSize.Y + delta.Y, MIN_HEIGHT, MAX_HEIGHT)
         Window.Size = UDim2.new(0, newW, 0, newH)
     end
-end)
+end))
 
-UserInputService.InputEnded:Connect(function(input)
+table.insert(managerConnections, UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         if resizing then
             resizing = false
             ResizeGrip.TextColor3 = Color3.fromRGB(80, 95, 120)
         end
     end
-end)
+end))
 
 -- Navigation Tabs Bar
 local NavFrame = Instance.new("Frame")
@@ -1044,6 +1096,20 @@ renderUrlsView = function()
                             currentLedger.hashes[sH] = nil
                         end
                     end
+                    if localFile ~= "" then
+                        if isfile and isfile(localFile) and readfile and currentLedger.hashes then
+                            local okRead, cachedBody = pcall(readfile, localFile)
+                            if okRead and type(cachedBody) == "string" then
+                                local cHash = computeSha256(cachedBody)
+                                local cNormHash = computeSha256(cachedBody:gsub("\r\n", "\n"))
+                                if cHash then currentLedger.hashes[cHash] = nil end
+                                if cNormHash then currentLedger.hashes[cNormHash] = nil end
+                            end
+                        end
+                        if delfile then
+                            pcall(delfile, localFile)
+                        end
+                    end
                     saveLedger(currentLedger)
                     showToast(string.format("Revoked trust for %s and linked submodules.", scriptName), false)
                     renderUrlsView()
@@ -1166,6 +1232,11 @@ renderUrlsView = function()
                     if ok and type(remoteBody) == "string" and #remoteBody > 0 then
                         local remHash = computeSha256(remoteBody)
                         local normRemHash = computeSha256(remoteBody:gsub("\r\n", "\n"))
+                        if not remHash then
+                            CheckBtn.Text = "Hash Error"
+                            CheckBtn.TextColor3 = Theme.StatusDanger
+                            return
+                        end
                         local isIdentical = (remHash == entry.hash) or (normRemHash == entry.hash)
 
                         if isIdentical then
@@ -1175,13 +1246,25 @@ renderUrlsView = function()
                         else
                             if entry.auto_update == true then
                                 CheckBtn.Text = "⚡ Auto-Updating..."
+                                if not currentLedger.hashes then currentLedger.hashes = {} end
+                                if entry.hash then
+                                    currentLedger.hashes[entry.hash] = nil
+                                end
+                                if localFile ~= "" and isfile and isfile(localFile) and readfile then
+                                    local okRead, oldBody = pcall(readfile, localFile)
+                                    if okRead and type(oldBody) == "string" then
+                                        local oldRawH = computeSha256(oldBody)
+                                        local oldNormH = computeSha256(oldBody:gsub("\r\n", "\n"))
+                                        if oldRawH then currentLedger.hashes[oldRawH] = nil end
+                                        if oldNormH then currentLedger.hashes[oldNormH] = nil end
+                                    end
+                                end
                                 if localFile ~= "" and writefile then
                                     pcall(writefile, localFile, remoteBody)
                                 end
                                 entry.hash = remHash
                                 entry.last_updated = os.time()
                                 currentLedger.urls[u] = entry
-                                if not currentLedger.hashes then currentLedger.hashes = {} end
                                 currentLedger.hashes[remHash] = true
                                 if normRemHash then currentLedger.hashes[normRemHash] = true end
                                 saveLedger(currentLedger)
@@ -1948,6 +2031,31 @@ local isOpen = false
 local isAnimating = false
 local lastToggleTime = 0
 local DEBOUNCE_DELAY = 0.35 -- 350ms debounce threshold to prevent double-firing
+local MANAGER_CURSOR_STEP_NAME = "OmniLoadstringManagerCursorUnlock"
+
+local function bindManagerCursorUnlock()
+    pcall(function()
+        RunService:UnbindFromRenderStep(MANAGER_CURSOR_STEP_NAME)
+    end)
+    pcall(function()
+        RunService:BindToRenderStep(MANAGER_CURSOR_STEP_NAME, Enum.RenderPriority.Last.Value, function()
+            if isOpen or (Backdrop and Backdrop.Visible) then
+                if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+                    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                end
+                if not UserInputService.MouseIconEnabled then
+                    UserInputService.MouseIconEnabled = true
+                end
+            end
+        end)
+    end)
+end
+
+local function unbindManagerCursorUnlock()
+    pcall(function()
+        RunService:UnbindFromRenderStep(MANAGER_CURSOR_STEP_NAME)
+    end)
+end
 
 local function openManager()
     if isOpen or isAnimating then return end
@@ -1959,6 +2067,10 @@ local function openManager()
 
     currentLedger = loadLedger()
     Backdrop.Visible = true
+    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+    UserInputService.MouseIconEnabled = true
+    bindManagerCursorUnlock()
+
     local base = restingPos or Window.Position
     Window.Position = UDim2.new(base.X.Scale, base.X.Offset, base.Y.Scale - 0.05, base.Y.Offset)
     Window.BackgroundTransparency = 0.2
@@ -1986,6 +2098,7 @@ local function closeManager()
     lastToggleTime = now
     isAnimating = true
     isOpen = false
+    unbindManagerCursorUnlock()
 
     local base = restingPos or Window.Position
     local tween = TweenService:Create(Window, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
@@ -2047,11 +2160,26 @@ getgenv().RevokeOmniUrlTrust = function(targetUrl)
     if l.urls and l.urls[targetUrl] then
         local entry = l.urls[targetUrl]
         local h = entry.hash
+        local localFile = entry.local_file or ""
         l.urls[targetUrl] = nil
         if h and l.hashes then l.hashes[h] = nil end
         if type(entry.submodules) == "table" and l.hashes then
             for _, sH in ipairs(entry.submodules) do
                 l.hashes[sH] = nil
+            end
+        end
+        if localFile ~= "" then
+            if isfile and isfile(localFile) and readfile and l.hashes then
+                local okRead, cachedBody = pcall(readfile, localFile)
+                if okRead and type(cachedBody) == "string" then
+                    local cHash = computeSha256(cachedBody)
+                    local cNormHash = computeSha256(cachedBody:gsub("\r\n", "\n"))
+                    if cHash then l.hashes[cHash] = nil end
+                    if cNormHash then l.hashes[cNormHash] = nil end
+                end
+            end
+            if delfile then
+                pcall(delfile, localFile)
             end
         end
         saveLedger(l)
@@ -2064,8 +2192,15 @@ end
 
 -- Teardown Hook for Hot-Reloading
 getgenv()._OmniLoadstringManagerCleanUp = function()
-    if inputConn then pcall(function() inputConn:Disconnect() end) end
-    if ScreenGui then pcall(function() ScreenGui:Destroy() end) end
+    isOpen = false
+    isAnimating = false
+    unbindManagerCursorUnlock()
+    if inputConn then pcall(function() inputConn:Disconnect() end); inputConn = nil end
+    for _, conn in ipairs(managerConnections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    managerConnections = {}
+    if ScreenGui then pcall(function() ScreenGui:Destroy() end); ScreenGui = nil end
 end
 
 print("[OmniLoadstringManager]: Initialized successfully. Press F6 (or Shift + F6) to manage authorized loadstrings.")

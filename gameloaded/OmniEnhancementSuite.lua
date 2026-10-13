@@ -74,6 +74,7 @@ if genv then
     end
 end
 
+local isSuiteActive = true
 local Janitor = {}
 local function Own(x)
     table.insert(Janitor, x)
@@ -242,7 +243,7 @@ end
 local function IsEnhancementGui(obj)
     local current = obj
     while current and current ~= game do
-        if current.Name:sub(1, 12) == "Enhancement_" or current.Name:sub(1, 17) == "RobloxEnhancement" then
+        if current.Name:sub(1, 12) == "Enhancement_" or current.Name:sub(1, 17) == "RobloxEnhancement" or current.Name:sub(-6) == "Locate" then
             return true
         end
         current = current.Parent
@@ -641,6 +642,7 @@ end
 
 local charPartsCache = setmetatable({}, { __mode = "k" })
 local charAppliedAlpha = setmetatable({}, { __mode = "k" })
+local charCacheConns = setmetatable({}, { __mode = "k" })
 
 local function getCharParts(char)
     local parts = charPartsCache[char]
@@ -652,6 +654,17 @@ local function getCharParts(char)
             end
         end
         charPartsCache[char] = parts
+        if not charCacheConns[char] then
+            charCacheConns[char] = char.DescendantAdded:Connect(function(desc)
+                if desc:IsA("BasePart") and desc.Name ~= "HumanoidRootPart" then
+                    local cached = charPartsCache[char]
+                    if cached then
+                        table.insert(cached, desc)
+                        charAppliedAlpha[char] = nil
+                    end
+                end
+            end)
+        end
     end
     return parts
 end
@@ -737,6 +750,13 @@ function PersonalSpaceBubble.Enable()
 
         for char, _ in pairs(charAlphas) do
             if not activeChars[char] then
+                if char and char.Parent then
+                    ApplyCharTransparency(char, 0)
+                end
+                if charCacheConns[char] then
+                    pcall(function() charCacheConns[char]:Disconnect() end)
+                    charCacheConns[char] = nil
+                end
                 charAlphas[char] = nil
                 charInside[char] = nil
             end
@@ -754,10 +774,14 @@ function PersonalSpaceBubble.Disable()
             ApplyCharTransparency(char, 0)
         end
     end
+    for _, conn in pairs(charCacheConns) do
+        pcall(function() conn:Disconnect() end)
+    end
     charAlphas = {}
     charInside = {}
     charPartsCache = setmetatable({}, { __mode = "k" })
     charAppliedAlpha = setmetatable({}, { __mode = "k" })
+    charCacheConns = setmetatable({}, { __mode = "k" })
 end
 
 -- ============================================================================
@@ -868,12 +892,17 @@ function BubbleChatManager.Apply()
         if bbc then
             EnableBBC(bbc)
         end
+        if bubbleConns[TextChatService] then
+            pcall(function() bubbleConns[TextChatService]:Disconnect() end)
+            bubbleConns[TextChatService] = nil
+        end
         local childConn = TextChatService.ChildAdded:Connect(function(child)
             if child:IsA("BubbleChatConfiguration") then
                 EnableBBC(child)
             end
         end)
-        table.insert(Janitor, childConn)
+        bubbleConns[TextChatService] = childConn
+        Own(childConn)
     end)
 
     -- Legacy Chat Service
@@ -934,7 +963,7 @@ task.spawn(function()
         local conn = scroller.DescendantAdded:Connect(function(desc)
             if desc:IsA("TextLabel") then HookLegacyMessageLabel(desc) end
         end)
-        table.insert(StreamerConns, conn)
+        Own(conn)
     end
 
     local function OnChatGuiAdded(chatGui)
@@ -953,7 +982,7 @@ task.spawn(function()
     local chatGui = pg:FindFirstChild("Chat")
     if chatGui then OnChatGuiAdded(chatGui) end
     local pConn = pg.ChildAdded:Connect(OnChatGuiAdded)
-    table.insert(StreamerConns, pConn)
+    Own(pConn)
 end)
 
 -- ============================================================================
@@ -1336,7 +1365,7 @@ local function TrackPlayerInternal(player)
             entry.Boxes = BuildCharacterBoxes(char, entry.TeamColor, container)
             entry.Billboard = BuildBillboard(playerName, char, container)
             
-            if (#entry.Boxes == 0 or not entry.Billboard) and char.Parent then
+            if char.Parent then
                 entry.StreamConn = char.ChildAdded:Connect(function(child)
                     if not char.Parent or not IsPlayerTracked(playerName) then
                         if entry.StreamConn then
@@ -1350,16 +1379,25 @@ local function TrackPlayerInternal(player)
                             entry.Billboard = BuildBillboard(playerName, char, container)
                         end
                         if child.Name ~= "HumanoidRootPart" and child.Transparency < 0.95 then
-                            local box = Instance.new("BoxHandleAdornment")
-                            box.Name = child.Name .. "_Adornment"
-                            box.Adornee = child
-                            box.AlwaysOnTop = true
-                            box.ZIndex = 10
-                            box.Size = child.Size
-                            box.Color3 = entry.TeamColor
-                            box.Transparency = 0
-                            box.Parent = container
-                            table.insert(entry.Boxes, box)
+                            local alreadyHasBox = false
+                            for _, existingBox in ipairs(entry.Boxes) do
+                                if existingBox and existingBox.Adornee == child then
+                                    alreadyHasBox = true
+                                    break
+                                end
+                            end
+                            if not alreadyHasBox then
+                                local box = Instance.new("BoxHandleAdornment")
+                                box.Name = child.Name .. "_Adornment"
+                                box.Adornee = child
+                                box.AlwaysOnTop = true
+                                box.ZIndex = 10
+                                box.Size = child.Size
+                                box.Color3 = entry.TeamColor
+                                box.Transparency = 0
+                                box.Parent = container
+                                table.insert(entry.Boxes, box)
+                            end
                         end
                     end
                 end)
@@ -1513,6 +1551,7 @@ local function GetScreenEdgeIntersection(startPos, dir, viewportSize, margin)
 end
 
 local RenderConnection = RunService.RenderStepped:Connect(function(dt)
+    local tStart = os.clock()
     dt = (type(dt) == "number" and dt > 0 and dt < 0.2) and dt or (1 / 60)
     locatorRenderFrame = (locatorRenderFrame + 1) % 120
     local Camera = Workspace.CurrentCamera
@@ -1812,7 +1851,7 @@ local RenderConnection = RunService.RenderStepped:Connect(function(dt)
     local tEnd = os.clock()
     if genv then
         genv._LocatorMetrics = {
-            totalMs = (tEnd - dt) * 1000, -- will be overwritten below
+            totalMs = (tEnd - tStart) * 1000,
             hlMs = (tEnd - tHlStart) * 1000,
             visibleCount = #visibleCandidates,
             lastActiveHl = lastActiveHighlights,
@@ -1975,11 +2014,15 @@ end
 local function Modification1(child)
     local DropDown = child
     if not DropDown or not DropDown:IsA("GuiObject") then return end
-    local inner = DropDown:WaitForChild("InnerFrame", 5)
-    if not inner then return end
-    inner.Position = UDim2.new(0, 0, 0, 0)
-    
     if DropDown:GetAttribute("LocatorHooked") then return end
+    DropDown:SetAttribute("LocatorHooked", true)
+
+    local inner = DropDown:WaitForChild("InnerFrame", 5)
+    if not inner then
+        DropDown:SetAttribute("LocatorHooked", nil)
+        return
+    end
+    inner.Position = UDim2.new(0, 0, 0, 0)
 
     local oldBtn = inner:FindFirstChild("LocateButton")
     if oldBtn then oldBtn:Destroy() end
@@ -1987,10 +2030,12 @@ local function Modification1(child)
     if oldPanel then oldPanel:Destroy() end
     
     local inspectBtn = inner:WaitForChild("InspectButton", 5)
-    if not inspectBtn then return end
+    if not inspectBtn then
+        DropDown:SetAttribute("LocatorHooked", nil)
+        return
+    end
     local LocateButton = inspectBtn:Clone()
     
-    DropDown:SetAttribute("LocatorHooked", true)
     LocateButton.Parent = inner
     Own(LocateButton)
     local dismissHandler = LocateButton:FindFirstChild("DismissInputHandler")
@@ -2012,7 +2057,11 @@ local function Modification1(child)
     end
     
     local PlayerHeader = inner:WaitForChild("PlayerHeader", 5)
-    if not PlayerHeader then return end
+    if not PlayerHeader then
+        LocateButton:Destroy()
+        DropDown:SetAttribute("LocatorHooked", nil)
+        return
+    end
     
     local PlayerNameLbl = PlayerHeader:FindFirstChild("PlayerName", true)
     local DisplayNameLbl = PlayerHeader:FindFirstChild("DisplayName", true)
@@ -2524,33 +2573,37 @@ local function Modification2()
         end
     end
     
-    Own(ActualList.DescendantAdded:Connect(function(desc)
-        if desc.Name == "NameFrame" then
-            local entry = desc:FindFirstAncestorWhichIsA("Frame")
-            if entry and entry.Name:sub(1, 12) == "PlayerEntry_" then
-                local userId = tonumber(entry.Name:sub(13))
-                local player = userId and Players:GetPlayerByUserId(userId)
-                if player and IsPlayerIndividuallyTracked(player.Name) then
-                    SetLeaderboardPlayerIcon(player, true)
-                end
-            elseif entry and entry.Name == "TeamEntry" then
-                local teamList = entry.Parent
-                if teamList and teamList.Name:sub(1, 9) == "TeamList_" then
-                    local teamName = teamList.Name:sub(10)
-                    if IsTeamTracked(teamName) then
-                        SetLeaderboardTeamIcon(teamName, true)
+    if not ActualList:GetAttribute("LocatorListHooked") then
+        ActualList:SetAttribute("LocatorListHooked", true)
+
+        Own(ActualList.DescendantAdded:Connect(function(desc)
+            if desc.Name == "NameFrame" then
+                local entry = desc:FindFirstAncestorWhichIsA("Frame")
+                if entry and entry.Name:sub(1, 12) == "PlayerEntry_" then
+                    local userId = tonumber(entry.Name:sub(13))
+                    local player = userId and Players:GetPlayerByUserId(userId)
+                    if player and IsPlayerIndividuallyTracked(player.Name) then
+                        SetLeaderboardPlayerIcon(player, true)
+                    end
+                elseif entry and entry.Name == "TeamEntry" then
+                    local teamList = entry.Parent
+                    if teamList and teamList.Name:sub(1, 9) == "TeamList_" then
+                        local teamName = teamList.Name:sub(10)
+                        if IsTeamTracked(teamName) then
+                            SetLeaderboardTeamIcon(teamName, true)
+                        end
                     end
                 end
             end
-        end
-    end))
-    
-    local ListenForNewTeams = ActualList.ChildAdded:Connect(function(child)
-        if child:IsA("Frame") and string.find(child.Name, "TeamList_", 1, true) then
-            HookTeamHeader(child)
-        end
-    end)
-    Own(ListenForNewTeams)
+        end))
+        
+        local ListenForNewTeams = ActualList.ChildAdded:Connect(function(child)
+            if child:IsA("Frame") and string.find(child.Name, "TeamList_", 1, true) then
+                HookTeamHeader(child)
+            end
+        end)
+        Own(ListenForNewTeams)
+    end
 end
 
 local function HookPlayerList(pl)
@@ -2597,8 +2650,9 @@ for _, d in ipairs(CoreGui:GetDescendants()) do
 end
 
 task.spawn(function()
-    while true do
+    while isSuiteActive do
         task.wait(0.5)
+        if not isSuiteActive then break end
         if not PlayerList or not PlayerList.Parent then
             local pl = CoreGui:FindFirstChild("PlayerList")
             if pl then
@@ -3358,8 +3412,9 @@ local function SetupWatcher()
     end))
 
     task.spawn(function()
-        while genv and genv.__EnhancementCleanup do
+        while isSuiteActive do
             task.wait(1.0)
+            if not isSuiteActive then break end
             local p = FindTargetPage()
             if ShouldRebuild(p) then
                 InjectEnhancementSettings(p)
@@ -3391,15 +3446,9 @@ local function SyncWithSystems()
     end
 end
 
-SyncWithSystems()
-SetupWatcher()
-
-local initPage = FindTargetPage()
-if initPage then
-    InjectEnhancementSettings(initPage)
-end
-
 local function FullSuiteCleanup()
+    isSuiteActive = false
+
     -- 1. Streamer Mode Cleanup
     if StreamerMode and StreamerMode.Disable then
         pcall(StreamerMode.Disable)
@@ -3437,6 +3486,9 @@ local function FullSuiteCleanup()
     -- 6. Leaderboard Cleanup
     local actualList = GetActualList()
     if actualList then
+        if actualList:GetAttribute("LocatorListHooked") then
+            actualList:SetAttribute("LocatorListHooked", nil)
+        end
         for _, desc in ipairs(actualList:GetDescendants()) do
             if desc.Name == "LocatorIcon" or desc.Name == "TeamLocatorIcon" then
                 desc:Destroy()
@@ -3452,6 +3504,9 @@ local function FullSuiteCleanup()
             end
             if desc:GetAttribute("LocatorHooked") then
                 desc:SetAttribute("LocatorHooked", nil)
+            end
+            if desc:GetAttribute("LocatorListHooked") then
+                desc:SetAttribute("LocatorListHooked", nil)
             end
         end
     end
@@ -3505,6 +3560,14 @@ if genv then
         Cleanup = FullSuiteCleanup,
     }
     genv.RobloxEnhancement = genv.OmniEnhancementSuite
+end
+
+SyncWithSystems()
+SetupWatcher()
+
+local initPage = FindTargetPage()
+if initPage then
+    InjectEnhancementSettings(initPage)
 end
 
 print("[OmniEnhancementSuite]: Successfully loaded and initialized all enhancement modules!")

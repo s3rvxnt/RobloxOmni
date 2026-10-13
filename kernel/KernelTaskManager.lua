@@ -53,6 +53,7 @@ local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local GuiService = game:GetService("GuiService")
 
 -- Forward declarations for signals & proxies
 local ProxiedSignals = {}
@@ -196,9 +197,10 @@ getgenv().ExemptScriptFromScheduler = function(pattern)
 end
 
 -- Safe loadstring shim with Adaptive Execution Gateway
-local origLoadstring = getgenv()._KernelOrigLoadstring or getgenv().loadstring or loadstring
-getgenv()._KernelOrigLoadstring = origLoadstring
-if type(origLoadstring) == "function" then
+if not getgenv()._AdaptiveExecutionGatewayInstalled or getgenv()._OmniEnableGameProxy == true then
+    local origLoadstring = getgenv()._KernelOrigLoadstring or getgenv().loadstring or loadstring
+    getgenv()._KernelOrigLoadstring = origLoadstring
+    if type(origLoadstring) == "function" then
         local function loadstringShim(src, chunkname)
             if typeof(src) == "Instance" then
                 if src:IsA("LuaSourceContainer") then
@@ -247,9 +249,10 @@ if type(origLoadstring) == "function" then
 
             if isObf then
                 -- Dynamic Virgin Handoff: restore virgin engine DataModel and builtins to getgenv()
-                -- Obfuscators (Luraph v14, LuaAuth) verify getfenv(1) == getgenv() and inspect metatables.
-                local rawGame = (workspace and workspace.Parent) or getgenv()._KernelOrigGame or game
-                getgenv().game = rawGame
+                -- Obfuscators (Luraph v14, LuaAuth) verify rawget(getgenv(), "game") == nil and inspect metatables.
+                if rawget(getgenv(), "game") ~= nil then
+                    getgenv().game = nil
+                end
                 if getgenv()._KernelOrigTypeof then
                     getgenv().typeof = getgenv()._KernelOrigTypeof
                 end
@@ -258,6 +261,15 @@ if type(origLoadstring) == "function" then
                 end
                 if getgenv()._KernelOrigCloneref then
                     getgenv().cloneref = getgenv()._KernelOrigCloneref
+                end
+                local curThread = coroutine.running()
+                if curThread then
+                    local exemptThreads = getgenv()._exemptObfuscatedThreads
+                    if not exemptThreads then
+                        exemptThreads = setmetatable({}, { __mode = "k" })
+                        getgenv()._exemptObfuscatedThreads = exemptThreads
+                    end
+                    exemptThreads[curThread] = os.clock() + 3600
                 end
 
                 -- NEVER call setfenv on obfuscated code: it breaks Luau VM fastpaths, traps loader variables
@@ -303,6 +315,7 @@ if type(origLoadstring) == "function" then
         getgenv()._AdaptiveExecutionGatewayInstalled = true
         getgenv()._KernelLoadstringShimInstalled = true
     end
+end
 
 local function isSelfOrKernel(name)
     if not name or name == "" or name == "KernelInternal" then return true end
@@ -691,7 +704,7 @@ local function runTask(taskObj, ...)
         end
 
         -- Continuous Fluid Auto-Throttler:
-        if not taskObj.locked and taskObj.event ~= "SuperStep" and (taskObj.basePriority == "High" or (taskObj.targetHz and taskObj.targetHz >= 25)) then
+        if not taskObj.locked and taskObj.event ~= "SuperStep" and (taskObj.basePriority == "High" or taskObj.priorityBand == "High" or (taskObj.targetHz and taskObj.targetHz >= 25)) then
         local isHeavy = durationMs > heavyThresholdMs or ((taskObj.recentAvgMs or 0) > heavyThresholdMs)
         if isHeavy then
             taskObj.heavyStreak = (taskObj.heavyStreak or 0) + 1
@@ -792,7 +805,7 @@ local function processFrame(eventState, ...)
                     if evState.tasks then
                         for _, tObj in pairs(evState.tasks) do
                             if tObj.connected and not tObj.paused then
-                                if tObj.isMax or tObj.basePriority == "High" or (tObj.targetRatio and tObj.targetRatio >= 0.95) then
+                                if tObj.isMax or tObj.basePriority == "High" or tObj.priorityBand == "High" or (tObj.targetRatio and tObj.targetRatio >= 0.95) then
                                     tObj.targetHz = maxHz
                                     if not tObj.autoThrottled then
                                         tObj.effectiveHz = maxHz
@@ -3004,6 +3017,7 @@ local function buildLoopProfile()
             end
         end
         loopOrder = newOrder
+        getgenv()._OmniLoopOrder = loopOrder
     end
 
     table.sort(list, function(a, b)
@@ -3523,7 +3537,7 @@ end
 
 local function KillAllLoops()
     local killedCount = 0
-    local survivingLoops = {}
+    local survivingLoops = setmetatable({}, { __mode = "k" })
     local survivingOrder = {}
     for thread, loop in pairs(loopRegistry) do
         if loop.isExecutor then
@@ -3541,14 +3555,18 @@ local function KillAllLoops()
         end
     end
     loopRegistry = survivingLoops
+    getgenv()._OmniLoopRegistry = loopRegistry
     loopOrder = survivingOrder
+    getgenv()._OmniLoopOrder = loopOrder
     emitProfile()
     return killedCount
 end
 
 local function ClearLoopRegistry()
-    loopRegistry = {}
+    loopRegistry = setmetatable({}, { __mode = "k" })
+    getgenv()._OmniLoopRegistry = loopRegistry
     loopOrder = {}
+    getgenv()._OmniLoopOrder = loopOrder
     emitProfile()
     return true
 end
@@ -4129,7 +4147,7 @@ local function SetSchedulerTaskLocked(identifier, isLocked)
         if taskObj.locked then
             taskObj.autoThrottled = false
             local maxHz = math.max(60, measuredFps or 60)
-            if taskObj.isMax or taskObj.basePriority == "High" or (taskObj.targetRatio and taskObj.targetRatio >= 0.95) then
+            if taskObj.isMax or taskObj.basePriority == "High" or taskObj.priorityBand == "High" or (taskObj.targetRatio and taskObj.targetRatio >= 0.95) then
                 taskObj.targetHz = maxHz
                 taskObj.effectiveHz = maxHz
                 taskObj.interval = 1
@@ -4192,14 +4210,19 @@ local function cleanUpScheduler(isTeardown)
     DiscoveredGameTaskGroups = {}
     DiscoveredGameTaskOrder = {}
 
-    -- Disarm all registered loops and clear thread registry
+    -- Unpause any paused loops without killing surviving user threads across hot-reload
+    loopsPausedAll = false
     for thread, loop in pairs(loopRegistry) do
-        loop.alive = false
         loop.paused = false
     end
     loopRegistry = setmetatable({}, { __mode = "k" })
+    getgenv()._OmniLoopRegistry = loopRegistry
     loopOrder = {}
+    getgenv()._OmniLoopOrder = loopOrder
     ignoredThreads = setmetatable({}, { __mode = "k" })
+    getgenv()._OmniIgnoredThreads = ignoredThreads
+    getgenv()._OmniActiveHookedTaskWait = nil
+    getgenv()._OmniActiveHookedWait = nil
 
     -- Clear ingested connection table and global pointer
     if ingestedConnections then
@@ -4681,8 +4704,8 @@ local function sortGameTaskList(gameTasks, colId, ascending)
                 if ascending then return nA < nB else return nA > nB end
             end
         elseif colId == "Status" then
-            local sA = tostring(a.status or ""):lower()
-            local sB = tostring(b.status or ""):lower()
+            local sA = (a.isIngested == true) and 1 or 0
+            local sB = (b.isIngested == true) and 1 or 0
             if sA ~= sB then
                 if ascending then return sA < sB else return sA > sB end
             end
@@ -5097,6 +5120,10 @@ applyRowColumnLayout = function(row, tabKey)
             eventLbl.TextTruncate = Enum.TextTruncate.AtEnd
             eventLbl.ClipsDescendants = true
         end
+        local statusBadge = row:FindFirstChild("StatusBadge")
+        if statusBadge then
+            statusBadge.Position = UDim2.new(pSts + wSts / 2, -42, 0.5, -10)
+        end
         local statusLbl = row:FindFirstChild("StatusLbl")
         if statusLbl then
             statusLbl.Position = UDim2.new(pSts, H_PAD, 0, 0)
@@ -5104,6 +5131,10 @@ applyRowColumnLayout = function(row, tabKey)
             statusLbl.TextXAlignment = Enum.TextXAlignment.Center
             statusLbl.TextTruncate = Enum.TextTruncate.AtEnd
             statusLbl.ClipsDescendants = true
+        end
+        local actionBtn = row:FindFirstChild("ActionBtn")
+        if actionBtn then
+            actionBtn.Position = UDim2.new(pAct + wAct / 2, -36, 0.5, -10)
         end
         local disconnectBtn = row:FindFirstChild("DisconnectBtn")
         if disconnectBtn then
@@ -7764,7 +7795,7 @@ Ed.Scroll:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 end)
 
 -- MouseWheel Smooth Scrolling over code container
-UserInputService.InputChanged:Connect(function(input)
+table.insert(hudWindowConnections, UserInputService.InputChanged:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseWheel and Ed.Modal.Visible then
         local mousePos = UserInputService:GetMouseLocation()
         local absPos = Ed.Scroll.AbsolutePosition
@@ -7777,7 +7808,7 @@ UserInputService.InputChanged:Connect(function(input)
             Ed.Scroll.CanvasPosition = Vector2.new(Ed.Scroll.CanvasPosition.X, math.clamp(currentY + delta, 0, maxY))
         end
     end
-end)
+end))
 
 -- Click-to-Position Navigation
 Ed.Scroll.InputBegan:Connect(function(input)
@@ -7797,7 +7828,7 @@ Ed.Scroll.InputBegan:Connect(function(input)
 end)
 
 -- Tab Key Support: 4 spaces insertion & focus retention
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
+table.insert(hudWindowConnections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if input.KeyCode == Enum.KeyCode.Tab and Ed.TextBox:IsFocused() and Ed.Modal.Visible then
         local p = Ed.TextBox.CursorPosition
         local t = Ed.TextBox.Text
@@ -7814,7 +7845,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             end)
         end
     end
-end)
+end))
 
 Ed.TextBox.Focused:Connect(function()
     updateCaretPos()
@@ -10808,9 +10839,6 @@ local function renderLoopRow(loopObj, idx)
 end
 
 -- Row 5: Game Task Row
-local cachedGameRows = {}
-
-
 local function renderGameTaskRow(entry, idx)
     local row = cachedGameRows[entry.id]
     if not row then
@@ -11228,7 +11256,7 @@ BtnPauseAll.MouseButton1Click:Connect(function()
     if profile and profile.tasks then
         local willPause = (BtnPauseAll.Text == "⏸ Pause All")
         for _, t in ipairs(profile.tasks) do
-            if getgenv().SetSchedulerTaskPaused then
+            if not t.isKernelInternal and not t.isIngested and getgenv().SetSchedulerTaskPaused then
                 getgenv().SetSchedulerTaskPaused(t.id, willPause)
             end
         end
@@ -11333,6 +11361,10 @@ BtnRescanStartup.MouseButton1Click:Connect(function()
         r:Destroy()
         cachedStartupRows[k] = nil
     end
+    scanStartupScripts(true)
+    if refreshStartupTab then
+        refreshStartupTab(true)
+    end
     task.delay(1.0, function()
         if BtnRescanStartup then BtnRescanStartup.Text = "🔄 Rescan Autoexec" end
     end)
@@ -11342,6 +11374,31 @@ local isHudOpen = false
 local isHudAnimating = false
 local lastHudToggleTime = 0
 local HUD_DEBOUNCE_DELAY = 0.35
+local HUD_CURSOR_STEP_NAME = "OmniTaskManagerCursorUnlock"
+
+local function bindHudCursorUnlock()
+    pcall(function()
+        rawRunService:UnbindFromRenderStep(HUD_CURSOR_STEP_NAME)
+    end)
+    pcall(function()
+        rawRunService:BindToRenderStep(HUD_CURSOR_STEP_NAME, Enum.RenderPriority.Last.Value, function()
+            if isHudOpen or (ScreenGui and ScreenGui.Enabled) then
+                if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+                    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                end
+                if not UserInputService.MouseIconEnabled then
+                    UserInputService.MouseIconEnabled = true
+                end
+            end
+        end)
+    end)
+end
+
+local function unbindHudCursorUnlock()
+    pcall(function()
+        rawRunService:UnbindFromRenderStep(HUD_CURSOR_STEP_NAME)
+    end)
+end
 
 local function openHUD()
     if isHudOpen or isHudAnimating then return end
@@ -11354,6 +11411,7 @@ local function openHUD()
     ScreenGui.Enabled = true
     UserInputService.MouseBehavior = Enum.MouseBehavior.Default
     UserInputService.MouseIconEnabled = true
+    bindHudCursorUnlock()
 
     local base = restingPos or MainFrame.Position
     MainFrame.Position = UDim2.new(base.X.Scale, base.X.Offset, base.Y.Scale - 0.05, base.Y.Offset)
@@ -11376,6 +11434,7 @@ local function closeHUD()
     lastHudToggleTime = now
     isHudAnimating = true
     isHudOpen = false
+    unbindHudCursorUnlock()
 
     local base = restingPos or MainFrame.Position
     local tween = TweenService:Create(MainFrame, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
@@ -11447,6 +11506,7 @@ cleanUpHUD = function()
     running = false
     isHudOpen = false
     isHudAnimating = false
+    unbindHudCursorUnlock()
     if keybindConnection then
         pcall(function() keybindConnection:Disconnect() end)
         keybindConnection = nil
@@ -11540,7 +11600,7 @@ local function initOmniParallelEngine()
     local pendingRequests = {}
 
     -- Track threads running inside an Actor to prevent re-probing on every call
-    local isThreadInActor = {}
+    local isThreadInActor = setmetatable({}, { __mode = "k" })
 
     -- Intelligent Actor Self-Detection Probe
     local function isCurrentThreadActor()
@@ -11902,7 +11962,7 @@ local function initOmniParallelEngine()
         Shapecast = true,
     }
 
-    local inParallelHook = {}
+    local inParallelHook = setmetatable({}, { __mode = "k" })
 
     local function isCallerObfuscatedFast()
         local cur = coroutine.running()

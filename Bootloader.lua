@@ -1213,7 +1213,11 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             getgenv()._OmniExemptClosures = setmetatable({}, { __mode = "k" })
         end
         local _exemptObfuscatedCallers = {}
-        local _exemptObfuscatedThreads = setmetatable({}, { __mode = "k" })
+        local _exemptObfuscatedThreads = getgenv()._exemptObfuscatedThreads or setmetatable({}, { __mode = "k" })
+        getgenv()._exemptObfuscatedThreads = _exemptObfuscatedThreads
+        local _trustedUrlByClosure = setmetatable({}, { __mode = "k" })
+        local _trustedUrlByThread = setmetatable({}, { __mode = "k" })
+        local _trustedUrlBySource = {}
 
         local function sanitizeCallerChunk(name)
             if not name or type(name) ~= "string" then return "" end
@@ -1229,10 +1233,82 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             return false
         end
 
-        local function compileExecutableChunk(code, chunk, isObf)
+        local function findParentTrustedUrl(curThread, ledgerUrls)
+            if curThread and _trustedUrlByThread[curThread] then
+                local u = _trustedUrlByThread[curThread]
+                if not ledgerUrls or ledgerUrls[u] then return u end
+            end
+            if debug and debug.info then
+                for lvl = 2, 25 do
+                    local okF, cFunc = pcall(debug.info, lvl, "f")
+                    if okF and cFunc and _trustedUrlByClosure[cFunc] then
+                        local u = _trustedUrlByClosure[cFunc]
+                        if not ledgerUrls or ledgerUrls[u] then return u end
+                    end
+                    local okS, cSrc = pcall(debug.info, lvl, "s")
+                    if okS and cSrc and type(cSrc) == "string" and cSrc ~= "" and cSrc ~= "[C]" then
+                        local bySrc = _trustedUrlBySource[cSrc] or _trustedUrlBySource[sanitizeCallerChunk(cSrc)]
+                        if bySrc and (not ledgerUrls or ledgerUrls[bySrc]) then
+                            return bySrc
+                        end
+                        if ledgerUrls then
+                            local matchedUrl = cSrc:match("^@?(https?://[%w-_%.%?%.:/%+=&]+)")
+                            if matchedUrl and ledgerUrls[matchedUrl] then
+                                return matchedUrl
+                            end
+                            local clean = sanitizeCallerChunk(cSrc)
+                            for u, entry in pairs(ledgerUrls) do
+                                if sanitizeCallerChunk(u) == clean or (entry.local_file and sanitizeCallerChunk(entry.local_file) == clean) then
+                                    return u
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            return nil
+        end
+
+        local function linkSubmoduleHash(ledger, parentUrl, hashToLink)
+            if not ledger or not ledger.urls or not parentUrl or not hashToLink then return false end
+            local entry = ledger.urls[parentUrl]
+            if not entry then return false end
+            local hLower = hashToLink:lower()
+            if entry.hash and entry.hash:lower() == hLower then return false end
+            if type(entry.submodules) ~= "table" then
+                entry.submodules = {}
+            end
+            for _, existingH in ipairs(entry.submodules) do
+                if existingH:lower() == hLower then
+                    return false
+                end
+            end
+            table.insert(entry.submodules, hLower)
+            return true
+        end
+
+        local function compileExecutableChunk(code, chunk, isObf, associatedUrl)
             local compiledFn, compileErr = origLoadstring(code, chunk)
             if not compiledFn then
                 return nil, compileErr
+            end
+
+            if associatedUrl and type(compiledFn) == "function" then
+                _trustedUrlByClosure[compiledFn] = associatedUrl
+                local curThread = coroutine.running()
+                if curThread then
+                    _trustedUrlByThread[curThread] = associatedUrl
+                end
+                if debug and debug.info then
+                    local okS, fnSrc = pcall(debug.info, compiledFn, "s")
+                    if okS and type(fnSrc) == "string" and fnSrc ~= "" and fnSrc ~= "[C]" then
+                        _trustedUrlBySource[fnSrc] = associatedUrl
+                        local cleanFnSrc = sanitizeCallerChunk(fnSrc)
+                        if not isGenericChunkName(cleanFnSrc) then
+                            _trustedUrlBySource[cleanFnSrc] = associatedUrl
+                        end
+                    end
+                end
             end
 
             if isObf then
@@ -1416,7 +1492,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                                 _exemptObfuscatedCallers[sanitizeCallerChunk(trustedEntry.local_file)] = true
                             end
                         end
-                        return compileExecutableChunk(src, chunkname, isObf)
+                        return compileExecutableChunk(src, chunkname, isObf, targetUrl)
                     else
                         -- Content was updated by the author!
                         local localCopy = (trustedEntry.local_file and isfile(trustedEntry.local_file) and readfile(trustedEntry.local_file)) or ""
@@ -1447,6 +1523,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                         end
 
                         if decision == "approve" then
+                            local oldHash = trustedEntry.hash
                             if trustedEntry.local_file then
                                 local safePath = (_validateSafeLocalPath and _validateSafeLocalPath(trustedEntry.local_file))
                                     or (validateSafeLocalPath and validateSafeLocalPath(trustedEntry.local_file))
@@ -1454,9 +1531,18 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                                     pcall(writefile, safePath, src)
                                 end
                             end
+                            if not ledger.hashes then ledger.hashes = {} end
+                            if oldHash and oldHash ~= srcHash then
+                                ledger.hashes[oldHash] = nil
+                            end
+                            if localCopy and localCopy ~= "" then
+                                local oldRawH = computeSha256(localCopy)
+                                local oldNormH = computeSha256(localCopy:gsub("\r\n", "\n"))
+                                if oldRawH then ledger.hashes[oldRawH] = nil end
+                                if oldNormH then ledger.hashes[oldNormH] = nil end
+                            end
                             trustedEntry.hash = srcHash
                             trustedEntry.last_updated = os.time()
-                            if not ledger.hashes then ledger.hashes = {} end
                             ledger.hashes[srcHash] = true
                             ledger.hashes[normSrcHash] = true
                             saveTrustedUrlLedger(ledger)
@@ -1468,7 +1554,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                                     _exemptObfuscatedCallers[sanitizeCallerChunk(trustedEntry.local_file)] = true
                                 end
                             end
-                            return compileExecutableChunk(src, chunkname, isObf)
+                            return compileExecutableChunk(src, chunkname, isObf, targetUrl)
                         elseif decision == "run_previous" then
                             if localCopy and localCopy ~= "" then
                                 local effectiveChunk = chunkname or ("@" .. targetUrl)
@@ -1479,7 +1565,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                                         _exemptObfuscatedCallers[sanitizeCallerChunk(trustedEntry.local_file)] = true
                                     end
                                 end
-                                return compileExecutableChunk(localCopy, chunkname, isObf)
+                                return compileExecutableChunk(localCopy, chunkname, isObf, targetUrl)
                             else
                                 return nil, "Omni Security Gate: No previous safe version found on disk"
                             end
@@ -1522,7 +1608,8 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                             hash = srcHash,
                             local_file = safeFilename,
                             first_trusted = os.time(),
-                            last_updated = os.time()
+                            last_updated = os.time(),
+                            submodules = {}
                         }
                         if not ledger.hashes then ledger.hashes = {} end
                         ledger.hashes[srcHash] = true
@@ -1534,16 +1621,21 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                             _exemptObfuscatedCallers[sanitizeCallerChunk(targetUrl)] = true
                             _exemptObfuscatedCallers[sanitizeCallerChunk(filename)] = true
                         end
-                        return compileExecutableChunk(src, chunkname, isObf)
+                        return compileExecutableChunk(src, chunkname, isObf, targetUrl)
                     else
                         return nil, "Omni Security Gate: Execution blocked by user"
                     end
                 end
             else
                 -- Dynamic / Inline loadstring (no URL)
+                local parentUrl = findParentTrustedUrl(curThread, ledger.urls)
                 if _sessionApprovedHashes[srcHash] or (ledger.hashes and ledger.hashes[srcHash]) then
+                    if parentUrl and linkSubmoduleHash(ledger, parentUrl, srcHash) then
+                        ledger.hashes[srcHash] = true
+                        saveTrustedUrlLedger(ledger)
+                    end
                     local isObf = isObfuscatedCode(src, chunkname)
-                    return compileExecutableChunk(src, chunkname, isObf)
+                    return compileExecutableChunk(src, chunkname, isObf, parentUrl)
                 end
 
                 local badges = auditScriptContent(src)
@@ -1576,17 +1668,26 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
                     if decision == "approve" then
                         _sessionApprovedHashes[srcHash] = true
+                        if not ledger.hashes then ledger.hashes = {} end
                         ledger.hashes[srcHash] = true
+                        if parentUrl then
+                            linkSubmoduleHash(ledger, parentUrl, srcHash)
+                        end
                         saveTrustedUrlLedger(ledger)
                         local isObf = isObfuscatedCode(src, chunkname)
-                        return compileExecutableChunk(src, chunkname, isObf)
+                        return compileExecutableChunk(src, chunkname, isObf, parentUrl)
                     else
                         return nil, "Omni Security Gate: Execution blocked by user"
                     end
                 else
                     _sessionApprovedHashes[srcHash] = true
+                    if parentUrl and linkSubmoduleHash(ledger, parentUrl, srcHash) then
+                        if not ledger.hashes then ledger.hashes = {} end
+                        ledger.hashes[srcHash] = true
+                        saveTrustedUrlLedger(ledger)
+                    end
                     local isObf = isObfuscatedCode(src, chunkname)
-                    return compileExecutableChunk(src, chunkname, isObf)
+                    return compileExecutableChunk(src, chunkname, isObf, parentUrl)
                 end
             end
         end
@@ -1719,6 +1820,212 @@ end
 
 if SafeMode then
     print(string.format("[Bootloader]: ⚠️ SAFE MODE ENGAGED (Reason: %s) — Bypassing user autoexec scripts.", tostring(SafeModeReason)))
+end
+
+-- ==============================================================================
+-- LEDGER MANAGEMENT & MANIFEST STAGE REGISTRY
+-- ==============================================================================
+local LEDGER_PATH = "Omni_Ledger.json"
+local KERNEL_INIT_MARKER = "Omni_KernelInitialized.marker"
+
+local function loadLedger()
+    if type(isfile) == "function" and isfile(LEDGER_PATH) then
+        local ok, raw = pcall(readfile, LEDGER_PATH)
+        if ok and raw and #raw > 2 then
+            local okDec, data = pcall(function() return HttpService:JSONDecode(raw) end)
+            if okDec and type(data) == "table" then
+                data.components = data.components or {}
+                data.auto_update = (data.auto_update == true)
+                return data
+            end
+        end
+    end
+    return { version = CURRENT_OMNI_VERSION, components = {}, auto_update = false }
+end
+
+local function saveLedger(ledger)
+    if type(writefile) == "function" and HttpService then
+        pcall(function()
+            writefile(LEDGER_PATH, HttpService:JSONEncode(ledger))
+        end)
+    end
+end
+
+-- ==============================================================================
+-- SANDBOX PATH TRAVERSAL SANITIZATION & BOUNDARY VALIDATION
+-- ==============================================================================
+local function validateSafeLocalPath(path)
+    if type(path) ~= "string" or #path == 0 or #path > 260 then
+        return nil
+    end
+    -- Reject null bytes and non-printable control characters
+    if path:find("[\0-\31\127]") then
+        return nil
+    end
+    -- Reject illegal Windows filename characters (< > : " | ? *)
+    if path:find('[<>:"|%?%*]') then
+        return nil
+    end
+    -- Reject URL-encoded traversal (%2e, %2f, %5c, %25)
+    local lowerPath = path:lower()
+    if lowerPath:find("%%2e") or lowerPath:find("%%2f") or lowerPath:find("%%5c") or lowerPath:find("%%25") then
+        return nil
+    end
+    -- Reject absolute paths (leading slashes / or \)
+    if path:match("^[/\\]") then
+        return nil
+    end
+    -- Normalize backslashes to forward slashes for validation
+    local normalized = path:gsub("\\", "/")
+    -- Reject directory traversal (../ or /.. or ^../ or /..$)
+    if normalized:find("%.%./") or normalized:find("/%.%.") or normalized == ".." or normalized:match("^%.%.$") then
+        return nil
+    end
+    -- Reject consecutive slashes
+    if normalized:find("//") then
+        return nil
+    end
+    -- Reject trailing dots or whitespace (Windows canonicalization vulnerability)
+    if normalized:match("[%s%.]$") then
+        return nil
+    end
+    -- Enforce sandbox boundary: must be inside autoexec/ or workspace/ or omni_trusted_scripts/ or be a local filename
+    if not (normalized:match("^autoexec/") or normalized:match("^workspace/") or normalized:match("^omni_trusted_scripts/") or not normalized:find("/")) then
+        return nil
+    end
+    -- Reject Windows DOS reserved device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+    local fileName = normalized:match("[^/]+$") or normalized
+    local baseName = fileName:match("^([^%.]+)") or fileName
+    local upperBase = baseName:upper()
+    if upperBase == "CON" or upperBase == "PRN" or upperBase == "AUX" or upperBase == "NUL"
+        or upperBase:match("^COM[1-9]$") or upperBase:match("^LPT[1-9]$") then
+        return nil
+    end
+    -- Reject targeting bootloader core files and runtime lock/sentinel files
+    local lowerNorm = normalized:lower()
+    if lowerNorm == "bootloader.lua" or lowerNorm == "autoexec/bootloader.lua"
+        or lowerNorm:find("bootloader_running%.lock")
+        or lowerNorm:find("bootloader_handoff%.lock")
+        or lowerNorm:find("safe_mode%.lock") then
+        return nil
+    end
+    -- Enforce strict file extension whitelist (only Luau scripts, json configs, and markers)
+    local ext = normalized:match("%.([^%./\\]+)$")
+    if ext then
+        local lowerExt = ext:lower()
+        if lowerExt ~= "lua" and lowerExt ~= "luau" and lowerExt ~= "json" and lowerExt ~= "txt" and lowerExt ~= "marker" then
+            return nil
+        end
+    end
+    return normalized
+end
+_validateSafeLocalPath = validateSafeLocalPath
+
+-- Initial Core Components Bootstrap (Ensures all official stages are initialized on fresh install)
+-- Strictly respects user sovereignty: if already initialized, deleted or .off components are NEVER silently re-downloaded
+local BOOTSTRAP_STAGES = {
+    {
+        repoPath = "kernel/KernelTaskManager.lua",
+        localPath = "autoexec/kernel/KernelTaskManager.lua",
+        name = "KernelTaskManager",
+        sha256 = "a845114e8897c549e05ff7c2c122ae274b9362e6f7aafea16cba0f177f18449c"
+    },
+    {
+        repoPath = "gameloaded/OmniEnhancementSuite.lua",
+        localPath = "autoexec/gameloaded/OmniEnhancementSuite.lua",
+        name = "OmniEnhancementSuite",
+        sha256 = "99bbe6a29540beff378029f2f1123be7040a8f04b731b642bd8483b7eb3fa779"
+    },
+    {
+        repoPath = "gameloaded/OmniLoadstringManager.lua",
+        localPath = "autoexec/gameloaded/OmniLoadstringManager.lua",
+        name = "OmniLoadstringManager",
+        sha256 = "b421e238825e7d920ac123cfd02e838f084201a44dfbe23b8eca2f5b33044f16"
+    }
+}
+
+local manifestStagesByName = {}
+
+local function registerManifestStage(st)
+    if type(st) ~= "table" then return end
+    if table.freeze then pcall(table.freeze, st) end
+    local name = st.name
+    if name and type(name) == "string" then
+        manifestStagesByName[name] = st
+        manifestStagesByName[name:lower()] = st
+        local cleanName = name:gsub("%.luau?$", "")
+        manifestStagesByName[cleanName] = st
+        manifestStagesByName[cleanName:lower()] = st
+        manifestStagesByName[cleanName .. ".lua"] = st
+        manifestStagesByName[cleanName .. ".luau"] = st
+    end
+    local lp = st.localPath or st.path
+    if lp and type(lp) == "string" then
+        manifestStagesByName[lp] = st
+        manifestStagesByName[lp:lower()] = st
+        local normFwd = lp:gsub("\\", "/")
+        local normBack = lp:gsub("/", "\\")
+        manifestStagesByName[normFwd] = st
+        manifestStagesByName[normBack] = st
+        manifestStagesByName[normFwd:lower()] = st
+        manifestStagesByName[normBack:lower()] = st
+        local noAuto = normFwd:gsub("^autoexec/", "")
+        manifestStagesByName[noAuto] = st
+        manifestStagesByName[noAuto:lower()] = st
+        local base = normFwd:match("[^/]+$")
+        if base then
+            manifestStagesByName[base] = st
+            manifestStagesByName[base:lower()] = st
+            local baseNoExt = base:gsub("%.luau?$", "")
+            manifestStagesByName[baseNoExt] = st
+            manifestStagesByName[baseNoExt:lower()] = st
+            manifestStagesByName[baseNoExt .. ".lua"] = st
+            manifestStagesByName[baseNoExt .. ".luau"] = st
+        end
+    end
+end
+
+local function lookupManifestStage(name, filePath)
+    if not manifestStagesByName then return nil end
+    local candidates = {}
+    if name and type(name) == "string" then
+        table.insert(candidates, name)
+        table.insert(candidates, name:lower())
+        local clean = name:gsub("%.luau?$", "")
+        table.insert(candidates, clean)
+        table.insert(candidates, clean:lower())
+        table.insert(candidates, clean .. ".lua")
+        table.insert(candidates, clean .. ".luau")
+    end
+    if filePath and type(filePath) == "string" then
+        table.insert(candidates, filePath)
+        table.insert(candidates, filePath:lower())
+        local normFwd = filePath:gsub("\\", "/")
+        local normBack = filePath:gsub("/", "\\")
+        table.insert(candidates, normFwd)
+        table.insert(candidates, normBack)
+        table.insert(candidates, (normFwd:gsub("^autoexec/", "")))
+        table.insert(candidates, (normFwd:gsub("^autoexec/", "")):lower())
+        local base = normFwd:match("[^/]+$")
+        if base then
+            table.insert(candidates, base)
+            table.insert(candidates, base:lower())
+            local baseNoExt = base:gsub("%.luau?$", "")
+            table.insert(candidates, baseNoExt)
+            table.insert(candidates, baseNoExt:lower())
+            table.insert(candidates, baseNoExt .. ".lua")
+            table.insert(candidates, baseNoExt .. ".luau")
+        end
+    end
+    for _, c in ipairs(candidates) do
+        local st = manifestStagesByName[c]
+        if st then return st end
+    end
+    return nil
+end
+
+for _, bStage in ipairs(BOOTSTRAP_STAGES) do
+    registerManifestStage(bStage)
 end
 
 -- ==============================================================================
@@ -1896,212 +2203,6 @@ local function fetchGithubScript(url)
     return nil
 end
 
--- ==============================================================================
--- LEDGER MANAGEMENT & INITIAL CORE BOOTSTRAP GATE
--- ==============================================================================
-local LEDGER_PATH = "Omni_Ledger.json"
-local KERNEL_INIT_MARKER = "Omni_KernelInitialized.marker"
-
-local function loadLedger()
-    if type(isfile) == "function" and isfile(LEDGER_PATH) then
-        local ok, raw = pcall(readfile, LEDGER_PATH)
-        if ok and raw and #raw > 2 then
-            local okDec, data = pcall(function() return HttpService:JSONDecode(raw) end)
-            if okDec and type(data) == "table" then
-                data.components = data.components or {}
-                data.auto_update = (data.auto_update == true)
-                return data
-            end
-        end
-    end
-    return { version = CURRENT_OMNI_VERSION, components = {}, auto_update = false }
-end
-
-local function saveLedger(ledger)
-    if type(writefile) == "function" and HttpService then
-        pcall(function()
-            writefile(LEDGER_PATH, HttpService:JSONEncode(ledger))
-        end)
-    end
-end
-
--- ==============================================================================
--- SANDBOX PATH TRAVERSAL SANITIZATION & BOUNDARY VALIDATION
--- ==============================================================================
-local function validateSafeLocalPath(path)
-    if type(path) ~= "string" or #path == 0 or #path > 260 then
-        return nil
-    end
-    -- Reject null bytes and non-printable control characters
-    if path:find("[\0-\31\127]") then
-        return nil
-    end
-    -- Reject illegal Windows filename characters (< > : " | ? *)
-    if path:find('[<>:"|%?%*]') then
-        return nil
-    end
-    -- Reject URL-encoded traversal (%2e, %2f, %5c, %25)
-    local lowerPath = path:lower()
-    if lowerPath:find("%%2e") or lowerPath:find("%%2f") or lowerPath:find("%%5c") or lowerPath:find("%%25") then
-        return nil
-    end
-    -- Reject absolute paths (leading slashes / or \)
-    if path:match("^[/\\]") then
-        return nil
-    end
-    -- Normalize backslashes to forward slashes for validation
-    local normalized = path:gsub("\\", "/")
-    -- Reject directory traversal (../ or /.. or ^../ or /..$)
-    if normalized:find("%.%./") or normalized:find("/%.%.") or normalized == ".." or normalized:match("^%.%.$") then
-        return nil
-    end
-    -- Reject consecutive slashes
-    if normalized:find("//") then
-        return nil
-    end
-    -- Reject trailing dots or whitespace (Windows canonicalization vulnerability)
-    if normalized:match("[%s%.]$") then
-        return nil
-    end
-    -- Enforce sandbox boundary: must be inside autoexec/ or workspace/ or omni_trusted_scripts/ or be a local filename
-    if not (normalized:match("^autoexec/") or normalized:match("^workspace/") or normalized:match("^omni_trusted_scripts/") or not normalized:find("/")) then
-        return nil
-    end
-    -- Reject Windows DOS reserved device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
-    local fileName = normalized:match("[^/]+$") or normalized
-    local baseName = fileName:match("^([^%.]+)") or fileName
-    local upperBase = baseName:upper()
-    if upperBase == "CON" or upperBase == "PRN" or upperBase == "AUX" or upperBase == "NUL"
-        or upperBase:match("^COM[1-9]$") or upperBase:match("^LPT[1-9]$") then
-        return nil
-    end
-    -- Reject targeting bootloader core files and runtime lock/sentinel files
-    local lowerNorm = normalized:lower()
-    if lowerNorm == "bootloader.lua" or lowerNorm == "autoexec/bootloader.lua"
-        or lowerNorm:find("bootloader_running%.lock")
-        or lowerNorm:find("bootloader_handoff%.lock")
-        or lowerNorm:find("safe_mode%.lock") then
-        return nil
-    end
-    -- Enforce strict file extension whitelist (only Luau scripts, json configs, and markers)
-    local ext = normalized:match("%.([^%./\\]+)$")
-    if ext then
-        local lowerExt = ext:lower()
-        if lowerExt ~= "lua" and lowerExt ~= "luau" and lowerExt ~= "json" and lowerExt ~= "txt" and lowerExt ~= "marker" then
-            return nil
-        end
-    end
-    return normalized
-end
-_validateSafeLocalPath = validateSafeLocalPath
-
--- Initial Core Components Bootstrap (Ensures all official stages are initialized on fresh install)
--- Strictly respects user sovereignty: if already initialized, deleted or .off components are NEVER silently re-downloaded
-local BOOTSTRAP_STAGES = {
-    {
-        repoPath = "kernel/KernelTaskManager.lua",
-        localPath = "autoexec/kernel/KernelTaskManager.lua",
-        name = "KernelTaskManager",
-        sha256 = "637eb9e9a30b001928a0b8c682b7c864c3c0b30d3df231168203111170214da8"
-    },
-    {
-        repoPath = "gameloaded/OmniEnhancementSuite.lua",
-        localPath = "autoexec/gameloaded/OmniEnhancementSuite.lua",
-        name = "OmniEnhancementSuite",
-        sha256 = "019ca8d2067f12edefff2fc608bf5acaf3254aaa438c47cd70d551bd4e371ecd"
-    },
-    {
-        repoPath = "gameloaded/OmniLoadstringManager.lua",
-        localPath = "autoexec/gameloaded/OmniLoadstringManager.lua",
-        name = "OmniLoadstringManager",
-        sha256 = "ea9a247a4fb9c16654d04e812775ee6bab818488aef3562a29cb291c838ab726"
-    }
-}
-
-local manifestStagesByName = {}
-
-local function registerManifestStage(st)
-    if type(st) ~= "table" then return end
-    if table.freeze then pcall(table.freeze, st) end
-    local name = st.name
-    if name and type(name) == "string" then
-        manifestStagesByName[name] = st
-        manifestStagesByName[name:lower()] = st
-        local cleanName = name:gsub("%.luau?$", "")
-        manifestStagesByName[cleanName] = st
-        manifestStagesByName[cleanName:lower()] = st
-        manifestStagesByName[cleanName .. ".lua"] = st
-        manifestStagesByName[cleanName .. ".luau"] = st
-    end
-    local lp = st.localPath or st.path
-    if lp and type(lp) == "string" then
-        manifestStagesByName[lp] = st
-        manifestStagesByName[lp:lower()] = st
-        local normFwd = lp:gsub("\\", "/")
-        local normBack = lp:gsub("/", "\\")
-        manifestStagesByName[normFwd] = st
-        manifestStagesByName[normBack] = st
-        manifestStagesByName[normFwd:lower()] = st
-        manifestStagesByName[normBack:lower()] = st
-        local noAuto = normFwd:gsub("^autoexec/", "")
-        manifestStagesByName[noAuto] = st
-        manifestStagesByName[noAuto:lower()] = st
-        local base = normFwd:match("[^/]+$")
-        if base then
-            manifestStagesByName[base] = st
-            manifestStagesByName[base:lower()] = st
-            local baseNoExt = base:gsub("%.luau?$", "")
-            manifestStagesByName[baseNoExt] = st
-            manifestStagesByName[baseNoExt:lower()] = st
-            manifestStagesByName[baseNoExt .. ".lua"] = st
-            manifestStagesByName[baseNoExt .. ".luau"] = st
-        end
-    end
-end
-
-local function lookupManifestStage(name, filePath)
-    if not manifestStagesByName then return nil end
-    local candidates = {}
-    if name and type(name) == "string" then
-        table.insert(candidates, name)
-        table.insert(candidates, name:lower())
-        local clean = name:gsub("%.luau?$", "")
-        table.insert(candidates, clean)
-        table.insert(candidates, clean:lower())
-        table.insert(candidates, clean .. ".lua")
-        table.insert(candidates, clean .. ".luau")
-    end
-    if filePath and type(filePath) == "string" then
-        table.insert(candidates, filePath)
-        table.insert(candidates, filePath:lower())
-        local normFwd = filePath:gsub("\\", "/")
-        local normBack = filePath:gsub("/", "\\")
-        table.insert(candidates, normFwd)
-        table.insert(candidates, normBack)
-        table.insert(candidates, (normFwd:gsub("^autoexec/", "")))
-        table.insert(candidates, (normFwd:gsub("^autoexec/", "")):lower())
-        local base = normFwd:match("[^/]+$")
-        if base then
-            table.insert(candidates, base)
-            table.insert(candidates, base:lower())
-            local baseNoExt = base:gsub("%.luau?$", "")
-            table.insert(candidates, baseNoExt)
-            table.insert(candidates, baseNoExt:lower())
-            table.insert(candidates, baseNoExt .. ".lua")
-            table.insert(candidates, baseNoExt .. ".luau")
-        end
-    end
-    for _, c in ipairs(candidates) do
-        local st = manifestStagesByName[c]
-        if st then return st end
-    end
-    return nil
-end
-
-for _, bStage in ipairs(BOOTSTRAP_STAGES) do
-    registerManifestStage(bStage)
-end
-
 local registeredBasenames = {}
 
 local function isStageDisabled(localPath)
@@ -2256,35 +2357,35 @@ end
 -- ==============================================================================
 -- ROOT OF TRUST: OMNI SECURITY & TRANSPARENCY GATE
 -- ==============================================================================
-
-initUpdateGate = function(guiParent, UpdateBadge)
-    local cachedLatestSha = nil
-    local function getLatestCommitSha()
-        if cachedLatestSha then return cachedLatestSha end
-        local ok, res = pcall(function()
-            if type(request) == "function" then
-                local resp = request({
-                    Url = "https://api.github.com/repos/s3rvxnt/RobloxOmni/commits/main",
-                    Method = "GET",
-                    Headers = { ["User-Agent"] = "OmniUpdater" }
-                })
-                if resp and resp.StatusCode == 200 and resp.Body then
-                    local data = HttpService:JSONDecode(resp.Body)
-                    return data and data.sha
-                end
-            end
-            local raw = safeHttpGet("https://api.github.com/repos/s3rvxnt/RobloxOmni/commits/main")
-            if raw and #raw > 0 then
-                local data = HttpService:JSONDecode(raw)
+local cachedLatestSha = nil
+local function getLatestCommitSha()
+    if cachedLatestSha then return cachedLatestSha end
+    local ok, res = pcall(function()
+        if type(request) == "function" then
+            local resp = request({
+                Url = "https://api.github.com/repos/s3rvxnt/RobloxOmni/commits/main",
+                Method = "GET",
+                Headers = { ["User-Agent"] = "OmniUpdater" }
+            })
+            if resp and resp.StatusCode == 200 and resp.Body then
+                local data = HttpService:JSONDecode(resp.Body)
                 return data and data.sha
             end
-        end)
-        if ok and res and type(res) == "string" and #res > 10 then
-            cachedLatestSha = res
-            return res
         end
-        return "main"
+        local raw = safeHttpGet("https://api.github.com/repos/s3rvxnt/RobloxOmni/commits/main")
+        if raw and #raw > 0 then
+            local data = HttpService:JSONDecode(raw)
+            return data and data.sha
+        end
+    end)
+    if ok and res and type(res) == "string" and #res > 10 then
+        cachedLatestSha = res
+        return res
     end
+    return "main"
+end
+
+initUpdateGate = function(guiParent, UpdateBadge)
 
     -- Security Heuristics Audit
     local function auditScriptContent(code)
@@ -2674,6 +2775,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
         
         StatusSuccess = Color3.fromRGB(50, 220, 120), -- #32DC78: Green status / additions
         StatusWarning = Color3.fromRGB(255, 175, 50), -- #FFAF32: Yellow advisory / warnings
+        StatusDanger  = Color3.fromRGB(255, 75, 75),  -- #FF4B4B: Red status / deletions
     }
 
     -- Update Gate & Security State Controllers
@@ -3785,6 +3887,31 @@ initUpdateGate = function(guiParent, UpdateBadge)
     local MODAL_DEBOUNCE_DELAY = 0.35
     local modalRestingPos = UDim2.new(0.5, -360, 0.5, -260)
 
+    local CURSOR_STEP_NAME = "OmniUpdateGateCursorUnlock"
+    local function bindCursorUnlock()
+        pcall(function()
+            RunService:UnbindFromRenderStep(CURSOR_STEP_NAME)
+        end)
+        pcall(function()
+            RunService:BindToRenderStep(CURSOR_STEP_NAME, Enum.RenderPriority.Last.Value, function()
+                if isModalOpen or (ModalBackdrop and ModalBackdrop.Visible) then
+                    if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+                        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                    end
+                    if not UserInputService.MouseIconEnabled then
+                        UserInputService.MouseIconEnabled = true
+                    end
+                end
+            end)
+        end)
+    end
+
+    local function unbindCursorUnlock()
+        pcall(function()
+            RunService:UnbindFromRenderStep(CURSOR_STEP_NAME)
+        end)
+    end
+
     local function animateModalIn()
         isModalOpen = true
         isModalAnimating = true
@@ -3797,6 +3924,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
         UserInputService.MouseIconEnabled = true
+        bindCursorUnlock()
 
         TweenService:Create(ModalBackdrop, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundTransparency = 0.6
@@ -3814,11 +3942,13 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
     local function animateModalOut(onComplete)
         if not isModalOpen and not ModalBackdrop.Visible then
+            unbindCursorUnlock()
             if onComplete then onComplete() end
             return
         end
         isModalOpen = false
         isModalAnimating = true
+        unbindCursorUnlock()
         local base = modalRestingPos or ModalFrame.Position
 
         TweenService:Create(ModalBackdrop, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
@@ -3871,7 +4001,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "637eb9e9a30b001928a0b8c682b7c864c3c0b30d3df231168203111170214da8"
+                    sha256 = "a845114e8897c549e05ff7c2c122ae274b9362e6f7aafea16cba0f177f18449c"
                 }
             }
         end
@@ -4915,6 +5045,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
             end
         end,
         cleanup = function()
+            unbindCursorUnlock()
             if inputConn then pcall(function() inputConn:Disconnect() end); inputConn = nil end
             if UpdateScreenGui then pcall(function() UpdateScreenGui:Destroy() end); UpdateScreenGui = nil end
             getgenv().OpenOmniUpdateGate = nil

@@ -19,7 +19,7 @@
       "stage": "Kernel",
       "name": "KernelTaskManager",
       "desc": "Kernel Task Manager & Runtime Micro-Kernel (Shift + F8)",
-      "sha256": "637eb9e9a30b001928a0b8c682b7c864c3c0b30d3df231168203111170214da8"
+      "sha256": "a845114e8897c549e05ff7c2c122ae274b9362e6f7aafea16cba0f177f18449c"
     },
     {
       "repoPath": "gameloaded/OmniEnhancementSuite.lua",
@@ -27,7 +27,7 @@
       "stage": "GameLoaded",
       "name": "OmniEnhancementSuite",
       "desc": "Omni Enhancement Suite (Streamer Mode, Space Bubble, Player ESP, Anti-AFK)",
-      "sha256": "019ca8d2067f12edefff2fc608bf5acaf3254aaa438c47cd70d551bd4e371ecd"
+      "sha256": "99bbe6a29540beff378029f2f1123be7040a8f04b731b642bd8483b7eb3fa779"
     },
     {
       "repoPath": "gameloaded/OmniLoadstringManager.lua",
@@ -35,7 +35,7 @@
       "stage": "GameLoaded",
       "name": "OmniLoadstringManager",
       "desc": "Omni Loadstring & Trust Manager (F6 or Shift + F6)",
-      "sha256": "ea9a247a4fb9c16654d04e812775ee6bab818488aef3562a29cb291c838ab726"
+      "sha256": "b421e238825e7d920ac123cfd02e838f084201a44dfbe23b8eca2f5b33044f16"
     }
   ]
 }

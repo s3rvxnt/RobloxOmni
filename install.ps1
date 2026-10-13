@@ -200,32 +200,60 @@ foreach ($root in $detectedRoots) {
     $kernelMarkerDest = Join-Path $workspaceDir "Omni_KernelInitialized.marker"
     [IO.File]::WriteAllText($kernelMarkerDest, [string]$timestamp, [Text.UTF8Encoding]::new($false))
 
-    # Initialize Omni_Ledger.json with pre-installed components
+    # Initialize Omni_Ledger.json with pre-installed components (preserving existing auto_update preference)
+    $ledgerDest = Join-Path $workspaceDir "Omni_Ledger.json"
+    $autoUpdatePref = $false
+    if (Test-Path $ledgerDest) {
+        try {
+            $existingLedger = Get-Content -Path $ledgerDest -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($null -ne $existingLedger.auto_update) {
+                $autoUpdatePref = [bool]$existingLedger.auto_update
+            }
+        } catch {}
+    }
+
+    $manifestHashes = @{}
+    if ($contents["manifest"]) {
+        try {
+            $parsedManifest = $contents["manifest"] | ConvertFrom-Json
+            if ($parsedManifest.stages) {
+                foreach ($st in $parsedManifest.stages) {
+                    if ($st.name -and $st.sha256) {
+                        $manifestHashes[$st.name] = [string]$st.sha256
+                    }
+                }
+            }
+        } catch {}
+    }
+
     $ledgerObj = [PSCustomObject]@{
         version = "1.0.0"
+        auto_update = $autoUpdatePref
         components = [PSCustomObject]@{
             KernelTaskManager = [PSCustomObject]@{
                 installed = $true
                 lastSeenVersion = "1.0.0"
                 path = "autoexec/kernel/KernelTaskManager.lua"
+                sha256 = $(if ($manifestHashes["KernelTaskManager"]) { $manifestHashes["KernelTaskManager"] } else { "" })
                 updatedAt = [int]$timestamp
             }
             OmniEnhancementSuite = [PSCustomObject]@{
                 installed = $true
                 lastSeenVersion = "1.0.0"
                 path = "autoexec/gameloaded/OmniEnhancementSuite.lua"
+                sha256 = $(if ($manifestHashes["OmniEnhancementSuite"]) { $manifestHashes["OmniEnhancementSuite"] } else { "" })
                 updatedAt = [int]$timestamp
             }
             OmniLoadstringManager = [PSCustomObject]@{
                 installed = $true
                 lastSeenVersion = "1.0.0"
                 path = "autoexec/gameloaded/OmniLoadstringManager.lua"
+                sha256 = $(if ($manifestHashes["OmniLoadstringManager"]) { $manifestHashes["OmniLoadstringManager"] } else { "" })
                 updatedAt = [int]$timestamp
             }
         }
     }
     $ledgerJson = $ledgerObj | ConvertTo-Json -Depth 4
-    $ledgerDest = Join-Path $workspaceDir "Omni_Ledger.json"
     [IO.File]::WriteAllText($ledgerDest, $ledgerJson, [Text.UTF8Encoding]::new($false))
 
     Write-Host "[OK] $execName" -ForegroundColor Green
