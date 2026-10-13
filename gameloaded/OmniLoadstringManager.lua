@@ -383,8 +383,8 @@ CloseBtn.Font = Enum.Font.GothamBold
 CloseBtn.TextSize = 13
 CloseBtn.TextColor3 = Theme.CloseBtnText
 CloseBtn.Text = "X"
-CloseBtn.Modal = true
 CloseBtn.Parent = Header
+
 
 local CloseBtnCorner = Instance.new("UICorner")
 CloseBtnCorner.CornerRadius = UDim.new(0, 4)

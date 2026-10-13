@@ -5641,8 +5641,8 @@ CloseBtn.Font = Enum.Font.GothamBold
 CloseBtn.TextSize = 13
 CloseBtn.TextColor3 = Color3.fromRGB(200, 210, 225)
 CloseBtn.Text = "X"
-CloseBtn.Modal = true
 CloseBtn.Parent = TitleBar
+
 
 local CloseBtnCorner = Instance.new("UICorner")
 CloseBtnCorner.CornerRadius = UDim.new(0, 6)
@@ -7493,9 +7493,9 @@ Ed.CloseBtn.Font = Enum.Font.GothamBold
 Ed.CloseBtn.TextSize = 13
 Ed.CloseBtn.TextColor3 = Color3.fromRGB(255, 130, 130)
 Ed.CloseBtn.Text = "X"
-Ed.CloseBtn.Modal = true
 Ed.CloseBtn.ZIndex = 502
 Ed.CloseBtn.Parent = Ed.Header
+
 edCorner(Ed.CloseBtn, 4)
 
 Ed.CloseBtn.MouseEnter:Connect(function()
@@ -8171,9 +8171,9 @@ do
     NM.CloseBtn.TextSize = 12
     NM.CloseBtn.TextColor3 = Color3.fromRGB(255, 130, 130)
     NM.CloseBtn.Text = "X"
-    NM.CloseBtn.Modal = true
     NM.CloseBtn.ZIndex = 512
     NM.CloseBtn.Parent = NM.Header
+
     nmCorner(NM.CloseBtn, 4)
 
     NM.CloseBtn.MouseButton1Click:Connect(function()
