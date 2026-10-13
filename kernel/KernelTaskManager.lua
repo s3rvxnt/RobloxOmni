@@ -3070,6 +3070,7 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
         end
 
         loopIdCounter = loopIdCounter + 1
+        getgenv()._OmniLoopIdCounter = loopIdCounter
         local callerLine = tonumber(callerStr:match(":(%d+)$")) or 0
         local isExec = isExecutorOrigin(callerStr, callerStr, isExecFlag)
         local savedOverride = getLoopOverride(callerStr, callerStr)
@@ -4232,8 +4233,8 @@ local function cleanUpScheduler(isTeardown)
     getgenv()._VirtualSchedulerPersistedIngestedKeys = nil
 
     -- Clear global environment proxies pointing to this DataModel
-    if rawequal(getgenv().game, getgenv()._OmniGameProxy) then
-        getgenv().game = origGame
+    if rawget(getgenv(), "game") ~= nil then
+        getgenv().game = nil
     end
     if getgenv()._KernelOrigTypeof then
         getgenv().typeof = getgenv()._KernelOrigTypeof

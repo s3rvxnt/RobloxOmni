@@ -101,6 +101,57 @@ class TestIntegrityGuard(unittest.TestCase):
                 f"Luau compilation failed for {rel_path}:\n{proc.stderr}",
             )
 
+    def test_regression_invariants(self):
+        with open(self.bootloader_path, "r", encoding="utf-8") as f:
+            bootloader_src = f.read()
+
+        # 1. Bootloader declaration order & Theme.StatusDanger
+        self.assertIn("StatusDanger", bootloader_src)
+        self.assertLess(
+            bootloader_src.index("local function lookupManifestStage("),
+            bootloader_src.index("autoexec/Bootloader_Updated.lua"),
+            "lookupManifestStage must be declared before Bootloader_Updated.lua handoff",
+        )
+        self.assertLess(
+            bootloader_src.index("local function loadLedger()"),
+            bootloader_src.index("autoexec/Bootloader_Updated.lua"),
+            "loadLedger must be declared before Bootloader_Updated.lua handoff",
+        )
+        self.assertLess(
+            bootloader_src.index("local function getLatestCommitSha()"),
+            bootloader_src.index("initUpdateGate = function("),
+            "getLatestCommitSha must be hoisted above initUpdateGate",
+        )
+        self.assertNotIn(
+            "_trustedUrlByThread",
+            bootloader_src,
+            "Bootloader must not permanently taint threads with _trustedUrlByThread",
+        )
+
+        # 2. KernelTaskManager virgin environment & scheduler invariants
+        ktm_path = os.path.join(self.repo_root, "kernel", "KernelTaskManager.lua")
+        with open(ktm_path, "r", encoding="utf-8") as f:
+            ktm_src = f.read()
+
+        self.assertNotIn("getgenv().game = rawGame", ktm_src)
+        self.assertNotIn("getgenv().game = origGame", ktm_src)
+        self.assertIn('local GuiService = game:GetService("GuiService")', ktm_src)
+        self.assertNotIn("local cachedGameRows = {}\n\nlocal function renderGameTaskRow", ktm_src)
+        self.assertIn("getgenv()._OmniLoopIdCounter = loopIdCounter", ktm_src)
+
+        # 3. OmniEnhancementSuite lifecycle & Janitor thread cancellation
+        oes_path = os.path.join(self.repo_root, "gameloaded", "OmniEnhancementSuite.lua")
+        with open(oes_path, "r", encoding="utf-8") as f:
+            oes_src = f.read()
+
+        self.assertLess(
+            oes_src.index("local function FullSuiteCleanup()"),
+            oes_src.index("\nSetupWatcher()"),
+            "FullSuiteCleanup must be defined and exported before SetupWatcher()",
+        )
+        self.assertIn('elseif typeof(x) == "thread" then', oes_src)
+        self.assertGreaterEqual(oes_src.count("Own(task.spawn(function()"), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

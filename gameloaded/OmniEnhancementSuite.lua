@@ -1366,10 +1366,13 @@ local function TrackPlayerInternal(player)
             entry.Billboard = BuildBillboard(playerName, char, container)
             
             if char.Parent then
-                entry.StreamConn = char.ChildAdded:Connect(function(child)
-                    if not char.Parent or not IsPlayerTracked(playerName) then
-                        if entry.StreamConn then
-                            entry.StreamConn:Disconnect()
+                local streamConn
+                streamConn = char.ChildAdded:Connect(function(child)
+                    if not char.Parent or not IsPlayerTracked(playerName) or entry.Character ~= char then
+                        if streamConn then
+                            streamConn:Disconnect()
+                        end
+                        if entry.StreamConn == streamConn then
                             entry.StreamConn = nil
                         end
                         return
@@ -1377,6 +1380,10 @@ local function TrackPlayerInternal(player)
                     if child:IsA("BasePart") then
                         if not entry.Billboard and (child.Name == "Head" or child.Name == "HumanoidRootPart") then
                             entry.Billboard = BuildBillboard(playerName, char, container)
+                        elseif entry.Billboard and child.Name == "Head" and entry.Billboard.Adornee ~= child then
+                            entry.Billboard.Adornee = child
+                            entry.Billboard.StudsOffset = Vector3.new(0, 1.8, 0)
+                            entry.CachedHead = child
                         end
                         if child.Name ~= "HumanoidRootPart" and child.Transparency < 0.95 then
                             local alreadyHasBox = false
@@ -1401,9 +1408,12 @@ local function TrackPlayerInternal(player)
                         end
                     end
                 end)
+                entry.StreamConn = streamConn
                 task.delay(6, function()
-                    if entry.StreamConn then
-                        entry.StreamConn:Disconnect()
+                    if streamConn then
+                        streamConn:Disconnect()
+                    end
+                    if entry.StreamConn == streamConn then
                         entry.StreamConn = nil
                     end
                 end)
@@ -2649,7 +2659,7 @@ for _, d in ipairs(CoreGui:GetDescendants()) do
     CheckAndHookDropDown(d)
 end
 
-task.spawn(function()
+Own(task.spawn(function()
     while isSuiteActive do
         task.wait(0.5)
         if not isSuiteActive then break end
@@ -2664,7 +2674,7 @@ task.spawn(function()
             CheckAndHookDropDown(dd)
         end
     end
-end)
+end))
 
 -- ============================================================================
 -- Section 10: In-Game ESC Menu Settings Injection
@@ -3411,7 +3421,7 @@ local function SetupWatcher()
         TriggerFastInject()
     end))
 
-    task.spawn(function()
+    Own(task.spawn(function()
         while isSuiteActive do
             task.wait(1.0)
             if not isSuiteActive then break end
@@ -3420,7 +3430,7 @@ local function SetupWatcher()
                 InjectEnhancementSettings(p)
             end
         end
-    end)
+    end))
 end
 
 -- ============================================================================
@@ -3511,13 +3521,15 @@ local function FullSuiteCleanup()
         end
     end
 
-    -- 7. Clean Janitor (all connections and instances)
+    -- 7. Clean Janitor (all connections, threads, and instances)
     for i = #Janitor, 1, -1 do
         local x = Janitor[i]
         if typeof(x) == "RBXScriptConnection" then
             pcall(function() x:Disconnect() end)
         elseif type(x) == "table" and type(x.Disconnect) == "function" then
             pcall(function() x:Disconnect() end)
+        elseif typeof(x) == "thread" then
+            pcall(task.cancel, x)
         elseif typeof(x) == "Instance" then
             pcall(x.Destroy, x)
         elseif type(x) == "function" then

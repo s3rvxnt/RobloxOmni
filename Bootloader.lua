@@ -1216,7 +1216,6 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
         local _exemptObfuscatedThreads = getgenv()._exemptObfuscatedThreads or setmetatable({}, { __mode = "k" })
         getgenv()._exemptObfuscatedThreads = _exemptObfuscatedThreads
         local _trustedUrlByClosure = setmetatable({}, { __mode = "k" })
-        local _trustedUrlByThread = setmetatable({}, { __mode = "k" })
         local _trustedUrlBySource = {}
 
         local function sanitizeCallerChunk(name)
@@ -1233,11 +1232,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             return false
         end
 
-        local function findParentTrustedUrl(curThread, ledgerUrls)
-            if curThread and _trustedUrlByThread[curThread] then
-                local u = _trustedUrlByThread[curThread]
-                if not ledgerUrls or ledgerUrls[u] then return u end
-            end
+        local function findParentTrustedUrl(ledgerUrls)
             if debug and debug.info then
                 for lvl = 2, 25 do
                     local okF, cFunc = pcall(debug.info, lvl, "f")
@@ -1295,10 +1290,6 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
             if associatedUrl and type(compiledFn) == "function" then
                 _trustedUrlByClosure[compiledFn] = associatedUrl
-                local curThread = coroutine.running()
-                if curThread then
-                    _trustedUrlByThread[curThread] = associatedUrl
-                end
                 if debug and debug.info then
                     local okS, fnSrc = pcall(debug.info, compiledFn, "s")
                     if okS and type(fnSrc) == "string" and fnSrc ~= "" and fnSrc ~= "[C]" then
@@ -1628,10 +1619,9 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 end
             else
                 -- Dynamic / Inline loadstring (no URL)
-                local parentUrl = findParentTrustedUrl(curThread, ledger.urls)
+                local parentUrl = findParentTrustedUrl(ledger.urls)
                 if _sessionApprovedHashes[srcHash] or (ledger.hashes and ledger.hashes[srcHash]) then
-                    if parentUrl and linkSubmoduleHash(ledger, parentUrl, srcHash) then
-                        ledger.hashes[srcHash] = true
+                    if parentUrl and ledger.hashes and ledger.hashes[srcHash] and linkSubmoduleHash(ledger, parentUrl, srcHash) then
                         saveTrustedUrlLedger(ledger)
                     end
                     local isObf = isObfuscatedCode(src, chunkname)
@@ -1681,11 +1671,6 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                     end
                 else
                     _sessionApprovedHashes[srcHash] = true
-                    if parentUrl and linkSubmoduleHash(ledger, parentUrl, srcHash) then
-                        if not ledger.hashes then ledger.hashes = {} end
-                        ledger.hashes[srcHash] = true
-                        saveTrustedUrlLedger(ledger)
-                    end
                     local isObf = isObfuscatedCode(src, chunkname)
                     return compileExecutableChunk(src, chunkname, isObf, parentUrl)
                 end
@@ -1928,13 +1913,13 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "a845114e8897c549e05ff7c2c122ae274b9362e6f7aafea16cba0f177f18449c"
+        sha256 = "8ba9a7ba1bb1d4f46c006edce7b008595d643929e9a046e2dca84ea61dc4ef9e"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
         localPath = "autoexec/gameloaded/OmniEnhancementSuite.lua",
         name = "OmniEnhancementSuite",
-        sha256 = "99bbe6a29540beff378029f2f1123be7040a8f04b731b642bd8483b7eb3fa779"
+        sha256 = "219c7fdaf50b0929c4f851ed9f356bc8037e8b2f078bbb2ee5addc19e6be4436"
     },
     {
         repoPath = "gameloaded/OmniLoadstringManager.lua",
@@ -4001,7 +3986,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "a845114e8897c549e05ff7c2c122ae274b9362e6f7aafea16cba0f177f18449c"
+                    sha256 = "8ba9a7ba1bb1d4f46c006edce7b008595d643929e9a046e2dca84ea61dc4ef9e"
                 }
             }
         end
