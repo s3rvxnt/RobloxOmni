@@ -132,23 +132,46 @@ local function _capturePrimitive(rawFn, name)
     return _safeClone(rawFn)
 end
 
+-- Cache pristine native filesystem C-closures in registry so reloads/handoffs never double-wrap
+local _regTable = (type(getreg) == "function" and type(getreg()) == "table" and getreg()) or nil
+local _rawFsCache = (_regTable and _regTable._OmniRawFsCache) or nil
+if not _rawFsCache then
+    _rawFsCache = {}
+    if _regTable then
+        _regTable._OmniRawFsCache = _rawFsCache
+    end
+end
+local function _captureFsPrimitive(rawFn, name)
+    if _rawFsCache[name] then
+        return _rawFsCache[name]
+    end
+    local captured = _capturePrimitive(rawFn, name)
+    if captured then
+        _rawFsCache[name] = captured
+    end
+    return captured
+end
+
 -- Capture pristine unhookable C-closures for all critical primitives
-local _writefile   = _capturePrimitive(writefile, "writefile")
-local _readfile    = _capturePrimitive(readfile, "readfile")
-local _isfile      = _capturePrimitive(isfile, "isfile")
-local _isfolder    = _capturePrimitive(isfolder, "isfolder")
-local _makefolder  = _capturePrimitive(makefolder, "makefolder")
-local _delfile     = _capturePrimitive(delfile, "delfile")
-local _listfiles   = _capturePrimitive(listfiles, "listfiles")
-local _loadstring  = _capturePrimitive(loadstring, "loadstring")
+local _writefile      = _captureFsPrimitive(writefile, "writefile")
+local _readfile       = _captureFsPrimitive(readfile, "readfile")
+local _appendfile     = _captureFsPrimitive(appendfile, "appendfile")
+local _isfile         = _captureFsPrimitive(isfile, "isfile")
+local _isfolder       = _captureFsPrimitive(isfolder, "isfolder")
+local _makefolder     = _captureFsPrimitive(makefolder, "makefolder")
+local _delfile        = _captureFsPrimitive(delfile, "delfile")
+local _delfolder      = _captureFsPrimitive(delfolder, "delfolder")
+local _listfiles      = _captureFsPrimitive(listfiles, "listfiles")
+local _getcustomasset = _captureFsPrimitive(getcustomasset, "getcustomasset")
+local _loadstring     = _capturePrimitive(loadstring, "loadstring")
 local _clonedLoadstring = _loadstring
-local _loadfile    = _capturePrimitive(loadfile, "loadfile")
-local _dofile      = _capturePrimitive(dofile, "dofile")
-local _request     = _capturePrimitive(request or http_request or (syn and syn.request) or (http and http.request), "request")
-local _hookfunction = _capturePrimitive(hookfunction, "hookfunction")
-local _isGameHttpGet = (game and type(game.HttpGet) == "function")
-local _rawHttpGet  = (_isGameHttpGet and game.HttpGet) or (type(httpget) == "function" and httpget)
-local _clonedHttpGet = _capturePrimitive(_rawHttpGet, "HttpGet")
+local _loadfile       = _captureFsPrimitive(loadfile, "loadfile")
+local _dofile         = _captureFsPrimitive(dofile, "dofile")
+local _request        = _capturePrimitive(request or http_request or (syn and syn.request) or (http and http.request), "request")
+local _hookfunction   = _capturePrimitive(hookfunction, "hookfunction")
+local _isGameHttpGet  = (game and type(game.HttpGet) == "function")
+local _rawHttpGet     = (_isGameHttpGet and game.HttpGet) or (type(httpget) == "function" and httpget)
+local _clonedHttpGet  = _capturePrimitive(_rawHttpGet, "HttpGet")
 
 -- Capture pristine task.wait and wait C-closures at Frame 0 before any third-party hooks
 local _rawTaskWait = (task and type(task.wait) == "function" and task.wait) or nil
@@ -178,6 +201,354 @@ local delfile    = _delfile
 local listfiles  = _listfiles
 local loadstring = _loadstring
 local request    = _request
+
+-- ==============================================================================
+-- VIRTUAL FILE SYSTEM (VFS) CHROOT: EMULATED `workspace` & `autoexec`
+-- ==============================================================================
+-- Physical layout inside Potassium's workspace root:
+--   workspace/ -> Default working directory for all relative script paths
+--   autoexec/  -> Accessible by escalating to parent via ./autoexec or ../autoexec
+--   ./         -> Virtual parent root containing only {"workspace", "autoexec"}
+if _isfolder and _makefolder then
+    if not _isfolder("workspace") then pcall(_makefolder, "workspace") end
+    if not _isfolder("autoexec") then pcall(_makefolder, "autoexec") end
+end
+
+local _SYSTEM_ROOT_FILES = {
+    ["activeclients.json"] = true,
+    ["remoteexecute_logs.txt"] = true,
+    ["bootloader_status.json"] = true,
+    ["bootloader.lua"] = true,
+    ["bootloader_updated.lua"] = true,
+    ["bootloader_running.lock"] = true,
+    ["bootloader_handoff.lock"] = true,
+    ["bootloader_failedversion.txt"] = true,
+    ["safe_mode.lock"] = true,
+    ["omni_ledger.json"] = true,
+    ["omni_settings.json"] = true,
+    ["omni_trustedurls.json"] = true,
+    ["omni_loadstringhistory.json"] = true,
+    ["omni_scripthubcache.json"] = true,
+    ["omni_scriptpolicies.json"] = true,
+    ["omni_kernelinitialized.marker"] = true,
+    ["omni_autoexec.marker"] = true,
+    ["manifest.json"] = true,
+    ["scheduler_profile.json"] = true,
+    ["scheduler_commands.json"] = true,
+    ["scheduler_overrides.json"] = true,
+    ["taskscheduler_state.json"] = true,
+    ["taskscheduler_tasks.json"] = true,
+    ["customautoexec.lua"] = true,
+}
+
+local _PROTECTED_BOOTLOADER_FILES = {
+    ["bootloader.lua"] = true,
+    ["autoexec/bootloader.lua"] = true,
+    ["bootloader_updated.lua"] = true,
+    ["autoexec/bootloader_updated.lua"] = true,
+    ["customautoexec.lua"] = true,
+    ["autoexec/customautoexec.lua"] = true,
+    ["bootloader_running.lock"] = true,
+    ["bootloader_handoff.lock"] = true,
+    ["safe_mode.lock"] = true,
+}
+
+local function _isProtectedBootloaderFile(physPath)
+    if type(physPath) ~= "string" then return false end
+    local lower = physPath:gsub("\\", "/"):lower()
+    return _PROTECTED_BOOTLOADER_FILES[lower] == true
+end
+
+local function _isSystemRootPath(normPath)
+    local lower = normPath:lower()
+    if _SYSTEM_ROOT_FILES[lower] then
+        return true
+    end
+    if lower == "omni_trusted_scripts" or lower:sub(1, 21) == "omni_trusted_scripts/" then
+        return true
+    end
+    if not lower:find("/", 1, true) then
+        if lower:match("_external%.lua$")
+            or lower:match("_response%.json$")
+            or lower:match("_crashreport%.json$")
+            or lower:find("que_on_teleport", 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+local function _isInternalOmniCaller()
+    if type(debug) ~= "table" or type(debug.info) ~= "function" then return false end
+    for level = 2, 6 do
+        local ok, src = pcall(debug.info, level, "s")
+        if not ok or not src then break end
+        local lowerSrc = tostring(src):lower()
+        if lowerSrc:find("kerneltaskmanager", 1, true)
+            or lowerSrc:find("omniloadstringmanager", 1, true)
+            or lowerSrc:find("omnienhancementsuite", 1, true)
+            or lowerSrc:find("bootloader", 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+-- Resolves a virtual path into:
+--   kind: "INVALID" | "VIRTUAL_ROOT" | "PHYSICAL"
+--   physPath: string physical path relative to Potassium workspace root
+--   escalatedPrefix: "./" or "../" if caller explicitly escalated into autoexec/workspace
+local function _resolveVfsPath(rawPath)
+    if type(rawPath) ~= "string" then
+        return "INVALID", nil, nil
+    end
+    if rawPath:find("%z") then
+        return "INVALID", nil, nil
+    end
+
+    local norm = rawPath:gsub("\\", "/")
+    -- Strip full Windows path prefix up to Potassium/workspace/ if passed by a script
+    norm = norm:gsub("^[A-Za-z]:/[^/]+/[^/]+/[^/]+/[^/]+/[Pp]otassium/workspace/", "")
+    norm = norm:gsub("^[A-Za-z]:/[^/]+/[^/]+/workspace/", "")
+
+    if norm == "" then
+        return "PHYSICAL", "workspace", nil
+    end
+
+    -- Detect explicit escalation to virtual parent via leading ./, ../, /, ., or ..
+    local isExplicitEscalation = false
+    local escPrefix = nil
+    if norm == "." or norm == ".." then
+        isExplicitEscalation = true
+        escPrefix = norm .. "/"
+    elseif norm:sub(1, 2) == "./" then
+        isExplicitEscalation = true
+        escPrefix = "./"
+    elseif norm:sub(1, 3) == "../" then
+        isExplicitEscalation = true
+        escPrefix = "../"
+    elseif norm:sub(1, 1) == "/" then
+        isExplicitEscalation = true
+        escPrefix = "./"
+    end
+
+    if not isExplicitEscalation then
+        if _isSystemRootPath(norm) then
+            return "PHYSICAL", norm, nil
+        end
+        local lowerNorm = norm:lower()
+        if (lowerNorm == "autoexec" or lowerNorm:sub(1, 9) == "autoexec/") and _isInternalOmniCaller() then
+            return "PHYSICAL", norm, nil
+        end
+    end
+
+    local stack = {}
+    if not isExplicitEscalation then
+        stack[1] = "workspace"
+    end
+
+    local firstToken = true
+    for seg in norm:gmatch("[^/]+") do
+        if seg == "." or seg == "" then
+            -- Stay in current virtual level
+        elseif seg == ".." then
+            if #stack > 0 then
+                table.remove(stack)
+            end
+        else
+            -- Avoid double-nesting workspace/workspace if caller passed "workspace/..." directly
+            if firstToken and not isExplicitEscalation and seg:lower() == "workspace" and #stack == 1 and stack[1] == "workspace" then
+                if not (_isfolder and _isfolder("workspace/workspace")) then
+                    -- Already has "workspace" at stack[1]
+                else
+                    table.insert(stack, seg)
+                end
+            else
+                table.insert(stack, seg)
+            end
+            firstToken = false
+        end
+    end
+
+    if #stack == 0 then
+        return "VIRTUAL_ROOT", nil, escPrefix
+    end
+
+    local topLower = stack[1]:lower()
+    if topLower == "autoexec" then
+        stack[1] = "autoexec"
+        return "PHYSICAL", table.concat(stack, "/"), escPrefix
+    elseif topLower == "workspace" then
+        stack[1] = "workspace"
+        return "PHYSICAL", table.concat(stack, "/"), escPrefix
+    else
+        local candidate = table.concat(stack, "/")
+        if _isSystemRootPath(candidate) then
+            return "PHYSICAL", candidate, nil
+        end
+        return "PHYSICAL", "workspace/" .. candidate, nil
+    end
+end
+
+local _vfsFunctions = {}
+
+if _isfile then
+    local function vfsIsfile(path)
+        local kind, physPath = _resolveVfsPath(path)
+        if kind ~= "PHYSICAL" then return false end
+        return _isfile(physPath)
+    end
+    _vfsFunctions.isfile = (newcclosure and newcclosure(vfsIsfile)) or vfsIsfile
+end
+
+if _isfolder then
+    local function vfsIsfolder(path)
+        local kind, physPath = _resolveVfsPath(path)
+        if kind == "INVALID" then return false end
+        if kind == "VIRTUAL_ROOT" then return true end
+        return _isfolder(physPath)
+    end
+    _vfsFunctions.isfolder = (newcclosure and newcclosure(vfsIsfolder)) or vfsIsfolder
+end
+
+if _readfile then
+    local function vfsReadfile(path)
+        local kind, physPath = _resolveVfsPath(path)
+        if kind ~= "PHYSICAL" then
+            error("cannot open " .. tostring(path) .. ": No such file or directory", 2)
+        end
+        return _readfile(physPath)
+    end
+    _vfsFunctions.readfile = (newcclosure and newcclosure(vfsReadfile)) or vfsReadfile
+end
+
+if _writefile then
+    local function vfsWritefile(path, content)
+        local kind, physPath = _resolveVfsPath(path)
+        if kind ~= "PHYSICAL" or _isProtectedBootloaderFile(physPath) then
+            error("invalid or protected path to 'writefile': " .. tostring(path), 2)
+        end
+        if physPath:sub(1, 10) == "workspace/" and _isfolder and _makefolder and not _isfolder("workspace") then
+            pcall(_makefolder, "workspace")
+        end
+        return _writefile(physPath, content)
+    end
+    _vfsFunctions.writefile = (newcclosure and newcclosure(vfsWritefile)) or vfsWritefile
+end
+
+if _appendfile then
+    local function vfsAppendfile(path, content)
+        local kind, physPath = _resolveVfsPath(path)
+        if kind ~= "PHYSICAL" or _isProtectedBootloaderFile(physPath) then
+            error("invalid or protected path to 'appendfile': " .. tostring(path), 2)
+        end
+        if physPath:sub(1, 10) == "workspace/" and _isfolder and _makefolder and not _isfolder("workspace") then
+            pcall(_makefolder, "workspace")
+        end
+        return _appendfile(physPath, content)
+    end
+    _vfsFunctions.appendfile = (newcclosure and newcclosure(vfsAppendfile)) or vfsAppendfile
+end
+
+if _makefolder then
+    local function vfsMakefolder(path)
+        local kind, physPath = _resolveVfsPath(path)
+        if kind == "VIRTUAL_ROOT" or physPath == "workspace" or physPath == "autoexec" then
+            return
+        end
+        if kind ~= "PHYSICAL" then
+            error("invalid path to 'makefolder': " .. tostring(path), 2)
+        end
+        return _makefolder(physPath)
+    end
+    _vfsFunctions.makefolder = (newcclosure and newcclosure(vfsMakefolder)) or vfsMakefolder
+end
+
+if _delfile then
+    local function vfsDelfile(path)
+        local kind, physPath = _resolveVfsPath(path)
+        if kind ~= "PHYSICAL" or _isProtectedBootloaderFile(physPath) then
+            error("invalid or protected path to 'delfile': " .. tostring(path), 2)
+        end
+        return _delfile(physPath)
+    end
+    _vfsFunctions.delfile = (newcclosure and newcclosure(vfsDelfile)) or vfsDelfile
+end
+
+if _delfolder then
+    local function vfsDelfolder(path)
+        local kind, physPath = _resolveVfsPath(path)
+        if kind ~= "PHYSICAL" or physPath == "workspace" or physPath == "autoexec" or _isProtectedBootloaderFile(physPath) then
+            error("cannot delete protected folder: " .. tostring(path), 2)
+        end
+        return _delfolder(physPath)
+    end
+    _vfsFunctions.delfolder = (newcclosure and newcclosure(vfsDelfolder)) or vfsDelfolder
+end
+
+if _getcustomasset then
+    local function vfsGetcustomasset(path)
+        local kind, physPath = _resolveVfsPath(path)
+        if kind ~= "PHYSICAL" then
+            error("invalid path to 'getcustomasset': " .. tostring(path), 2)
+        end
+        return _getcustomasset(physPath)
+    end
+    _vfsFunctions.getcustomasset = (newcclosure and newcclosure(vfsGetcustomasset)) or vfsGetcustomasset
+end
+
+if _listfiles then
+    local function vfsListfiles(path)
+        if path == nil then path = "" end
+        local kind, physPath, escPrefix = _resolveVfsPath(path)
+        if kind == "INVALID" then
+            error("invalid argument #1 to 'listfiles' (string expected, got " .. typeof(path) .. ")", 2)
+        end
+        if kind == "VIRTUAL_ROOT" then
+            return { "workspace", "autoexec" }
+        end
+        local rawList = _listfiles(physPath)
+        if type(rawList) ~= "table" then
+            return rawList
+        end
+        local normInput = tostring(path):gsub("\\", "/")
+        local callerWroteWorkspace = normInput:lower():match("^%.?%.?/?workspace$") ~= nil
+            or normInput:lower():match("^%.?%.?/?workspace/") ~= nil
+        local out = {}
+        for i, entry in ipairs(rawList) do
+            if type(entry) == "string" then
+                if physPath == "workspace" or physPath:sub(1, 10) == "workspace/" then
+                    if callerWroteWorkspace then
+                        if escPrefix and not entry:match("^%.%.?[/\\]") then
+                            out[i] = escPrefix .. entry
+                        else
+                            out[i] = entry
+                        end
+                    else
+                        -- Strip leading "workspace\" or "workspace/" so default workspace acts as root
+                        out[i] = entry:gsub("^[Ww]orkspace[/\\]", "")
+                    end
+                elseif physPath == "autoexec" or physPath:sub(1, 9) == "autoexec/" then
+                    if escPrefix and not entry:match("^%.%.?[/\\]") then
+                        out[i] = escPrefix .. entry
+                    else
+                        out[i] = entry
+                    end
+                else
+                    out[i] = entry
+                end
+            else
+                out[i] = entry
+            end
+        end
+        return out
+    end
+    _vfsFunctions.listfiles = (newcclosure and newcclosure(vfsListfiles)) or vfsListfiles
+end
+
+for fnName, wrappedFn in pairs(_vfsFunctions) do
+    getgenv()[fnName] = wrappedFn
+end
 
 local function safeHttpGet(url)
     if _clonedHttpGet then
@@ -1683,23 +2054,27 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
         getgenv()._AdaptiveExecutionGatewayInstalled = true
         getgenv()._KernelLoadstringShimInstalled = true
 
-        -- Intercept loadfile and dofile so disk payloads route through the Zero-Trust gate
+        -- Intercept loadfile and dofile so disk payloads route through the VFS and Zero-Trust gate
         local origLoadfile = _loadfile or getgenv().loadfile
         if type(origLoadfile) == "function" then
             local function loadfileShim(path, chunkname)
                 if not path or type(path) ~= "string" then
                     return nil, "invalid argument #1 to 'loadfile' (string expected, got " .. typeof(path) .. ")"
                 end
-                if not isfile(path) then
+                local checkFile = _vfsFunctions.isfile or isfile
+                local readContent = _vfsFunctions.readfile or readfile
+                if not checkFile(path) then
                     return nil, "cannot open " .. tostring(path) .. ": No such file or directory"
                 end
-                local ok, content = pcall(readfile, path)
+                local ok, content = pcall(readContent, path)
                 if not ok or type(content) ~= "string" then
                     return nil, "cannot open " .. tostring(path) .. ": Failed to read file"
                 end
                 return loadstringShim(content, chunkname or ("@" .. tostring(path)))
             end
-            getgenv().loadfile = (newcclosure and newcclosure(loadfileShim)) or loadfileShim
+            local wrappedLoadfile = (newcclosure and newcclosure(loadfileShim)) or loadfileShim
+            _vfsFunctions.loadfile = wrappedLoadfile
+            getgenv().loadfile = wrappedLoadfile
         end
 
         local origDofile = _dofile or getgenv().dofile
@@ -1711,13 +2086,15 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 end
                 return fn(...)
             end
-            getgenv().dofile = (newcclosure and newcclosure(dofileShim)) or dofileShim
+            local wrappedDofile = (newcclosure and newcclosure(dofileShim)) or dofileShim
+            _vfsFunctions.dofile = wrappedDofile
+            getgenv().dofile = wrappedDofile
         end
 
-        -- Passive Integrity: Watchdog ensures loadstring / loadfile remain bound without hooking metatables or C closures
+        -- Passive Integrity: Watchdog ensures loadstring / loadfile / VFS remain bound without hooking metatables or C closures
         -- (Preserves native getgenv() metatable and authentic hookfunction C-closure for Luraph / LuaArmor anti-tamper)
 
-        -- Background Watchdog: Re-assert loadstring integrity if tampered with via rawset
+        -- Background Watchdog: Re-assert loadstring & VFS integrity if tampered with via rawset
         task.spawn(function()
             while true do
                 task.wait(2.0)
@@ -1727,9 +2104,44 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 if getgenv()._KernelOrigLoadstring ~= nil then
                     getgenv()._KernelOrigLoadstring = nil
                 end
+                for fnName, wrappedFn in pairs(_vfsFunctions) do
+                    if getgenv()[fnName] ~= wrappedFn then
+                        getgenv()[fnName] = wrappedFn
+                    end
+                end
             end
         end)
     end
+else
+    local function loadfileShimReloaded(path, chunkname)
+        if not path or type(path) ~= "string" then
+            return nil, "invalid argument #1 to 'loadfile' (string expected, got " .. typeof(path) .. ")"
+        end
+        local checkFile = _vfsFunctions.isfile or isfile
+        local readContent = _vfsFunctions.readfile or readfile
+        if not checkFile(path) then
+            return nil, "cannot open " .. tostring(path) .. ": No such file or directory"
+        end
+        local ok, content = pcall(readContent, path)
+        if not ok or type(content) ~= "string" then
+            return nil, "cannot open " .. tostring(path) .. ": Failed to read file"
+        end
+        return getgenv().loadstring(content, chunkname or ("@" .. tostring(path)))
+    end
+    local wrappedLoadfile = (newcclosure and newcclosure(loadfileShimReloaded)) or loadfileShimReloaded
+    _vfsFunctions.loadfile = wrappedLoadfile
+    getgenv().loadfile = wrappedLoadfile
+
+    local function dofileShimReloaded(path, ...)
+        local fn, err = getgenv().loadfile(path)
+        if not fn then
+            error(err or ("cannot open " .. tostring(path)), 2)
+        end
+        return fn(...)
+    end
+    local wrappedDofile = (newcclosure and newcclosure(dofileShimReloaded)) or dofileShimReloaded
+    _vfsFunctions.dofile = wrappedDofile
+    getgenv().dofile = wrappedDofile
 end
 
 -- String Prefix Helper
