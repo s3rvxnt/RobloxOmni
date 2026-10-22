@@ -152,6 +152,22 @@ class TestIntegrityGuard(unittest.TestCase):
         self.assertIn('elseif typeof(x) == "thread" then', oes_src)
         self.assertGreaterEqual(oes_src.count("Own(task.spawn(function()"), 2)
 
+    def test_motion_blur_integration_invariants(self):
+        oes_path = os.path.join(self.repo_root, "gameloaded", "OmniEnhancementSuite.lua")
+        with open(oes_path, "r", encoding="utf-8") as f:
+            oes_src = f.read()
+
+        self.assertIn("motion_blur = 5", oes_src)
+        self.assertIn("local MotionBlur = {}", oes_src)
+        self.assertIn("function MotionBlur.Enable()", oes_src)
+        self.assertIn("function MotionBlur.Disable()", oes_src)
+        self.assertIn("function MotionBlur.GetMetrics()", oes_src)
+        self.assertIn('"_OmniMotionBlurRig"', oes_src)
+        self.assertIn('"_OmniCinemaDoF"', oes_src)
+        self.assertIn('"_OmniCinemaBlur"', oes_src)
+        self.assertIn('CreateSliderRow("MotionBlur", "Motion Blur"', oes_src)
+        self.assertIn("MotionBlur = MotionBlur,", oes_src)
+
 
 if __name__ == "__main__":
     unittest.main()

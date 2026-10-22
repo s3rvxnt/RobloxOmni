@@ -90,6 +90,7 @@ local LEGACY_CONFIG_FILE = "roblox_enhancement_config.json"
 local config = {
     streamer_mode = true,
     personal_space_bubble = 0,
+    motion_blur = 5,
     chat_timestamps = true,
     mention_chimes = true,
     force_bubble_chat = true,
@@ -782,6 +783,468 @@ function PersonalSpaceBubble.Disable()
     charPartsCache = setmetatable({}, { __mode = "k" })
     charAppliedAlpha = setmetatable({}, { __mode = "k" })
     charCacheConns = setmetatable({}, { __mode = "k" })
+end
+
+-- ============================================================================
+-- Section 5B: Hybrid Cinema Shutter Motion Blur Engine
+-- 3-Stage Optical Pipeline:
+--   1. Center-Protected Directional & Radial Glass Micro-Refraction Aperture
+--   2. 180-Degree Cinema Shutter Specular Light-Source Streaks (Spatial Pool)
+--   3. Gaze-Locked Focal DepthOfFieldEffect + Capped Whip-Pan Micro-Smoothing
+-- ============================================================================
+local Lighting = game:GetService("Lighting")
+local MotionBlur = {}
+local isMotionBlurActive = false
+local mbRigFolder = nil
+local mbShutterAnchor = nil
+local mbGlassVanes = {}
+local mbStreakPool = {}
+local mbCachedLights = {}
+local mbDoFEffect = nil
+local mbBlurEffect = nil
+local mbLastCamCF = nil
+local mbLastCamPos = nil
+local mbSmoothOmegaYaw = 0
+local mbSmoothOmegaPitch = 0
+local mbSmoothFwdSpeed = 0
+local mbSmoothLatSpeed = 0
+local mbFocusDist = 28.0
+local mbLastLightScan = 0
+local mbLastFocusCast = 0
+local mbLastStepMs = 0
+
+local MB_BIND_NAME = "OmniCinemaMotionBlur"
+local MB_VANE_COUNT = 8
+local MB_STREAK_COUNT = 12
+local MB_LIGHT_SCAN_INTERVAL = 0.25
+local MB_FOCUS_CAST_INTERVAL = 0.05
+
+local mbRayParams = RaycastParams.new()
+mbRayParams.FilterType = Enum.RaycastFilterType.Exclude
+mbRayParams.IgnoreWater = true
+
+local mbOverlapParams = OverlapParams.new()
+mbOverlapParams.FilterType = Enum.RaycastFilterType.Exclude
+mbOverlapParams.MaxParts = 96
+
+local function DestroyMotionBlurInstances()
+    if mbRigFolder then
+        pcall(function() mbRigFolder:Destroy() end)
+        mbRigFolder = nil
+    end
+    mbShutterAnchor = nil
+    table.clear(mbGlassVanes)
+    table.clear(mbStreakPool)
+    table.clear(mbCachedLights)
+
+    if mbDoFEffect then
+        pcall(function() mbDoFEffect:Destroy() end)
+        mbDoFEffect = nil
+    end
+    if mbBlurEffect then
+        pcall(function() mbBlurEffect:Destroy() end)
+        mbBlurEffect = nil
+    end
+
+    local cam = Workspace.CurrentCamera
+    if cam then
+        local strayRig = cam:FindFirstChild("_OmniMotionBlurRig")
+        if strayRig then pcall(function() strayRig:Destroy() end) end
+    end
+    if Lighting then
+        local strayDoF = Lighting:FindFirstChild("_OmniCinemaDoF")
+        if strayDoF then pcall(function() strayDoF:Destroy() end) end
+        local strayBlur = Lighting:FindFirstChild("_OmniCinemaBlur")
+        if strayBlur then pcall(function() strayBlur:Destroy() end) end
+    end
+end
+
+local function EnsureMotionBlurRig(cam)
+    if not cam then return false end
+    if mbRigFolder and mbRigFolder.Parent == cam and #mbGlassVanes == MB_VANE_COUNT then
+        return true
+    end
+
+    DestroyMotionBlurInstances()
+
+    local rig = Instance.new("Folder")
+    rig.Name = "_OmniMotionBlurRig"
+    rig.Parent = cam
+    mbRigFolder = rig
+
+    -- Stage 1: 8-Vane Center-Protected Glass Aperture
+    for i = 1, MB_VANE_COUNT do
+        local vane = Instance.new("WedgePart")
+        vane.Name = "GlassVane_" .. i
+        vane.Material = Enum.Material.Glass
+        vane.Color = Color3.fromRGB(244, 248, 255)
+        vane.Reflectance = 0.02
+        vane.Transparency = 1
+        vane.Size = Vector3.new(0.05, 0.55, 0.55)
+        vane.Anchored = true
+        vane.CanCollide = false
+        vane.CanQuery = false
+        vane.CanTouch = false
+        vane.CastShadow = false
+        vane.Massless = true
+        vane.Parent = rig
+        mbGlassVanes[i] = vane
+    end
+
+    -- Stage 2: 12 Pooled Additive Specular Light-Source Shutter Beams
+    local anchor = Instance.new("Part")
+    anchor.Name = "_OmniShutterAnchor"
+    anchor.Transparency = 1
+    anchor.Size = Vector3.new(0.1, 0.1, 0.1)
+    anchor.Anchored = true
+    anchor.CanCollide = false
+    anchor.CanQuery = false
+    anchor.CanTouch = false
+    anchor.CastShadow = false
+    anchor.Massless = true
+    anchor.Parent = rig
+    mbShutterAnchor = anchor
+
+    local streakAlphaSeq = NumberSequence.new({
+        NumberSequenceKeypoint.new(0.0, 0.35),
+        NumberSequenceKeypoint.new(0.35, 0.62),
+        NumberSequenceKeypoint.new(1.0, 1.0),
+    })
+
+    for i = 1, MB_STREAK_COUNT do
+        local a0 = Instance.new("Attachment")
+        a0.Name = "StreakA0_" .. i
+        a0.Parent = anchor
+
+        local a1 = Instance.new("Attachment")
+        a1.Name = "StreakA1_" .. i
+        a1.Parent = anchor
+
+        local beam = Instance.new("Beam")
+        beam.Name = "ShutterStreak_" .. i
+        beam.Attachment0 = a0
+        beam.Attachment1 = a1
+        beam.FaceCamera = true
+        beam.LightInfluence = 0
+        beam.Brightness = 2.8
+        beam.Segments = 4
+        beam.Width0 = 0.35
+        beam.Width1 = 0.06
+        beam.Transparency = streakAlphaSeq
+        beam.Enabled = false
+        beam.Parent = anchor
+
+        mbStreakPool[i] = {
+            a0 = a0,
+            a1 = a1,
+            beam = beam,
+        }
+    end
+
+    -- Stage 3: Non-Destructive Gaze-Locked DoF & Whip-Pan Micro-Blur
+    local dof = Instance.new("DepthOfFieldEffect")
+    dof.Name = "_OmniCinemaDoF"
+    dof.Enabled = false
+    dof.FocusDistance = 28.0
+    dof.InFocusRadius = 32.0
+    dof.FarIntensity = 0
+    dof.NearIntensity = 0
+    dof.Parent = Lighting
+    mbDoFEffect = dof
+
+    local blur = Instance.new("BlurEffect")
+    blur.Name = "_OmniCinemaBlur"
+    blur.Enabled = false
+    blur.Size = 0
+    blur.Parent = Lighting
+    mbBlurEffect = blur
+
+    return true
+end
+
+local function ScanNearbyBrightLights(camPos)
+    table.clear(mbCachedLights)
+    local lp = GetLocalPlayer()
+    local char = lp and lp.Character
+    local exclude = {}
+    if char then table.insert(exclude, char) end
+    if mbRigFolder then table.insert(exclude, mbRigFolder) end
+    mbOverlapParams.FilterDescendantsInstances = exclude
+
+    local ok, parts = pcall(function()
+        return Workspace:GetPartBoundsInRadius(camPos, 65.0, mbOverlapParams)
+    end)
+    if not ok or type(parts) ~= "table" then return end
+
+    local candidates = {}
+    for _, part in ipairs(parts) do
+        if part and part.Parent and part.Transparency < 0.95 then
+            local lightChild = part:FindFirstChildWhichIsA("Light")
+            if lightChild and lightChild.Enabled and lightChild.Brightness >= 0.8 then
+                local score = lightChild.Brightness * math.clamp(lightChild.Range or 12, 4, 40)
+                table.insert(candidates, {
+                    part = part,
+                    color = lightChild.Color,
+                    width = math.clamp(math.min(part.Size.X, part.Size.Y) * 0.65, 0.18, 0.85),
+                    score = score,
+                })
+            elseif part.Material == Enum.Material.Neon and part.Size.Magnitude <= 8.0 then
+                table.insert(candidates, {
+                    part = part,
+                    color = part.Color,
+                    width = math.clamp(math.min(part.Size.X, part.Size.Y) * 0.55, 0.15, 0.70),
+                    score = 10.0,
+                })
+            end
+        end
+    end
+
+    table.sort(candidates, function(a, b)
+        return a.score > b.score
+    end)
+
+    local count = math.min(#candidates, MB_STREAK_COUNT)
+    for i = 1, count do
+        mbCachedLights[i] = candidates[i]
+    end
+end
+
+local function StepMotionBlur(dt)
+    local tStart = os.clock()
+    local stepVal = math.clamp(tonumber(config.motion_blur) or 0, 0, 10)
+    if stepVal <= 0 then
+        MotionBlur.Disable()
+        return
+    end
+
+    local cam = Workspace.CurrentCamera
+    if not cam then return end
+    if not EnsureMotionBlurRig(cam) then return end
+
+    local clampedDt = math.clamp(dt, 1 / 240, 1 / 15)
+    local intensityScale = stepVal / 10.0
+    local camCF = cam.CFrame
+    local camPos = camCF.Position
+
+    if not mbLastCamCF or not mbLastCamPos then
+        mbLastCamCF = camCF
+        mbLastCamPos = camPos
+        return
+    end
+
+    -- 1. Extract Camera-Space Angular & Linear Kinematics
+    local relCF = mbLastCamCF:ToObjectSpace(camCF)
+    local lx, ly, lz = relCF.LookVector.X, relCF.LookVector.Y, relCF.LookVector.Z
+    local rawOmegaYaw = math.atan2(-lx, -lz) / clampedDt
+    local rawOmegaPitch = math.asin(math.clamp(ly, -1, 1)) / clampedDt
+
+    local vWorld = (camPos - mbLastCamPos) / clampedDt
+    if vWorld.Magnitude > 250.0 then
+        mbLastCamCF = camCF
+        mbLastCamPos = camPos
+        mbSmoothOmegaYaw = 0
+        mbSmoothOmegaPitch = 0
+        mbSmoothFwdSpeed = 0
+        mbSmoothLatSpeed = 0
+        return
+    end
+
+    local vLocal = camCF:VectorToObjectSpace(vWorld)
+    local rawFwdSpeed = math.max(0, -vLocal.Z)
+    local rawLatSpeed = math.sqrt(vLocal.X * vLocal.X + vLocal.Y * vLocal.Y)
+
+    mbLastCamCF = camCF
+    mbLastCamPos = camPos
+
+    local alphaAng = (math.abs(rawOmegaYaw) + math.abs(rawOmegaPitch) > math.abs(mbSmoothOmegaYaw) + math.abs(mbSmoothOmegaPitch))
+        and (1 - math.exp(-28.0 * clampedDt))
+        or (1 - math.exp(-16.0 * clampedDt))
+    local alphaLin = (rawFwdSpeed > mbSmoothFwdSpeed)
+        and (1 - math.exp(-20.0 * clampedDt))
+        or (1 - math.exp(-12.0 * clampedDt))
+
+    mbSmoothOmegaYaw = mbSmoothOmegaYaw + (rawOmegaYaw - mbSmoothOmegaYaw) * alphaAng
+    mbSmoothOmegaPitch = mbSmoothOmegaPitch + (rawOmegaPitch - mbSmoothOmegaPitch) * alphaAng
+    mbSmoothFwdSpeed = mbSmoothFwdSpeed + (rawFwdSpeed - mbSmoothFwdSpeed) * alphaLin
+    mbSmoothLatSpeed = mbSmoothLatSpeed + (rawLatSpeed - mbSmoothLatSpeed) * alphaLin
+
+    local omegaMag = math.sqrt(mbSmoothOmegaYaw * mbSmoothOmegaYaw + mbSmoothOmegaPitch * mbSmoothOmegaPitch)
+    local panAngle = math.atan2(mbSmoothOmegaPitch, mbSmoothOmegaYaw)
+
+    local angularFactor = math.clamp((omegaMag - 0.55) / 6.5, 0, 1) * intensityScale
+    local sprintFactor = math.clamp((mbSmoothFwdSpeed - 13.0) / 38.0, 0, 1) * intensityScale
+    local lateralFactor = math.clamp((mbSmoothLatSpeed - 10.0) / 35.0, 0, 1) * intensityScale
+    local combinedFactor = math.clamp(math.max(angularFactor, sprintFactor * 0.85, lateralFactor * 0.75), 0, 1)
+
+    -- 2. Stage 1: Articulate Center-Protected Glass Micro-Refraction Vanes
+    if combinedFactor > 0.015 then
+        local glassTrans = 0.9985 - combinedFactor * 0.0145
+        local apertureRadius = 0.34 - angularFactor * 0.08
+        local zOffset = -0.68
+
+        for i = 1, MB_VANE_COUNT do
+            local vane = mbGlassVanes[i]
+            if vane then
+                local ringTheta = ((i - 1) / MB_VANE_COUNT) * (math.pi * 2) + panAngle
+                local vx = math.cos(ringTheta) * apertureRadius
+                local vy = math.sin(ringTheta) * apertureRadius
+                local dirAlign = math.abs(math.cos(ringTheta - panAngle))
+                local tiltRad = math.rad(8.0 + (28.0 * angularFactor * (0.4 + 0.6 * dirAlign)) + (18.0 * sprintFactor))
+
+                vane.Transparency = glassTrans
+                vane.CFrame = camCF
+                    * CFrame.new(vx, vy, zOffset)
+                    * CFrame.Angles(0, 0, ringTheta)
+                    * CFrame.Angles(tiltRad, 0, 0)
+            end
+        end
+    else
+        for i = 1, MB_VANE_COUNT do
+            local vane = mbGlassVanes[i]
+            if vane and vane.Transparency < 1 then
+                vane.Transparency = 1
+            end
+        end
+    end
+
+    -- 3. Stage 2: 180-Degree Cinema Shutter Specular Light-Source Streaks
+    if mbShutterAnchor then
+        mbShutterAnchor.CFrame = CFrame.identity
+        if tStart - mbLastLightScan >= MB_LIGHT_SCAN_INTERVAL then
+            mbLastLightScan = tStart
+            ScanNearbyBrightLights(camPos)
+        end
+
+        local shutterTime = (0.5 * clampedDt) * (0.65 + 0.85 * intensityScale)
+        local omegaWorld = camCF:VectorToWorldSpace(Vector3.new(mbSmoothOmegaPitch, mbSmoothOmegaYaw, 0))
+
+        for i = 1, MB_STREAK_COUNT do
+            local slot = mbStreakPool[i]
+            local lightInfo = mbCachedLights[i]
+            if slot and lightInfo and lightInfo.part and lightInfo.part.Parent and combinedFactor > 0.04 then
+                local lPos = lightInfo.part.Position
+                local relPos = lPos - camPos
+                local camSpacePt = camCF:PointToObjectSpace(lPos)
+
+                if camSpacePt.Z < -1.5 and relPos.Magnitude <= 65.0 then
+                    local apparentVel = -(vWorld + omegaWorld:Cross(relPos))
+                    local streakVec = apparentVel * shutterTime
+                    local streakLen = streakVec.Magnitude
+
+                    if streakLen >= 0.14 then
+                        if streakLen > 4.5 then
+                            streakVec = streakVec.Unit * 4.5
+                        end
+                        slot.a0.WorldPosition = lPos
+                        slot.a1.WorldPosition = lPos + streakVec
+                        slot.beam.Color = ColorSequence.new(lightInfo.color)
+                        slot.beam.Width0 = lightInfo.width
+                        slot.beam.Width1 = lightInfo.width * 0.2
+                        slot.beam.Brightness = 1.8 + combinedFactor * 2.0
+                        slot.beam.Enabled = true
+                    else
+                        slot.beam.Enabled = false
+                    end
+                else
+                    slot.beam.Enabled = false
+                end
+            elseif slot then
+                slot.beam.Enabled = false
+            end
+        end
+    end
+
+    -- 4. Stage 3: Gaze-Locked Focal DepthOfFieldEffect & Capped Whip-Pan Micro-Smoothing
+    if tStart - mbLastFocusCast >= MB_FOCUS_CAST_INTERVAL then
+        mbLastFocusCast = tStart
+        local lp = GetLocalPlayer()
+        local char = lp and lp.Character
+        local exclude = {}
+        if char then table.insert(exclude, char) end
+        if mbRigFolder then table.insert(exclude, mbRigFolder) end
+        mbRayParams.FilterDescendantsInstances = exclude
+
+        local hit = Workspace:Raycast(camPos, camCF.LookVector * 120.0, mbRayParams)
+        local targetDist = hit and (hit.Position - camPos).Magnitude or 42.0
+        mbFocusDist = mbFocusDist + (math.clamp(targetDist, 6.0, 110.0) - mbFocusDist) * 0.35
+    end
+
+    if mbDoFEffect then
+        if combinedFactor > 0.03 then
+            mbDoFEffect.Enabled = true
+            mbDoFEffect.FocusDistance = mbFocusDist
+            mbDoFEffect.InFocusRadius = math.clamp(38.0 - combinedFactor * 14.0, 18.0, 45.0)
+            mbDoFEffect.FarIntensity = math.clamp(combinedFactor * 0.42, 0, 0.5)
+            mbDoFEffect.NearIntensity = math.clamp(combinedFactor * 0.22, 0, 0.3)
+        else
+            mbDoFEffect.Enabled = false
+        end
+    end
+
+    if mbBlurEffect then
+        if angularFactor > 0.22 then
+            mbBlurEffect.Enabled = true
+            mbBlurEffect.Size = math.clamp((angularFactor - 0.22) * 3.8, 0, 3.2 * intensityScale)
+        else
+            mbBlurEffect.Size = 0
+            mbBlurEffect.Enabled = false
+        end
+    end
+
+    mbLastStepMs = (os.clock() - tStart) * 1000.0
+end
+
+function MotionBlur.Enable()
+    if isMotionBlurActive then return end
+    if (tonumber(config.motion_blur) or 0) <= 0 then return end
+    isMotionBlurActive = true
+    mbLastCamCF = nil
+    mbLastCamPos = nil
+    pcall(function()
+        RunService:UnbindFromRenderStep(MB_BIND_NAME)
+    end)
+    RunService:BindToRenderStep(MB_BIND_NAME, Enum.RenderPriority.Camera.Value + 1, StepMotionBlur)
+end
+
+function MotionBlur.Disable()
+    isMotionBlurActive = false
+    pcall(function()
+        RunService:UnbindFromRenderStep(MB_BIND_NAME)
+    end)
+    DestroyMotionBlurInstances()
+    mbLastCamCF = nil
+    mbLastCamPos = nil
+    mbSmoothOmegaYaw = 0
+    mbSmoothOmegaPitch = 0
+    mbSmoothFwdSpeed = 0
+    mbSmoothLatSpeed = 0
+    mbLastStepMs = 0
+end
+
+function MotionBlur.SetIntensity(step)
+    local clamped = math.clamp(math.floor(tonumber(step) or 0), 0, 10)
+    config.motion_blur = clamped
+    SaveConfig()
+    if clamped > 0 then
+        MotionBlur.Enable()
+    else
+        MotionBlur.Disable()
+    end
+end
+
+function MotionBlur.GetMetrics()
+    return {
+        enabled = isMotionBlurActive,
+        intensityStep = config.motion_blur or 0,
+        omegaYaw = mbSmoothOmegaYaw,
+        omegaPitch = mbSmoothOmegaPitch,
+        fwdSpeed = mbSmoothFwdSpeed,
+        latSpeed = mbSmoothLatSpeed,
+        focusDist = mbFocusDist,
+        cachedLights = #mbCachedLights,
+        stepMs = mbLastStepMs,
+        hasRig = (mbRigFolder ~= nil and mbRigFolder.Parent ~= nil),
+    }
 end
 
 -- ============================================================================
@@ -3273,6 +3736,12 @@ local function InjectEnhancementSettings(page)
         if val > 0 then PersonalSpaceBubble.Enable() else PersonalSpaceBubble.Disable() end
     end, -89)
 
+    CreateSliderRow("MotionBlur", "Motion Blur", config.motion_blur or 0, function(val)
+        config.motion_blur = val
+        SaveConfig()
+        if val > 0 then MotionBlur.Enable() else MotionBlur.Disable() end
+    end, -88.5)
+
     CreateToggleRow("LocatorTracers", "Locator Tracers", config.locator_tracers, function(val)
         config.locator_tracers = val
         SaveConfig()
@@ -3449,6 +3918,12 @@ local function SyncWithSystems()
         PersonalSpaceBubble.Disable()
     end
 
+    if (config.motion_blur or 0) > 0 then
+        MotionBlur.Enable()
+    else
+        MotionBlur.Disable()
+    end
+
     if config.anti_afk then
         AntiAFK.Enable()
     else
@@ -3467,6 +3942,11 @@ local function FullSuiteCleanup()
     -- 2. Personal Space Bubble Cleanup
     if PersonalSpaceBubble and PersonalSpaceBubble.Disable then
         pcall(PersonalSpaceBubble.Disable)
+    end
+
+    -- 2B. Motion Blur Cleanup
+    if MotionBlur and MotionBlur.Disable then
+        pcall(MotionBlur.Disable)
     end
 
     -- 3. Anti-AFK Cleanup
@@ -3565,6 +4045,7 @@ if genv then
     genv.OmniEnhancementSuite = {
         StreamerMode = StreamerMode,
         PersonalSpaceBubble = PersonalSpaceBubble,
+        MotionBlur = MotionBlur,
         Locator = Locator,
         AntiAFK = AntiAFK,
         BubbleChat = BubbleChatManager,
@@ -3587,6 +4068,7 @@ print("[OmniEnhancementSuite]: Successfully loaded and initialized all enhanceme
 return {
     StreamerMode = StreamerMode,
     PersonalSpaceBubble = PersonalSpaceBubble,
+    MotionBlur = MotionBlur,
     Locator = Locator,
     AntiAFK = AntiAFK,
     BubbleChat = BubbleChatManager,
