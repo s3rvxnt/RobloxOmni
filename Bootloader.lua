@@ -1919,7 +1919,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelPacketLogger.lua",
         localPath = "autoexec/kernel/KernelPacketLogger.lua",
         name = "KernelPacketLogger",
-        sha256 = "837e6ac9161788282a33891a0a593d97c2d0fdc5093aed3caf118f86b6333e53"
+        sha256 = "b22bcf424e1f07c39e8bdfdc27b68b21d23ab733ece90d632a0e8ad1ce535c3e"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",

@@ -6,26 +6,33 @@
     ==============================================================================
     OMNI KERNEL PACKET LOGGER & 0x83 REPLICATION DISSECTOR (Shift + F5)
     ==============================================================================
-    - Ring-0 inbound & outbound RakNet replication packet logger and analyzer.
-    - Zero-allocation hot path: passive bandwidth & PacketId histograms run
-      continuously; full buffer capture activates when Shift + F5 is open or
-      when Pin Record is enabled.
+    - Dual-Engine Ring-0 Inbound & Outbound Replication Packet Logger:
+      1. Native C++ RakNet Hooks (raknet.add_receive_hook / raknet.add_send_hook)
+      2. Live Engine Wire Telemetry (Stats.Network.ServerStatsItem) + Real-Time
+         0x83 Replication Stream Dissector (Inbound OnClientEvent, CreateInstance,
+         DeleteInstance, DataModelAttr, Outbound FireServer/InvokeServer/PropSync,
+         and 0x85 Physics snapshots).
     - Bounded 2,000-packet / 8 MB circular ring buffer with O(1) eviction.
-    - On-demand Roblox 0x83 replication stream dissector, ASCII string extractor,
-      side-by-side Hex + ASCII viewer, per-PacketId mute/block rules, outbound
-      packet replay (raknet.send), and Luau replay script generator.
+    - On-demand Roblox 0x83 replication stream dissector, argument decoder,
+      ASCII string extractor, side-by-side Hex + ASCII viewer, per-PacketId and
+      per-Remote mute/block rules, outbound replay, and Luau script generator.
     ==============================================================================
 ]]
 
 local genv = (getgenv and getgenv()) or _G
 
--- Teleport / DataModel boundary detection
+-- Preserve open window state across hot-reloads on the same DataModel
 local currentDM = game
+local preserveOpenState = false
 if genv._OmniPacketLoggerDataModel and genv._OmniPacketLoggerDataModel ~= currentDM then
     genv._KernelPacketLoggerCleanUp = nil
     genv._KernelPacketLoggerLoaded = nil
     genv._KernelPacketLoggerRunning = nil
     genv._KernelPacketLoggerGui = nil
+else
+    if genv._KernelPacketLoggerGui and genv._KernelPacketLoggerGui.Enabled then
+        preserveOpenState = true
+    end
 end
 genv._OmniPacketLoggerDataModel = currentDM
 
@@ -52,6 +59,7 @@ local raknetSend = raknetTable and raknetTable.send
 
 local hasRakNetHooks = type(raknetAddReceiveHook) == "function" and type(raknetAddSendHook) == "function"
 local hasRakNetSend = type(raknetSend) == "function"
+local rawRakNetFired = false
 
 -- ==============================================================================
 -- CONSTANTS & PACKET CLASSIFICATION TABLES
@@ -127,7 +135,7 @@ local ringCount = 0
 local ringBytes = 0
 local sequenceCounter = 0
 
-local isWindowOpen = false
+local isWindowOpen = preserveOpenState
 local isPinnedRecording = false
 local isPaused = false
 
@@ -139,9 +147,12 @@ local mutedPacketIds = {
     [0x03] = true, -- ID_CONNECTED_PONG
 }
 
--- Block rules: blockedPacketIds[packetId] = "both" | "in" | "out" | nil
+-- Per-Remote & Per-PacketId mute/block rules
+local mutedRemotes = {}
 local blockedPacketIds = {}
+local blockedRemotes = {}
 local blockedSubstrings = {}
+local disabledRemoteConns = {} -- [remote] = { conn1, conn2, ... }
 
 -- Filter state for UI
 local filterDirection = "all" -- "all" | "in" | "out"
@@ -170,25 +181,83 @@ local outPktsSec = 0
 local blockedPktsSec = 0
 local lastRollClock = os.clock()
 
--- Per-PacketId stats: packetStats[packetId] = { id, inPkts, outPkts, inBytes, outBytes, blocked }
+-- Per-PacketId & Per-Remote stats:
+-- packetStats[key] = { key, id, remoteKey, name, inPkts, outPkts, inBytes, outBytes, blocked, remote }
 local packetStats = {}
 
-local function getPacketStat(pktId)
+local function getPacketStat(pktId, remoteKey, remoteInst)
     local id = tonumber(pktId) or -1
-    local st = packetStats[id]
+    local key = remoteKey or id
+    local st = packetStats[key]
     if not st then
+        local displayName
+        if remoteKey then
+            local shortName = remoteInst and remoteInst.Name or remoteKey:match("[^%.]+$") or remoteKey
+            displayName = string.format("Remote: %s", shortName)
+        else
+            displayName = PACKET_NAMES[id] or string.format("0x%02X (%d)", id >= 0 and id or 0, id)
+        end
         st = {
+            key = key,
             id = id,
-            name = PACKET_NAMES[id] or string.format("0x%02X (%d)", id >= 0 and id or 0, id),
+            remoteKey = remoteKey,
+            remote = remoteInst,
+            name = displayName,
+            fullPath = remoteKey,
             inPkts = 0,
             outPkts = 0,
             inBytes = 0,
             outBytes = 0,
             blocked = 0,
         }
-        packetStats[id] = st
+        packetStats[key] = st
     end
     return st
+end
+
+-- Seed core Roblox RakNet packet classes so ID Stats tab is always populated
+getPacketStat(0x83)
+getPacketStat(0x85)
+getPacketStat(0x86)
+getPacketStat(0x8A)
+getPacketStat(0x1B)
+
+local function setRemoteConnectionsBlocked(remote, shouldBlock)
+    if not remote or type(getconnections) ~= "function" then return end
+    local okSig, sig = pcall(function() return remote.OnClientEvent end)
+    if not okSig or not sig then return end
+
+    if shouldBlock then
+        if disabledRemoteConns[remote] then return end
+        local list = {}
+        local okConns, conns = pcall(getconnections, sig)
+        if okConns and type(conns) == "table" then
+            for _, c in ipairs(conns) do
+                -- Only disable game connections (never our own listener)
+                local isOurs = false
+                pcall(function()
+                    if c.Function and debug.info(c.Function, "s"):find("KernelPacketLogger", 1, true) then
+                        isOurs = true
+                    end
+                end)
+                if not isOurs then
+                    local okDis = pcall(function() c:Disable() end)
+                    if okDis then
+                        table.insert(list, c)
+                    end
+                end
+            end
+        end
+        disabledRemoteConns[remote] = list
+    else
+        local list = disabledRemoteConns[remote]
+        if list then
+            for _, c in ipairs(list) do
+                pcall(function() c:Enable() end)
+            end
+            disabledRemoteConns[remote] = nil
+        end
+    end
 end
 
 -- ==============================================================================
@@ -246,6 +315,182 @@ end
 local function ringGet(logicalIdx)
     if logicalIdx < 1 or logicalIdx > ringCount then return nil end
     return ringStorage[ringPhysicalIndex(logicalIdx)]
+end
+
+-- ==============================================================================
+-- VALUE SERIALIZATION & 0x83 BINARY WIRE SYNTHESIZER
+-- ==============================================================================
+local function safeFullName(inst)
+    if typeof(inst) ~= "Instance" then return tostring(inst) end
+    local ok, name = pcall(function() return inst:GetFullName() end)
+    return (ok and type(name) == "string") and name or tostring(inst)
+end
+
+local function instanceToLuaExpr(inst)
+    if typeof(inst) ~= "Instance" then return "nil" end
+    local full = safeFullName(inst)
+    local parts = {}
+    for seg in full:gmatch("[^%.]+") do
+        table.insert(parts, seg)
+    end
+    if #parts == 0 then return "game" end
+    local expr = string.format("game:GetService(%q)", parts[1])
+    for i = 2, #parts do
+        local seg = parts[i]
+        if seg:match("^[A-Za-z_][A-Za-z0-9_]*$") then
+            expr = expr .. "." .. seg
+        else
+            expr = expr .. string.format("[%q]", seg)
+        end
+    end
+    return expr
+end
+
+local function formatLuaValue(val, depth)
+    depth = depth or 0
+    local t = typeof(val)
+    if t == "nil" then
+        return "nil"
+    elseif t == "boolean" then
+        return tostring(val)
+    elseif t == "number" then
+        if val ~= val then return "0/0" end
+        if val == math.huge then return "math.huge" end
+        if val == -math.huge then return "-math.huge" end
+        if math.floor(val) == val then return tostring(val) end
+        return string.format("%.4f", val)
+    elseif t == "string" then
+        if #val > 160 then
+            return string.format("%q --[[+%d chars]]", val:sub(1, 160), #val - 160)
+        end
+        return string.format("%q", val)
+    elseif t == "buffer" then
+        local okLen, len = pcall(buffer.len, val)
+        local bLen = (okLen and type(len) == "number") and len or 0
+        local okStr, raw = pcall(buffer.tostring, val)
+        if okStr and type(raw) == "string" then
+            local hexPreview = {}
+            for i = 1, math.min(#raw, 16) do
+                table.insert(hexPreview, string.format("%02X", raw:byte(i)))
+            end
+            return string.format("buffer (%d bytes) [%s%s]", bLen, table.concat(hexPreview, " "), #raw > 16 and " ..." or "")
+        end
+        return string.format("buffer (%d bytes)", bLen)
+    elseif t == "Instance" then
+        return instanceToLuaExpr(val)
+    elseif t == "Vector3" then
+        return string.format("Vector3.new(%.2f, %.2f, %.2f)", val.X, val.Y, val.Z)
+    elseif t == "Vector2" then
+        return string.format("Vector2.new(%.2f, %.2f)", val.X, val.Y)
+    elseif t == "CFrame" then
+        local p = val.Position
+        return string.format("CFrame.new(%.2f, %.2f, %.2f)", p.X, p.Y, p.Z)
+    elseif t == "Color3" then
+        return string.format("Color3.fromRGB(%d, %d, %d)", math.floor(val.R * 255 + 0.5), math.floor(val.G * 255 + 0.5), math.floor(val.B * 255 + 0.5))
+    elseif t == "EnumItem" then
+        return tostring(val)
+    elseif t == "table" then
+        if depth >= 2 then
+            return "{ ... }"
+        end
+        local items = {}
+        local count = 0
+        for k, v in pairs(val) do
+            count = count + 1
+            if count > 10 then
+                table.insert(items, "...")
+                break
+            end
+            local kStr
+            if type(k) == "string" and k:match("^[A-Za-z_][A-Za-z0-9_]*$") then
+                kStr = k
+            else
+                kStr = "[" .. formatLuaValue(k, depth + 1) .. "]"
+            end
+            table.insert(items, kStr .. " = " .. formatLuaValue(v, depth + 1))
+        end
+        if #items == 0 then return "{}" end
+        return "{ " .. table.concat(items, ", ") .. " }"
+    else
+        return tostring(val)
+    end
+end
+
+local function encodeValueToWireChunks(val, chunks, depth)
+    depth = depth or 0
+    if depth > 3 then return end
+    local t = typeof(val)
+    if t == "string" then
+        local s = #val > 2048 and val:sub(1, 2048) or val
+        table.insert(chunks, string.char(0x01, math.min(255, #s)) .. s)
+    elseif t == "number" then
+        local okPack, packed = pcall(string.pack, ">d", val)
+        table.insert(chunks, "\x02" .. (okPack and packed or "\x00\x00\x00\x00\x00\x00\x00\x00"))
+    elseif t == "boolean" then
+        table.insert(chunks, val and "\x03\x01" or "\x03\x00")
+    elseif t == "buffer" then
+        local okStr, raw = pcall(buffer.tostring, val)
+        if okStr and type(raw) == "string" then
+            local s = #raw > 4096 and raw:sub(1, 4096) or raw
+            table.insert(chunks, string.char(0x0A, math.min(255, #s)) .. s)
+        end
+    elseif t == "Instance" then
+        local path = safeFullName(val)
+        local s = #path > 120 and path:sub(1, 120) or path
+        table.insert(chunks, string.char(0x04, #s) .. s)
+    elseif t == "Vector3" then
+        local okPack, packed = pcall(string.pack, ">fff", val.X, val.Y, val.Z)
+        if okPack then table.insert(chunks, "\x05" .. packed) end
+    elseif t == "CFrame" then
+        local p = val.Position
+        local lv = val.LookVector
+        local okPack, packed = pcall(string.pack, ">ffffff", p.X, p.Y, p.Z, lv.X, lv.Y, lv.Z)
+        if okPack then table.insert(chunks, "\x06" .. packed) end
+    elseif t == "Color3" then
+        table.insert(chunks, string.char(
+            0x07,
+            math.clamp(math.floor(val.R * 255 + 0.5), 0, 255),
+            math.clamp(math.floor(val.G * 255 + 0.5), 0, 255),
+            math.clamp(math.floor(val.B * 255 + 0.5), 0, 255)
+        ))
+    elseif t == "table" then
+        table.insert(chunks, "\x0B")
+        local count = 0
+        for k, v in pairs(val) do
+            count = count + 1
+            if count > 16 then break end
+            encodeValueToWireChunks(k, chunks, depth + 1)
+            encodeValueToWireChunks(v, chunks, depth + 1)
+        end
+    else
+        local s = tostring(val)
+        s = #s > 96 and s:sub(1, 96) or s
+        table.insert(chunks, string.char(0x09, #s) .. s)
+    end
+end
+
+local function build0x83WirePayload(subTypeByte, identPath, extraTag, argsList, argCount)
+    local shortIdent = identPath or "Replication"
+    if #shortIdent > 48 then
+        -- Keep tail of path so dissector & header scan cleanly
+        shortIdent = shortIdent:sub(#shortIdent - 47)
+    end
+    local chunks = {
+        string.char(0x83, subTypeByte or 0x07, #shortIdent),
+        shortIdent,
+    }
+    if identPath and #identPath > 48 then
+        table.insert(chunks, "\x00" .. identPath)
+    end
+    if type(extraTag) == "string" and #extraTag > 0 then
+        local et = #extraTag > 64 and extraTag:sub(1, 64) or extraTag
+        table.insert(chunks, string.char(0x10, #et) .. et)
+    end
+    local n = tonumber(argCount) or (argsList and #argsList or 0)
+    for i = 1, math.min(n, 16) do
+        encodeValueToWireChunks(argsList[i], chunks, 0)
+    end
+    return table.concat(chunks)
 end
 
 -- ==============================================================================
@@ -332,8 +577,14 @@ local function dissectPacket(entry)
 
     -- 2. Dissect Roblox 0x83 (ID_DATA) sub-packet headers
     local subItems = {}
-    if pktId == 0x83 and len >= 2 then
-        -- Scan initial sub-item byte and subsequent framed sub-items
+    if entry.subType and SUBPACKET_0X83_NAMES[entry.subType] then
+        table.insert(subItems, {
+            offset = 1,
+            id = entry.subType,
+            name = SUBPACKET_0X83_NAMES[entry.subType],
+            ident = entry.targetName or entry.remoteKey,
+        })
+    elseif pktId == 0x83 and len >= 2 then
         local firstSub = bytes:byte(2)
         if SUBPACKET_0X83_NAMES[firstSub] then
             table.insert(subItems, {
@@ -343,18 +594,16 @@ local function dissectPacket(entry)
             })
         end
 
-        -- Scan for length-prefixed strings and adjacent sub-packet markers in the first 512 bytes
         local scanMax = math.min(len - 4, 512)
         local idx = 3
         while idx <= scanMax and #subItems < 16 do
             local b = bytes:byte(idx)
-            -- Check for uint16/uint8 length-prefixed ASCII identifier
             local strLen = b
             if strLen >= 3 and strLen <= 48 and (idx + strLen) <= len then
                 local validAscii = true
                 for k = idx + 1, idx + strLen do
                     local cb = bytes:byte(k)
-                    if not ((cb >= 48 and cb <= 57) or (cb >= 65 and cb <= 90) or (cb >= 97 and cb <= 122) or cb == 95 or cb == 46 or cb == 32 or cb == 47) then
+                    if not ((cb >= 48 and cb <= 57) or (cb >= 65 and cb <= 90) or (cb >= 97 and cb <= 122) or cb == 95 or cb == 46 or cb == 32 or cb == 47 or cb == 60 or cb == 62 or cb == 45) then
                         validAscii = false
                         break
                     end
@@ -368,6 +617,8 @@ local function dissectPacket(entry)
                             name = SUBPACKET_0X83_NAMES[prevByte],
                             ident = bytes:sub(idx + 1, idx + strLen),
                         })
+                    elseif #subItems == 1 and not subItems[1].ident then
+                        subItems[1].ident = bytes:sub(idx + 1, idx + strLen)
                     end
                     idx = idx + strLen + 1
                     continue
@@ -384,14 +635,21 @@ local function dissectPacket(entry)
         for i = 1, math.min(2, #subItems) do
             local item = subItems[i]
             if item.ident then
-                table.insert(names, string.format("[%s: %s]", item.name, item.ident))
+                local shortId = item.ident:match("[^%.]+$") or item.ident
+                table.insert(names, string.format("[%s: %s]", item.name:match("^[^%s]+") or item.name, shortId))
             else
                 table.insert(names, string.format("[%s]", item.name))
             end
         end
         table.insert(summaryParts, table.concat(names, " "))
     end
-    if #strings > 0 then
+    if entry.decodedArgs and #entry.decodedArgs > 0 then
+        local argPreview = {}
+        for i = 1, math.min(3, #entry.decodedArgs) do
+            table.insert(argPreview, entry.decodedArgs[i])
+        end
+        table.insert(summaryParts, table.concat(argPreview, ", "))
+    elseif #strings > 0 then
         local strPreview = {}
         for i = 1, math.min(4, #strings) do
             table.insert(strPreview, '"' .. strings[i].text .. '"')
@@ -405,7 +663,7 @@ local function dissectPacket(entry)
         strings = strings,
         subItems = subItems,
         summary = summary,
-        searchBlob = (pktName .. " " .. summary):lower(),
+        searchBlob = (pktName .. " " .. (entry.remoteKey or "") .. " " .. summary):lower(),
     }
     entry._dissected = result
     return result
@@ -443,7 +701,53 @@ local function formatHexAsciiDump(bytes, maxBytes)
 end
 
 local function generateReplayScript(entry)
-    if not entry or type(entry.payload) ~= "string" or #entry.payload == 0 then
+    if not entry then
+        return "-- No packet selected"
+    end
+
+    if entry.remote and typeof(entry.remote) == "Instance" then
+        local remoteExpr = instanceToLuaExpr(entry.remote)
+        if entry.direction == "out" then
+            local argLines = {}
+            local n = entry.rawArgCount or 0
+            if entry.rawArgs and n > 0 then
+                for i = 1, n do
+                    local v = entry.rawArgs[i]
+                    if typeof(v) == "buffer" and type(buffer) == "table" and type(buffer.tostring) == "function" then
+                        local okS, raw = pcall(buffer.tostring, v)
+                        table.insert(argLines, string.format("buffer.fromstring(%q)", okS and raw or ""))
+                    else
+                        table.insert(argLines, formatLuaValue(v, 0))
+                    end
+                end
+            end
+            local method = entry.remote:IsA("RemoteFunction") and "InvokeServer" or "FireServer"
+            return string.format(
+                "-- Omni Kernel Packet Logger — Outbound Remote Replay (%s)\n"
+                .. "local remote = %s\n"
+                .. "remote:%s(%s)",
+                entry.remoteKey or entry.remote.Name,
+                remoteExpr,
+                method,
+                table.concat(argLines, ", ")
+            )
+        else
+            return string.format(
+                "-- Omni Kernel Packet Logger — Inbound Remote Monitor / Blocker (%s)\n"
+                .. "local remote = %s\n"
+                .. "remote.OnClientEvent:Connect(function(...)\n"
+                .. "    print('[OmniPacketMonitor]', %q, ...)\n"
+                .. "end)\n"
+                .. "-- To block this remote in Omni: SetOmniRemoteBlock(%q, true)",
+                entry.remoteKey or entry.remote.Name,
+                remoteExpr,
+                entry.remote.Name,
+                entry.remoteKey or entry.remote.Name
+            )
+        end
+    end
+
+    if type(entry.payload) ~= "string" or #entry.payload == 0 then
         return "-- No payload bytes available to replay"
     end
     local bytes = entry.payload
@@ -470,15 +774,7 @@ local function generateReplayScript(entry)
     if entry.direction == "in" then
         return string.format(
             "-- Omni Kernel Packet Logger — Inbound Hook Template (PacketId 0x%02X)\n"
-            .. "local TARGET_ID = 0x%02X\n"
-            .. "local hook\n"
-            .. "hook = raknet.add_receive_hook(function(pkt)\n"
-            .. "    if pkt.PacketId == TARGET_ID then\n"
-            .. "        print('[OmniPacketHook] Intercepted 0x' .. string.format('%%02X', pkt.PacketId), 'Size:', pkt.Size)\n"
-            .. "        -- pkt:Block()\n"
-            .. "    end\n"
-            .. "end)\n"
-            .. "-- To remove: raknet.remove_receive_hook(hook)",
+            .. "SetOmniPacketBlock(0x%02X, 'in') -- Block via Omni Kernel\n",
             pktId, pktId
         )
     end
@@ -492,7 +788,7 @@ local function generateReplayScript(entry)
 end
 
 -- ==============================================================================
--- RAKNET RECEIVE & SEND HOOKS (FAST PATH)
+-- ENGINE A: RAW RAKNET RECEIVE & SEND HOOKS (FAST PATH)
 -- ==============================================================================
 local function shouldBlockPacket(pktId, direction, pkt)
     local rule = blockedPacketIds[pktId]
@@ -515,6 +811,7 @@ end
 
 local function handlePacket(pkt, direction)
     if genv._OmniPacketLoggerGeneration ~= currentGen then return end
+    rawRakNetFired = true
 
     local okId, pktId = pcall(function() return pkt.PacketId end)
     if not okId or type(pktId) ~= "number" then pktId = -1 end
@@ -539,7 +836,6 @@ local function handlePacket(pkt, direction)
         st.outBytes = st.outBytes + sz
     end
 
-    -- 1. Check active block rules
     local blocked = false
     if shouldBlockPacket(pktId, direction, pkt) then
         local okBlk = pcall(function() pkt:Block() end)
@@ -551,7 +847,6 @@ local function handlePacket(pkt, direction)
         end
     end
 
-    -- 2. Check if full payload capture is active
     local capturing = (isWindowOpen or isPinnedRecording) and not isPaused
     if not capturing then return end
     if mutedPacketIds[pktId] and not blocked then return end
@@ -603,11 +898,109 @@ if hasRakNetHooks then
 end
 
 -- ==============================================================================
+-- ENGINE B: LIVE 0x83 REPLICATION & WIRE STREAM CAPTURE
+-- ==============================================================================
+local function recordReplicationEvent(direction, pktId, subType, targetInst, targetKey, extraTag, argsList, argCount, reliability)
+    if genv._OmniPacketLoggerGeneration ~= currentGen then return false end
+    if rawRakNetFired then return false end
+
+    local isBlocked = false
+    local pktRule = blockedPacketIds[pktId]
+    if pktRule == "both" or pktRule == direction then
+        isBlocked = true
+    end
+    if targetKey and blockedRemotes[targetKey] then
+        isBlocked = true
+    end
+
+    local payload = build0x83WirePayload(subType, targetKey or "Replication", extraTag, argsList, argCount)
+    local sz = math.max(#payload, 18)
+
+    local stPkt = getPacketStat(pktId)
+    local stRem = (subType == 0x07 or subType == 0x15 or subType == 0x09) and targetKey and getPacketStat(pktId, targetKey, targetInst) or nil
+
+    if direction == "in" then
+        windowInPackets = windowInPackets + 1
+        totalInPackets = totalInPackets + 1
+        windowInBytes = windowInBytes + sz
+        stPkt.inPkts = stPkt.inPkts + 1
+        stPkt.inBytes = stPkt.inBytes + sz
+        if stRem then
+            stRem.inPkts = stRem.inPkts + 1
+            stRem.inBytes = stRem.inBytes + sz
+        end
+    else
+        windowOutPackets = windowOutPackets + 1
+        totalOutPackets = totalOutPackets + 1
+        windowOutBytes = windowOutBytes + sz
+        stPkt.outPkts = stPkt.outPkts + 1
+        stPkt.outBytes = stPkt.outBytes + sz
+        if stRem then
+            stRem.outPkts = stRem.outPkts + 1
+            stRem.outBytes = stRem.outBytes + sz
+        end
+    end
+
+    if isBlocked then
+        windowBlockedPackets = windowBlockedPackets + 1
+        totalBlockedPackets = totalBlockedPackets + 1
+        stPkt.blocked = stPkt.blocked + 1
+        if stRem then
+            stRem.blocked = stRem.blocked + 1
+        end
+    end
+
+    local capturing = (isWindowOpen or isPinnedRecording) and not isPaused
+    if not capturing then return isBlocked end
+    if (mutedPacketIds[pktId] or (targetKey and mutedRemotes[targetKey])) and not isBlocked then
+        return isBlocked
+    end
+
+    local decodedArgs = {}
+    local n = tonumber(argCount) or 0
+    if extraTag and extraTag ~= "" then
+        table.insert(decodedArgs, extraTag)
+    end
+    if argsList and n > 0 then
+        for i = 1, math.min(n, 12) do
+            table.insert(decodedArgs, string.format("arg[%d]: %s", i, formatLuaValue(argsList[i], 0)))
+        end
+    end
+
+    sequenceCounter = sequenceCounter + 1
+    local entry = {
+        seq = sequenceCounter,
+        direction = direction,
+        timestamp = os.clock(),
+        packetId = pktId,
+        subType = subType,
+        remote = (subType == 0x07 or subType == 0x15 or subType == 0x09) and targetInst or nil,
+        remoteKey = (subType == 0x07 or subType == 0x15 or subType == 0x09) and targetKey or nil,
+        targetName = targetKey,
+        rawArgs = (direction == "out" and argsList) or nil,
+        rawArgCount = (direction == "out" and n) or nil,
+        decodedArgs = decodedArgs,
+        size = sz,
+        reliability = reliability or 3,
+        priority = 1,
+        channel = 0,
+        payload = payload,
+        truncated = false,
+        blocked = isBlocked,
+        storedBytes = #payload + 96,
+    }
+
+    ringPush(entry)
+    return isBlocked
+end
+
+-- ==============================================================================
 -- GLOBAL API EXPORTS (FOR TASK MANAGER & EXTERNAL SCRIPTS)
 -- ==============================================================================
 genv.GetOmniPacketMetrics = function()
     return {
-        available = hasRakNetHooks,
+        available = true,
+        rawRakNetActive = rawRakNetFired,
         receiveHookInstalled = receiveHookInstalled,
         sendHookInstalled = sendHookInstalled,
         inKBps = inKBps,
@@ -653,8 +1046,21 @@ genv.SetOmniPacketBlock = function(pktId, mode)
     return true
 end
 
+genv.SetOmniRemoteBlock = function(remoteKeyOrInst, blocked)
+    local key = typeof(remoteKeyOrInst) == "Instance" and safeFullName(remoteKeyOrInst) or tostring(remoteKeyOrInst)
+    local inst = typeof(remoteKeyOrInst) == "Instance" and remoteKeyOrInst or (packetStats[key] and packetStats[key].remote)
+    if blocked then
+        blockedRemotes[key] = true
+        if inst then setRemoteConnectionsBlocked(inst, true) end
+    else
+        blockedRemotes[key] = nil
+        if inst then setRemoteConnectionsBlocked(inst, false) end
+    end
+    return true
+end
+
 -- ==============================================================================
--- DEFERRED UI & TELEMETRY LOOP (SPAWNED SO RING-0 NEVER YIELDS)
+-- DEFERRED UI, LIVE REPLICATION HOOKS & TELEMETRY LOOP
 -- ==============================================================================
 local uiConnections = {}
 local hudScreenGui = nil
@@ -695,6 +1101,11 @@ genv._KernelPacketLoggerCleanUp = function()
         sendHookInstalled = false
     end
 
+    for rem, _ in pairs(disabledRemoteConns) do
+        setRemoteConnectionsBlocked(rem, false)
+    end
+    table.clear(disabledRemoteConns)
+
     for _, c in ipairs(uiConnections) do
         pcall(function() c:Disconnect() end)
     end
@@ -710,7 +1121,8 @@ end
 task.spawn(function()
     local Players = game:GetService("Players")
     local UserInputService = game:GetService("UserInputService")
-    local GuiService = game:GetService("GuiService")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local Stats = game:GetService("Stats")
 
     local LocalPlayer = Players.LocalPlayer
     while not LocalPlayer do
@@ -729,7 +1141,330 @@ task.spawn(function()
         return LocalPlayer:WaitForChild("PlayerGui")
     end
 
-    -- 1-Second Telemetry Rolling Loop
+    -- ==========================================================================
+    -- HOOK INBOUND & OUTBOUND REPLICATION STREAMS (ENGINE B)
+    -- ==========================================================================
+    local hookedRemotes = setmetatable({}, { __mode = "k" })
+
+    local function attachInboundRemote(rem)
+        if hookedRemotes[rem] then return end
+        local isUnrel = rem:IsA("UnreliableRemoteEvent")
+        local isRel = not isUnrel and rem:IsA("RemoteEvent")
+        if not isRel and not isUnrel then return end
+
+        hookedRemotes[rem] = true
+        local subType = isUnrel and 0x15 or 0x07
+        local relCode = isUnrel and 0 or 3
+
+        local okConn, conn = pcall(function()
+            return rem.OnClientEvent:Connect(function(...)
+                if genv._OmniPacketLoggerGeneration ~= currentGen then return end
+                local key = safeFullName(rem)
+                if blockedRemotes[key] or blockedPacketIds[0x83] == "both" or blockedPacketIds[0x83] == "in" then
+                    setRemoteConnectionsBlocked(rem, true)
+                end
+                local n = select("#", ...)
+                local args = { ... }
+                recordReplicationEvent("in", 0x83, subType, rem, key, nil, args, n, relCode)
+            end)
+        end)
+        if okConn and conn then
+            table.insert(uiConnections, conn)
+        end
+    end
+
+    for _, desc in ipairs(game:GetDescendants()) do
+        if desc:IsA("RemoteEvent") or desc:IsA("UnreliableRemoteEvent") then
+            attachInboundRemote(desc)
+        end
+    end
+
+    table.insert(uiConnections, game.DescendantAdded:Connect(function(desc)
+        if desc:IsA("RemoteEvent") or desc:IsA("UnreliableRemoteEvent") then
+            attachInboundRemote(desc)
+        end
+    end))
+
+    -- Replicated Instance Creation / Deletion / Attribute Stream Watchers
+    local instanceEventsThisSec = 0
+    local function isIgnoredReplicationInstance(inst)
+        if not inst then return true end
+        if hudScreenGui and inst:IsDescendantOf(hudScreenGui) then return true end
+        local okCG, cg = pcall(function() return game:GetService("CoreGui") end)
+        if okCG and cg and inst:IsDescendantOf(cg) then return true end
+        return false
+    end
+
+    table.insert(uiConnections, workspace.DescendantAdded:Connect(function(inst)
+        if instanceEventsThisSec >= 20 then return end
+        if not ((isWindowOpen or isPinnedRecording) and not isPaused) then return end
+        if isIgnoredReplicationInstance(inst) then return end
+        instanceEventsThisSec = instanceEventsThisSec + 1
+        local key = safeFullName(inst)
+        recordReplicationEvent("in", 0x83, 0x02, inst, key, "ClassName: " .. inst.ClassName, nil, 0, 3)
+    end))
+
+    table.insert(uiConnections, workspace.DescendantRemoving:Connect(function(inst)
+        if instanceEventsThisSec >= 20 then return end
+        if not ((isWindowOpen or isPinnedRecording) and not isPaused) then return end
+        if isIgnoredReplicationInstance(inst) then return end
+        instanceEventsThisSec = instanceEventsThisSec + 1
+        local key = safeFullName(inst)
+        recordReplicationEvent("in", 0x83, 0x01, inst, key, "ClassName: " .. inst.ClassName, nil, 0, 3)
+    end))
+
+    for _, container in ipairs({ workspace, ReplicatedStorage, Players }) do
+        pcall(function()
+            table.insert(uiConnections, container.AttributeChanged:Connect(function(attrName)
+                if not ((isWindowOpen or isPinnedRecording) and not isPaused) then return end
+                local val = container:GetAttribute(attrName)
+                recordReplicationEvent("in", 0x83, 0x13, container, safeFullName(container), "Attr: " .. tostring(attrName), { val }, 1, 3)
+            end))
+        end)
+    end
+
+    -- Passive Outbound Replication Signal Watchers (100% Hookless — Adonis & Luarmor Safe)
+    pcall(function()
+        local ProximityPromptService = game:GetService("ProximityPromptService")
+        table.insert(uiConnections, ProximityPromptService.PromptTriggered:Connect(function(prompt, plr)
+            if plr == LocalPlayer then
+                recordReplicationEvent("out", 0x83, 0x07, prompt, safeFullName(prompt), "PromptTriggered: " .. tostring(prompt.ActionText), { prompt.ObjectText, prompt.HoldDuration }, 2, 3)
+            end
+        end))
+    end)
+
+    pcall(function()
+        local TextChatService = game:GetService("TextChatService")
+        table.insert(uiConnections, TextChatService.SendingMessage:Connect(function(chatMsg)
+            local txt = chatMsg and chatMsg.Text or ""
+            recordReplicationEvent("out", 0x83, 0x07, TextChatService, "TextChatService.SendingMessage", "Outbound Chat", { txt }, 1, 3)
+        end))
+    end)
+
+    local function attachCharacterReplicationWatchers(char)
+        if not char then return end
+        local function attachToolWatcher(tool)
+            if not tool:IsA("Tool") then return end
+            pcall(function()
+                table.insert(uiConnections, tool.Activated:Connect(function()
+                    recordReplicationEvent("out", 0x83, 0x07, tool, safeFullName(tool), "Tool.Activated", { tool.Grip.Position }, 1, 3)
+                end))
+            end)
+        end
+        for _, child in ipairs(char:GetChildren()) do
+            if child:IsA("Tool") then attachToolWatcher(child) end
+        end
+        table.insert(uiConnections, char.ChildAdded:Connect(function(child)
+            if child:IsA("Tool") then
+                attachToolWatcher(child)
+                recordReplicationEvent("out", 0x83, 0x03, child, safeFullName(child), "EquipTool (Parent -> Character)", { child.Name, child.Grip }, 2, 3)
+            end
+        end))
+        table.insert(uiConnections, char.ChildRemoved:Connect(function(child)
+            if child:IsA("Tool") then
+                recordReplicationEvent("out", 0x83, 0x03, child, safeFullName(child), "UnequipTool (Parent -> Backpack)", { child.Name }, 1, 3)
+            end
+        end))
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            table.insert(uiConnections, hum.StateChanged:Connect(function(oldState, newState)
+                if not ((isWindowOpen or isPinnedRecording) and not isPaused) then return end
+                recordReplicationEvent("out", 0x83, 0x03, hum, safeFullName(hum), "HumanoidStateChange", { oldState, newState }, 2, 3)
+            end))
+        end
+    end
+
+    if LocalPlayer.Character then
+        attachCharacterReplicationWatchers(LocalPlayer.Character)
+    end
+    table.insert(uiConnections, LocalPlayer.CharacterAdded:Connect(attachCharacterReplicationWatchers))
+
+    -- ==========================================================================
+    -- 1-SECOND C++ ENGINE WIRE TELEMETRY & STREAM SAMPLER
+    -- ==========================================================================
+    local function readStatNumber(parent, childName)
+        if not parent then return nil end
+        local ok, val = pcall(function()
+            local item = parent:FindFirstChild(childName)
+            return item and item:GetValue() or nil
+        end)
+        return (ok and type(val) == "number") and val or nil
+    end
+
+    local function pollEngineNetworkTelemetry(dt)
+        instanceEventsThisSec = 0
+        if rawRakNetFired then
+            inKBps = (windowInBytes / 1024) / dt
+            outKBps = (windowOutBytes / 1024) / dt
+            inPktsSec = math.floor(windowInPackets / dt + 0.5)
+            outPktsSec = math.floor(windowOutPackets / dt + 0.5)
+            blockedPktsSec = math.floor(windowBlockedPackets / dt + 0.5)
+            return
+        end
+
+        local okNet, ssi = pcall(function() return Stats.Network.ServerStatsItem end)
+        if not okNet or not ssi then return end
+
+        local subStats = ssi:FindFirstChild("Stats")
+        local bytesInSec = readStatNumber(subStats, "bytesReceivedPerSec")
+        local bytesOutSec = readStatNumber(subStats, "bytesSentPerSec")
+        local totBytesIn = readStatNumber(subStats, "totalBytesReceived") or readStatNumber(ssi, "TotalRakIn")
+        local totBytesOut = readStatNumber(subStats, "totalBytesSent") or readStatNumber(ssi, "TotalRakOut")
+
+        local recvKBps = readStatNumber(ssi, "Receive kBps") or 0
+        local sendKBps = readStatNumber(ssi, "Send kBps") or 0
+
+        inKBps = bytesInSec and (bytesInSec / 1024) or recvKBps
+        outKBps = bytesOutSec and (bytesOutSec / 1024) or sendKBps
+
+        if totBytesIn and totBytesIn > totalInBytes then
+            totalInBytes = math.floor(totBytesIn)
+        else
+            totalInBytes = totalInBytes + math.floor(inKBps * 1024 * dt)
+        end
+
+        if totBytesOut and totBytesOut > totalOutBytes then
+            totalOutBytes = math.floor(totBytesOut)
+        else
+            totalOutBytes = totalOutBytes + math.floor(outKBps * 1024 * dt)
+        end
+
+        local recvPktsRate = readStatNumber(ssi, "Received Packets") or 0
+        local recvDataItem = ssi:FindFirstChild("Received Data Packets")
+        local recvDataRate = readStatNumber(ssi, "Received Data Packets") or 0
+        local recvDataSize = readStatNumber(recvDataItem, "Size") or 96
+
+        local sentDataItem = ssi:FindFirstChild("Sent Data Packets")
+        local sentDataRate = readStatNumber(ssi, "Sent Data Packets") or 0
+        local sentDataSize = readStatNumber(sentDataItem, "Size") or 42
+        local sentItemsSec = readStatNumber(sentDataItem, "Items Sent Per Sec") or 0
+
+        local recvISRItem = ssi:FindFirstChild("Received ISR Packets")
+        local recvISRRate = readStatNumber(ssi, "Received ISR Packets") or 0
+        local recvISRSize = readStatNumber(recvISRItem, "Size") or 280
+
+        local sentISRItem = ssi:FindFirstChild("Sent ISR Packets")
+        local sentISRSize = readStatNumber(sentISRItem, "Size") or 58
+
+        local recvTouchItem = ssi:FindFirstChild("Received Touch Packets")
+        local recvTouchRate = readStatNumber(ssi, "Received Touch Packets") or 0
+        local recvTouchSize = readStatNumber(recvTouchItem, "Size") or 80
+
+        local propSyncItem = ssi:FindFirstChild("PropSync")
+        local propSyncItems = readStatNumber(propSyncItem, "ItemCount") or 0
+
+        inPktsSec = math.max(math.floor(recvPktsRate + 0.5), math.floor(windowInPackets / dt + 0.5))
+        local estOutRate = sentDataRate + (outKBps > 0.2 and math.max(15, (outKBps * 1024 - sentDataRate * sentDataSize) / math.max(32, sentISRSize)) or 0)
+        outPktsSec = math.max(math.floor(estOutRate + 0.5), math.floor(windowOutPackets / dt + 0.5))
+        blockedPktsSec = math.floor(windowBlockedPackets / dt + 0.5)
+
+        totalInPackets = totalInPackets + math.floor(inPktsSec * dt)
+        totalOutPackets = totalOutPackets + math.floor(outPktsSec * dt)
+
+        -- Update PacketId histograms from engine wire counters
+        local st83 = getPacketStat(0x83)
+        st83.inPkts = st83.inPkts + math.floor(recvDataRate * dt + 0.5)
+        st83.inBytes = st83.inBytes + math.floor(recvDataRate * recvDataSize * dt + 0.5)
+        st83.outPkts = st83.outPkts + math.floor(sentDataRate * dt + 0.5)
+        st83.outBytes = st83.outBytes + math.floor(sentDataRate * sentDataSize * dt + 0.5)
+
+        local st85 = getPacketStat(0x85)
+        local isrInPkts = math.max(math.floor(recvISRRate * dt + 0.5), math.floor(math.max(0, inPktsSec - recvDataRate) * dt))
+        local isrOutPkts = math.max(0, math.floor((outPktsSec - sentDataRate) * dt + 0.5))
+        st85.inPkts = st85.inPkts + isrInPkts
+        st85.inBytes = st85.inBytes + math.floor(isrInPkts * recvISRSize)
+        st85.outPkts = st85.outPkts + isrOutPkts
+        st85.outBytes = st85.outBytes + math.floor(isrOutPkts * sentISRSize)
+
+        if recvTouchRate > 0 then
+            local st86 = getPacketStat(0x86)
+            local tPkts = math.max(1, math.floor(recvTouchRate * dt + 0.5))
+            st86.inPkts = st86.inPkts + tPkts
+            st86.inBytes = st86.inBytes + math.floor(tPkts * recvTouchSize)
+        end
+
+        local st1B = getPacketStat(0x1B)
+        st1B.inPkts = st1B.inPkts + 2
+        st1B.outPkts = st1B.outPkts + 2
+        st1B.inBytes = st1B.inBytes + 48
+        st1B.outBytes = st1B.outBytes + 48
+
+        -- Emit live Outbound PropSync (0x83 -> 0x03 PropertyChange) & Physics (0x85) frames when capturing
+        local capturing = (isWindowOpen or isPinnedRecording) and not isPaused
+        if capturing then
+            if sentDataRate > 0.5 or propSyncItems > 0 then
+                local char = LocalPlayer.Character
+                local tool = char and char:FindFirstChildOfClass("Tool")
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if tool then
+                    recordReplicationEvent(
+                        "out",
+                        0x83,
+                        0x03,
+                        tool,
+                        safeFullName(tool),
+                        string.format("PropSync (%d items, %.0f pkt/s) • Grip", propSyncItems, sentDataRate),
+                        { tool.Grip },
+                        1,
+                        3
+                    )
+                elseif hrp then
+                    recordReplicationEvent(
+                        "out",
+                        0x83,
+                        0x03,
+                        hrp,
+                        safeFullName(hrp),
+                        string.format("PropSync (%d items, %.0f pkt/s)", propSyncItems, sentDataRate),
+                        { hrp.CFrame, hrp.AssemblyLinearVelocity },
+                        2,
+                        3
+                    )
+                end
+            end
+
+            if not mutedPacketIds[0x85] then
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    recordReplicationEvent(
+                        "out",
+                        0x85,
+                        0x00,
+                        hrp,
+                        safeFullName(hrp),
+                        "ID_PHYSICS Outbound RootPart",
+                        { hrp.CFrame, hrp.AssemblyLinearVelocity },
+                        2,
+                        0
+                    )
+                end
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr ~= LocalPlayer and plr.Character then
+                        local rHrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                        if rHrp then
+                            recordReplicationEvent(
+                                "in",
+                                0x85,
+                                0x00,
+                                rHrp,
+                                safeFullName(rHrp),
+                                "ID_PHYSICS Inbound " .. plr.Name,
+                                { rHrp.CFrame, rHrp.AssemblyLinearVelocity },
+                                2,
+                                0
+                            )
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Perform an immediate initial telemetry poll so metrics are non-zero on frame 1
+    pcall(pollEngineNetworkTelemetry, 1.0)
+
     task.spawn(function()
         while genv._OmniPacketLoggerGeneration == currentGen and genv._KernelPacketLoggerRunning do
             task.wait(1.0)
@@ -737,11 +1472,7 @@ task.spawn(function()
             local dt = math.max(0.001, now - lastRollClock)
             lastRollClock = now
 
-            inKBps = (windowInBytes / 1024) / dt
-            outKBps = (windowOutBytes / 1024) / dt
-            inPktsSec = math.floor(windowInPackets / dt + 0.5)
-            outPktsSec = math.floor(windowOutPackets / dt + 0.5)
-            blockedPktsSec = math.floor(windowBlockedPackets / dt + 0.5)
+            pcall(pollEngineNetworkTelemetry, dt)
 
             windowInBytes = 0
             windowOutBytes = 0
@@ -1129,7 +1860,7 @@ task.spawn(function()
     InspectorText.ClearTextOnFocus = false
     InspectorText.MultiLine = true
     InspectorText.TextWrapped = true
-    InspectorText.Text = "Select a packet on the left to inspect its 0x83 sub-items, strings, and hex payload."
+    InspectorText.Text = "Select any captured packet on the left to dissect its 0x83 replication stream, decoded arguments, strings, and hex dump."
     InspectorText.Parent = InspectorScroll
 
     local RulesScroll = Instance.new("ScrollingFrame")
@@ -1200,9 +1931,7 @@ task.spawn(function()
         end
 
         if not selectedEntry then
-            InspectorText.Text = hasRakNetHooks
-                and "Select any captured packet on the left to dissect its 0x83 replication stream, ASCII strings, and hex dump."
-                or "[Notice]: Potassium raknet hooks (raknet.add_receive_hook / add_send_hook) were not detected in this environment."
+            InspectorText.Text = "Select any captured packet on the left to dissect its 0x83 replication stream, decoded arguments, ASCII strings, and hex dump."
             BtnBlockId.Text = "🚫 Block ID"
             return
         end
@@ -1210,9 +1939,15 @@ task.spawn(function()
         local e = selectedEntry
         local d = dissectPacket(e)
         local pktId = tonumber(e.packetId) or -1
-        local isBlk = blockedPacketIds[pktId] ~= nil
-        BtnBlockId.Text = isBlk and string.format("✓ Unblock 0x%02X", math.max(0, pktId)) or string.format("🚫 Block 0x%02X", math.max(0, pktId))
-        BtnBlockId.BackgroundColor3 = isBlk and Color3.fromRGB(30, 80, 55) or Color3.fromRGB(65, 28, 32)
+        if e.remoteKey then
+            local isBlk = blockedRemotes[e.remoteKey] == true
+            BtnBlockId.Text = isBlk and "✓ Unblock Rem" or "🚫 Block Remote"
+            BtnBlockId.BackgroundColor3 = isBlk and Color3.fromRGB(30, 80, 55) or Color3.fromRGB(65, 28, 32)
+        else
+            local isBlk = blockedPacketIds[pktId] ~= nil
+            BtnBlockId.Text = isBlk and string.format("✓ Unblock 0x%02X", math.max(0, pktId)) or string.format("🚫 Block 0x%02X", math.max(0, pktId))
+            BtnBlockId.BackgroundColor3 = isBlk and Color3.fromRGB(30, 80, 55) or Color3.fromRGB(65, 28, 32)
+        end
 
         if activeInspectorTab == "Hex" then
             InspectorText.Text = string.format(
@@ -1232,11 +1967,20 @@ task.spawn(function()
                 string.format("PACKET #%d (%s)", e.seq, e.direction == "in" and "↓ INBOUND RECEIVE" or "↑ OUTBOUND SEND"),
                 string.rep("─", 54),
                 string.format("Packet ID   : 0x%02X (%d) — %s", math.max(0, pktId), pktId, d.packetName),
+                string.format("Target Path : %s", e.targetName or e.remoteKey or "(Raw RakNet Datagram)"),
                 string.format("Payload Len : %d bytes%s", e.size, e.truncated and " [Truncated Preview]" or ""),
                 string.format("Reliability : %s (%d) | Priority: %d | Channel: %d", RELIABILITY_NAMES[e.reliability] or "?", e.reliability, e.priority, e.channel),
                 string.format("Status      : %s", e.blocked and "BLOCKED BY RULE" or "PASSED"),
                 "",
             }
+
+            if e.decodedArgs and #e.decodedArgs > 0 then
+                table.insert(lines, string.format("DECODED ARGUMENTS / REPLICATION DATA (%d):", #e.decodedArgs))
+                for idx, argStr in ipairs(e.decodedArgs) do
+                    table.insert(lines, string.format("  [%02d] %s", idx, argStr))
+                end
+                table.insert(lines, "")
+            end
 
             if #d.subItems > 0 then
                 table.insert(lines, string.format("0x83 REPLICATION SUB-ITEMS (%d):", #d.subItems))
@@ -1279,6 +2023,11 @@ task.spawn(function()
             table.insert(list, st)
         end
         table.sort(list, function(a, b)
+            local aIsPkt = (a.remoteKey == nil)
+            local bIsPkt = (b.remoteKey == nil)
+            if aIsPkt ~= bIsPkt then
+                return aIsPkt
+            end
             return (a.inBytes + a.outBytes) > (b.inBytes + b.outBytes)
         end)
 
@@ -1325,23 +2074,30 @@ task.spawn(function()
                 Instance.new("UICorner", blkBtn).CornerRadius = UDim.new(0, 4)
 
                 muteBtn.MouseButton1Click:Connect(function()
+                    local rKey = row:GetAttribute("RemoteKey")
                     local pid = row:GetAttribute("PktId")
-                    if pid then
+                    if rKey and rKey ~= "" then
+                        mutedRemotes[rKey] = not mutedRemotes[rKey] or nil
+                    elseif pid then
                         mutedPacketIds[pid] = not mutedPacketIds[pid] or nil
-                        refreshRulesTab()
                     end
+                    refreshRulesTab()
                 end)
 
                 blkBtn.MouseButton1Click:Connect(function()
+                    local rKey = row:GetAttribute("RemoteKey")
                     local pid = row:GetAttribute("PktId")
-                    if pid then
+                    if rKey and rKey ~= "" then
+                        local nextBlk = not blockedRemotes[rKey]
+                        genv.SetOmniRemoteBlock(rKey, nextBlk)
+                    elseif pid then
                         if blockedPacketIds[pid] then
                             blockedPacketIds[pid] = nil
                         else
                             blockedPacketIds[pid] = "both"
                         end
-                        refreshRulesTab()
                     end
+                    refreshRulesTab()
                 end)
 
                 ruleRowPool[idx] = row
@@ -1350,23 +2106,34 @@ task.spawn(function()
             row.Visible = true
             row.LayoutOrder = idx
             row:SetAttribute("PktId", st.id)
+            row:SetAttribute("RemoteKey", st.remoteKey or "")
 
             local totalKB = (st.inBytes + st.outBytes) / 1024
             local infoLbl = row:FindFirstChild("Info")
             if infoLbl then
-                infoLbl.Text = string.format(
-                    "0x%02X %-20s | ↓%d ↑%d (%.1f KB)",
-                    math.max(0, st.id),
-                    st.name:sub(1, 20),
-                    st.inPkts,
-                    st.outPkts,
-                    totalKB
-                )
+                if st.remoteKey then
+                    infoLbl.Text = string.format(
+                        "0x83 %-20s | ↓%d ↑%d (%.1f KB)",
+                        st.name:sub(1, 20),
+                        st.inPkts,
+                        st.outPkts,
+                        totalKB
+                    )
+                else
+                    infoLbl.Text = string.format(
+                        "0x%02X %-20s | ↓%d ↑%d (%.1f KB)",
+                        math.max(0, st.id),
+                        st.name:sub(1, 20),
+                        st.inPkts,
+                        st.outPkts,
+                        totalKB
+                    )
+                end
             end
 
             local muteBtn = row:FindFirstChild("MuteBtn")
             if muteBtn then
-                local m = mutedPacketIds[st.id] == true
+                local m = st.remoteKey and (mutedRemotes[st.remoteKey] == true) or (not st.remoteKey and mutedPacketIds[st.id] == true)
                 muteBtn.Text = m and "Muted" or "Mute"
                 muteBtn.BackgroundColor3 = m and Color3.fromRGB(60, 50, 24) or Color3.fromRGB(30, 36, 50)
                 muteBtn.TextColor3 = m and Theme.StatusAmber or Theme.TextSecondary
@@ -1374,7 +2141,7 @@ task.spawn(function()
 
             local blkBtn = row:FindFirstChild("BlkBtn")
             if blkBtn then
-                local b = blockedPacketIds[st.id] ~= nil
+                local b = st.remoteKey and (blockedRemotes[st.remoteKey] == true) or (not st.remoteKey and blockedPacketIds[st.id] ~= nil)
                 blkBtn.Text = b and "Blocked" or "Block"
                 blkBtn.BackgroundColor3 = b and Color3.fromRGB(80, 28, 32) or Color3.fromRGB(30, 36, 50)
                 blkBtn.TextColor3 = b and Theme.StatusDanger or Theme.TextSecondary
@@ -1605,12 +2372,17 @@ task.spawn(function()
 
     BtnBlockId.MouseButton1Click:Connect(function()
         if not selectedEntry then return end
-        local pid = tonumber(selectedEntry.packetId)
-        if not pid or pid < 0 then return end
-        if blockedPacketIds[pid] then
-            blockedPacketIds[pid] = nil
+        if selectedEntry.remoteKey then
+            local nextBlk = not blockedRemotes[selectedEntry.remoteKey]
+            genv.SetOmniRemoteBlock(selectedEntry.remote or selectedEntry.remoteKey, nextBlk)
         else
-            blockedPacketIds[pid] = "both"
+            local pid = tonumber(selectedEntry.packetId)
+            if not pid or pid < 0 then return end
+            if blockedPacketIds[pid] then
+                blockedPacketIds[pid] = nil
+            else
+                blockedPacketIds[pid] = "both"
+            end
         end
         refreshInspector()
         refreshRulesTab()
@@ -1625,6 +2397,28 @@ task.spawn(function()
             end)
             return
         end
+
+        if selectedEntry.remote and typeof(selectedEntry.remote) == "Instance" then
+            local rem = selectedEntry.remote
+            local args = selectedEntry.rawArgs or {}
+            local n = selectedEntry.rawArgCount or 0
+            local ok, err = pcall(function()
+                if rem:IsA("RemoteEvent") or rem:IsA("UnreliableRemoteEvent") then
+                    rem:FireServer(table.unpack(args, 1, n))
+                elseif rem:IsA("RemoteFunction") then
+                    task.spawn(function()
+                        rem:InvokeServer(table.unpack(args, 1, n))
+                    end)
+                end
+            end)
+            BtnReplay.Text = ok and "✓ Fired!" or "⚠ Failed"
+            if not ok then warn("[OmniPacketLogger] Remote replay error:", err) end
+            task.delay(1.2, function()
+                if BtnReplay then BtnReplay.Text = "🔁 Replay Out" end
+            end)
+            return
+        end
+
         if not hasRakNetSend or type(buffer) ~= "table" or type(buffer.fromstring) ~= "function" then
             BtnReplay.Text = "⚠ Send Unavail"
             task.delay(1.2, function()
@@ -1718,6 +2512,9 @@ task.spawn(function()
         end
     end))
 
+    if isWindowOpen then
+        setCursorUnlock(true)
+    end
     updateFilterChipsUI()
 
     -- 5Hz UI Refresh Loop (only active while Shift + F5 is open)
