@@ -83,7 +83,7 @@ class TestIntegrityGuard(unittest.TestCase):
         with open(self.manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
 
-        files_to_check = ["Bootloader.lua"] + [
+        files_to_check = ["Bootloader.lua", "preinit/RemoteExecute.lua"] + [
             stage["repoPath"] for stage in manifest.get("stages", []) if stage.get("repoPath")
         ]
 
@@ -182,6 +182,24 @@ class TestIntegrityGuard(unittest.TestCase):
         self.assertIn("ToggleOmniPacketLogger", kpl_src)
         self.assertIn("_KernelPacketLoggerCleanUp", kpl_src)
         self.assertIn("SUBPACKET_0X83_NAMES", kpl_src)
+        self.assertNotIn("hookmetamethod", kpl_src)
+        self.assertNotIn("hookfunction", kpl_src)
+
+    def test_remote_execute_telemetry_bridge_invariants(self):
+        re_path = os.path.join(self.repo_root, "preinit", "RemoteExecute.lua")
+        self.assertTrue(os.path.exists(re_path), "preinit/RemoteExecute.lua does not exist")
+        with open(re_path, "r", encoding="utf-8") as f:
+            re_src = f.read()
+
+        self.assertIn("--!stage PreInit", re_src)
+        self.assertIn("_State.json", re_src)
+        self.assertIn("_Events.jsonl", re_src)
+        self.assertIn("ActiveClients.json", re_src)
+        self.assertIn("GetOmniLiveState", re_src)
+        self.assertIn("GetOmniRecentEvents", re_src)
+        self.assertIn("_OmniRemoteExecuteCleanUp", re_src)
+        self.assertNotIn("hookmetamethod", re_src)
+        self.assertNotIn("hookfunction", re_src)
 
 
 if __name__ == "__main__":
