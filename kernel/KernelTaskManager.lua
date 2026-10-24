@@ -1871,6 +1871,22 @@ local function isStartupRelevantFolder(folderName)
     return false
 end
 
+local function isGlobalStartupScript(filePath)
+    local rel = normStartupPath(filePath)
+    local afterAutoexec = rel:match("^autoexec/(.+)$") or rel
+    local firstSeg = afterAutoexec:match("^([^/]+)/")
+    if not firstSeg then
+        return true
+    end
+    local l = firstSeg:lower()
+    if l == "kernel" or l == "root" or l == "preinit" or l == "nodelay"
+        or l == "gameloaded" or l == "characterloaded" or l == "characterready" or l == "deferred"
+        or l == "universal" or l == "common" or l == "shared" or l == "off" or l == "disabled" then
+        return true
+    end
+    return false
+end
+
 local lastStartupScanTime = 0
 local cachedStartupList = nil
 
@@ -2509,6 +2525,8 @@ RequestIngestedLivenessCheck = function()
     end
 end
 
+local WAIT_LEAK_THRESHOLD = 24
+
 local function ScanGameTasks()
     if not getconnections then return DiscoveredGameTaskOrder end
     local raw = getgenv()._VirtualSchedulerRawSignals or rawSignals
@@ -2517,6 +2535,7 @@ local function ScanGameTasks()
     local targetEvents = { "Heartbeat", "Stepped", "RenderStepped" }
     local currentActiveKeys = {}
     local scanGroups = {}
+    local exemptThreads = getgenv()._exemptObfuscatedThreads
 
     for _, evName in ipairs(targetEvents) do
         local sig = raw[evName]
@@ -2524,59 +2543,124 @@ local function ScanGameTasks()
             local ok, conns = pcall(getconnections, sig)
             if ok and type(conns) == "table" then
                 for _, c in ipairs(conns) do
-                    if c and type(c.Function) == "function" and c.Connected ~= false then
-                        local src, line = debug.info(c.Function, "sl")
-                        local sInst = c.Script
-                        local sFullName = sInst and sInst:GetFullName() or tostring(src or "")
-                        local sLower = sFullName:lower()
-                        local srcLower = tostring(src or ""):lower()
+                    if c and c.Connected ~= false then
+                        local fn = nil
+                        local th = nil
+                        pcall(function() fn = c.Function end)
+                        pcall(function() th = c.Thread end)
 
-                        local isInternal = isSelfOrKernel(src)
-                            or isSelfOrKernel(sFullName)
-                            or sLower:find("corepackages", 1, true) ~= nil
-                            or sLower:find("robloxgui", 1, true) ~= nil
-                            or sLower:find("corescripts", 1, true) ~= nil
-                            or src == "[C]"
-                            or src == ""
+                        if th and exemptThreads and exemptThreads[th] then
+                            continue
+                        end
 
-                        local isExec = sLower:find(".lua", 1, true) ~= nil
-                            or sLower:find(".txt", 1, true) ~= nil
-                            or sLower:find(".iy", 1, true) ~= nil
-                            or sLower:find("autoexec", 1, true) ~= nil
-                            or sLower:find("potassium", 1, true) ~= nil
-                            or sLower:find("banana", 1, true) ~= nil
-                            or srcLower:find(".lua", 1, true) ~= nil
-                            or srcLower:find(".txt", 1, true) ~= nil
-                            or srcLower:find("autoexec", 1, true) ~= nil
-
-                        if not isInternal and not isExec then
-                            local cleanSrc = sInst and sInst:GetFullName() or tostring(src):gsub("^[@%[]", ""):gsub("^string \"", ""):gsub("\"%]$", "")
-                            local displayName = (line and line > 0) and string.format("%s:%d", cleanSrc, line) or cleanSrc
-                            local groupKey = string.format("%s@%s", displayName, evName)
-
-                            currentActiveKeys[groupKey] = true
-
-                            if not scanGroups[groupKey] then
-                                scanGroups[groupKey] = {
-                                    key = groupKey,
-                                    name = displayName,
-                                    source = cleanSrc,
-                                    line = line or 0,
-                                    event = evName,
-                                    scriptInstance = sInst,
-                                    conns = {},
-                                    seenFuncs = {},
-                                }
+                        local src, line, fnName = nil, nil, nil
+                        local isWaitYield = false
+                        if type(fn) == "function" then
+                            src, line, fnName = debug.info(fn, "sln")
+                        elseif type(th) == "thread" then
+                            local ok0, s0, l0, n0 = pcall(debug.info, th, 0, "sln")
+                            if ok0 and (s0 == "[C]" or not s0 or s0 == "") then
+                                isWaitYield = (n0 == "Wait")
+                                local ok1, s1, l1, n1 = pcall(debug.info, th, 1, "sln")
+                                if ok1 and s1 and s1 ~= "[C]" then
+                                    src, line, fnName = s1, l1, n1
+                                else
+                                    src, line, fnName = s0, l0, n0
+                                end
+                            elseif ok0 and s0 then
+                                src, line, fnName = s0, l0, n0
                             end
+                        end
 
-                            local sg = scanGroups[groupKey]
-                            if not sg.seenFuncs[c.Function] then
-                                sg.seenFuncs[c.Function] = true
-                                table.insert(sg.conns, c)
+                        if src then
+                            local sInst = nil
+                            pcall(function() sInst = c.Script end)
+                            if not sInst and type(th) == "thread" and getscriptfromthread then
+                                pcall(function() sInst = getscriptfromthread(th) end)
+                            end
+                            local sFullName = sInst and sInst:GetFullName() or tostring(src or "")
+                            local sLower = sFullName:lower()
+                            local srcLower = tostring(src or ""):lower()
+
+                            local isInternal = isSelfOrKernel(src)
+                                or isSelfOrKernel(sFullName)
+                                or sLower:find("corepackages", 1, true) ~= nil
+                                or sLower:find("robloxgui", 1, true) ~= nil
+                                or sLower:find("corescripts", 1, true) ~= nil
+                                or src == "[C]"
+                                or src == ""
+
+                            local isExec = sLower:find(".lua", 1, true) ~= nil
+                                or sLower:find(".txt", 1, true) ~= nil
+                                or sLower:find(".iy", 1, true) ~= nil
+                                or sLower:find("autoexec", 1, true) ~= nil
+                                or sLower:find("potassium", 1, true) ~= nil
+                                or sLower:find("banana", 1, true) ~= nil
+                                or srcLower:find(".lua", 1, true) ~= nil
+                                or srcLower:find(".txt", 1, true) ~= nil
+                                or srcLower:find("autoexec", 1, true) ~= nil
+
+                            if not isInternal and not isExec then
+                                local cleanSrc = tostring(src):gsub("^[@%[]", ""):gsub("^string \"", ""):gsub("\"%]$", "")
+                                if cleanSrc == "" and sInst then
+                                    cleanSrc = sInst:GetFullName()
+                                end
+                                local displayName = (line and line > 0) and string.format("%s:%d", cleanSrc, line) or cleanSrc
+                                if fnName and fnName ~= "" and fnName ~= "Wait" then
+                                    displayName = string.format("%s (%s)", displayName, fnName)
+                                end
+                                local groupKey = string.format("%s@%s", displayName, evName)
+
+                                currentActiveKeys[groupKey] = true
+
+                                if not scanGroups[groupKey] then
+                                    scanGroups[groupKey] = {
+                                        key = groupKey,
+                                        name = displayName,
+                                        source = cleanSrc,
+                                        line = line or 0,
+                                        event = evName,
+                                        scriptInstance = sInst,
+                                        isWaitYield = isWaitYield,
+                                        conns = {},
+                                        seenItems = {},
+                                    }
+                                end
+
+                                local sg = scanGroups[groupKey]
+                                if isWaitYield then sg.isWaitYield = true end
+                                local dedupKey = th or fn or c
+                                if not sg.seenItems[dedupKey] then
+                                    sg.seenItems[dedupKey] = true
+                                    table.insert(sg.conns, c)
+                                end
                             end
                         end
                     end
                 end
+            end
+        end
+    end
+
+    -- Auto-prune runaway :Wait() coroutine leaks (e.g. >24 concurrent :Wait() threads from the exact same game script:line)
+    for _, sg in pairs(scanGroups) do
+        if sg.isWaitYield and #sg.conns > WAIT_LEAK_THRESHOLD then
+            for idx = #sg.conns, 2, -1 do
+                local leakedConn = sg.conns[idx]
+                pcall(function()
+                    if leakedConn.Disable then
+                        leakedConn:Disable()
+                    elseif leakedConn.Enabled ~= nil then
+                        leakedConn.Enabled = false
+                    end
+                end)
+                pcall(function()
+                    local lth = leakedConn.Thread
+                    if type(lth) == "thread" then
+                        task.cancel(lth)
+                    end
+                end)
+                table.remove(sg.conns, idx)
             end
         end
     end
@@ -6478,138 +6562,256 @@ local BtnEjectAllGame = createFooterBtn("BtnEjectAllGame", "📤 Eject All", -21
 -- Performance Footer Controls
 local BtnResetGraphs = createFooterBtn("BtnResetGraphs", "🔄 Reset History", -125, 120, Color3.fromRGB(28, 45, 70), Color3.fromRGB(100, 180, 255))
 
--- Startup Footer Controls
+-- Startup Footer Controls (ScrollingFrame + UIGridLayout)
 local openNewScriptModal = nil
 local showDisabled = false
+local showGlobal = false
 local BtnRescanStartup = createFooterBtn("BtnRescanStartup", "🔄 Rescan Autoexec", -160, 150, Color3.fromRGB(28, 45, 70), Color3.fromRGB(100, 180, 255))
 
-local BtnShowDisabled = Instance.new("TextButton")
-BtnShowDisabled.Name = "BtnShowDisabled"
-BtnShowDisabled.Size = UDim2.new(0, 115, 0, 26)
-BtnShowDisabled.Position = UDim2.new(0, 208, 0.5, -13)
-BtnShowDisabled.BackgroundTransparency = 1
-BtnShowDisabled.BorderSizePixel = 0
-BtnShowDisabled.AutoButtonColor = false
-BtnShowDisabled.Text = ""
-BtnShowDisabled.Visible = false
-BtnShowDisabled.Parent = Footer
+local StartupFooterBar = Instance.new("ScrollingFrame")
+StartupFooterBar.Name = "StartupFooterBar"
+StartupFooterBar.Size = UDim2.new(1, -376, 0, 30)
+StartupFooterBar.Position = UDim2.new(0, 208, 0.5, -15)
+StartupFooterBar.BackgroundTransparency = 1
+StartupFooterBar.BorderSizePixel = 0
+StartupFooterBar.ScrollingDirection = Enum.ScrollingDirection.X
+StartupFooterBar.AutomaticCanvasSize = Enum.AutomaticSize.X
+StartupFooterBar.CanvasSize = UDim2.new(0, 0, 0, 0)
+StartupFooterBar.ScrollBarThickness = 0
+StartupFooterBar.ClipsDescendants = true
+StartupFooterBar.Visible = false
+StartupFooterBar.Parent = Footer
 
-local bsdLbl = Instance.new("TextLabel")
-bsdLbl.Name = "Label"
-bsdLbl.Size = UDim2.new(1, -24, 1, 0)
-bsdLbl.Position = UDim2.new(0, 2, 0, 0)
-bsdLbl.BackgroundTransparency = 1
-bsdLbl.Font = Enum.Font.GothamMedium
-bsdLbl.TextSize = 11
-bsdLbl.TextColor3 = Color3.fromRGB(160, 175, 195)
-bsdLbl.Text = "show disabled"
-bsdLbl.TextXAlignment = Enum.TextXAlignment.Left
-bsdLbl.Parent = BtnShowDisabled
+do
+    local startupFooterGrid = Instance.new("UIGridLayout")
+    startupFooterGrid.CellSize = UDim2.new(0, 112, 0, 26)
+    startupFooterGrid.CellPadding = UDim2.new(0, 10, 0, 0)
+    startupFooterGrid.FillDirection = Enum.FillDirection.Horizontal
+    startupFooterGrid.SortOrder = Enum.SortOrder.LayoutOrder
+    startupFooterGrid.VerticalAlignment = Enum.VerticalAlignment.Center
+    startupFooterGrid.Parent = StartupFooterBar
 
-local bsdBox = Instance.new("Frame")
-bsdBox.Name = "Box"
-bsdBox.Size = UDim2.new(0, 16, 0, 16)
-bsdBox.Position = UDim2.new(1, -18, 0.5, -8)
-bsdBox.BackgroundColor3 = showDisabled and Color3.fromRGB(28, 45, 70) or Color3.fromRGB(14, 18, 26)
-bsdBox.BorderSizePixel = 0
-bsdBox.Parent = BtnShowDisabled
-local boxCorner = Instance.new("UICorner")
-boxCorner.CornerRadius = UDim.new(0, 3)
-boxCorner.Parent = bsdBox
-local boxStroke = Instance.new("UIStroke")
-boxStroke.Color = showDisabled and Color3.fromRGB(70, 125, 190) or Color3.fromRGB(48, 62, 85)
-boxStroke.Thickness = 1
-boxStroke.Parent = bsdBox
+    local BtnShowDisabled = Instance.new("TextButton")
+    BtnShowDisabled.Name = "BtnShowDisabled"
+    BtnShowDisabled.LayoutOrder = 1
+    BtnShowDisabled.Size = UDim2.new(0, 112, 0, 26)
+    BtnShowDisabled.BackgroundTransparency = 1
+    BtnShowDisabled.BorderSizePixel = 0
+    BtnShowDisabled.AutoButtonColor = false
+    BtnShowDisabled.Text = ""
+    BtnShowDisabled.Visible = true
+    BtnShowDisabled.Parent = StartupFooterBar
 
-local xMark = Instance.new("Frame")
-xMark.Name = "XMark"
-xMark.Size = UDim2.new(1, 0, 1, 0)
-xMark.BackgroundTransparency = 1
-xMark.Visible = showDisabled
-xMark.Parent = bsdBox
-
-local xLine1 = Instance.new("Frame")
-xLine1.Name = "Line1"
-xLine1.Size = UDim2.new(0, 10, 0, 2)
-xLine1.AnchorPoint = Vector2.new(0.5, 0.5)
-xLine1.Position = UDim2.new(0.5, 0, 0.5, 0)
-xLine1.Rotation = 45
-xLine1.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
-xLine1.BorderSizePixel = 0
-xLine1.Parent = xMark
-local c1 = Instance.new("UICorner", xLine1)
-c1.CornerRadius = UDim.new(0, 1)
-
-local xLine2 = Instance.new("Frame")
-xLine2.Name = "Line2"
-xLine2.Size = UDim2.new(0, 10, 0, 2)
-xLine2.AnchorPoint = Vector2.new(0.5, 0.5)
-xLine2.Position = UDim2.new(0.5, 0, 0.5, 0)
-xLine2.Rotation = -45
-xLine2.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
-xLine2.BorderSizePixel = 0
-xLine2.Parent = xMark
-local c2 = Instance.new("UICorner", xLine2)
-c2.CornerRadius = UDim.new(0, 1)
-
-BtnShowDisabled.MouseButton1Click:Connect(function()
-    showDisabled = not showDisabled
-    xMark.Visible = showDisabled
-    bsdBox.BackgroundColor3 = showDisabled and Color3.fromRGB(28, 45, 70) or Color3.fromRGB(14, 18, 26)
-    boxStroke.Color = showDisabled and Color3.fromRGB(70, 125, 190) or Color3.fromRGB(48, 62, 85)
-    if refreshStartupTab then
-        refreshStartupTab()
-    end
-end)
-
-BtnShowDisabled.MouseEnter:Connect(function()
-    bsdLbl.TextColor3 = Color3.fromRGB(210, 225, 245)
-    if not showDisabled then
-        boxStroke.Color = Color3.fromRGB(70, 90, 120)
-    end
-end)
-BtnShowDisabled.MouseLeave:Connect(function()
+    local bsdLbl = Instance.new("TextLabel")
+    bsdLbl.Name = "Label"
+    bsdLbl.Size = UDim2.new(1, -24, 1, 0)
+    bsdLbl.Position = UDim2.new(0, 2, 0, 0)
+    bsdLbl.BackgroundTransparency = 1
+    bsdLbl.Font = Enum.Font.GothamMedium
+    bsdLbl.TextSize = 11
     bsdLbl.TextColor3 = Color3.fromRGB(160, 175, 195)
-    if not showDisabled then
-        boxStroke.Color = Color3.fromRGB(48, 62, 85)
-    end
-end)
+    bsdLbl.Text = "show disabled"
+    bsdLbl.TextXAlignment = Enum.TextXAlignment.Left
+    bsdLbl.Parent = BtnShowDisabled
 
-local BtnAddNewStartup = Instance.new("TextButton")
-BtnAddNewStartup.Name = "BtnAddNewStartup"
-BtnAddNewStartup.Size = UDim2.new(0, 95, 0, 26)
-BtnAddNewStartup.Position = UDim2.new(0, 332, 0.5, -13)
-BtnAddNewStartup.BackgroundColor3 = Color3.fromRGB(28, 45, 70)
-BtnAddNewStartup.BorderSizePixel = 0
-BtnAddNewStartup.AutoButtonColor = false
-BtnAddNewStartup.Font = Enum.Font.GothamBold
-BtnAddNewStartup.TextSize = 11
-BtnAddNewStartup.TextColor3 = Color3.fromRGB(100, 180, 255)
-BtnAddNewStartup.Text = "+ Add new"
-BtnAddNewStartup.Visible = false
-BtnAddNewStartup.Parent = Footer
-local addCorner = Instance.new("UICorner")
-addCorner.CornerRadius = UDim.new(0, 4)
-addCorner.Parent = BtnAddNewStartup
-local addStroke = Instance.new("UIStroke")
-addStroke.Color = Color3.fromRGB(45, 70, 105)
-addStroke.Thickness = 1
-addStroke.Parent = BtnAddNewStartup
+    local bsdBox = Instance.new("Frame")
+    bsdBox.Name = "Box"
+    bsdBox.Size = UDim2.new(0, 16, 0, 16)
+    bsdBox.Position = UDim2.new(1, -18, 0.5, -8)
+    bsdBox.BackgroundColor3 = showDisabled and Color3.fromRGB(28, 45, 70) or Color3.fromRGB(14, 18, 26)
+    bsdBox.BorderSizePixel = 0
+    bsdBox.Parent = BtnShowDisabled
+    local boxCorner = Instance.new("UICorner")
+    boxCorner.CornerRadius = UDim.new(0, 3)
+    boxCorner.Parent = bsdBox
+    local boxStroke = Instance.new("UIStroke")
+    boxStroke.Color = showDisabled and Color3.fromRGB(70, 125, 190) or Color3.fromRGB(48, 62, 85)
+    boxStroke.Thickness = 1
+    boxStroke.Parent = bsdBox
 
-BtnAddNewStartup.MouseEnter:Connect(function()
-    BtnAddNewStartup.BackgroundColor3 = Color3.fromRGB(38, 62, 95)
-    BtnAddNewStartup.TextColor3 = Color3.fromRGB(130, 205, 255)
-end)
-BtnAddNewStartup.MouseLeave:Connect(function()
+    local xMark = Instance.new("Frame")
+    xMark.Name = "XMark"
+    xMark.Size = UDim2.new(1, 0, 1, 0)
+    xMark.BackgroundTransparency = 1
+    xMark.Visible = showDisabled
+    xMark.Parent = bsdBox
+
+    local xLine1 = Instance.new("Frame")
+    xLine1.Name = "Line1"
+    xLine1.Size = UDim2.new(0, 10, 0, 2)
+    xLine1.AnchorPoint = Vector2.new(0.5, 0.5)
+    xLine1.Position = UDim2.new(0.5, 0, 0.5, 0)
+    xLine1.Rotation = 45
+    xLine1.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+    xLine1.BorderSizePixel = 0
+    xLine1.Parent = xMark
+    local c1 = Instance.new("UICorner", xLine1)
+    c1.CornerRadius = UDim.new(0, 1)
+
+    local xLine2 = Instance.new("Frame")
+    xLine2.Name = "Line2"
+    xLine2.Size = UDim2.new(0, 10, 0, 2)
+    xLine2.AnchorPoint = Vector2.new(0.5, 0.5)
+    xLine2.Position = UDim2.new(0.5, 0, 0.5, 0)
+    xLine2.Rotation = -45
+    xLine2.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+    xLine2.BorderSizePixel = 0
+    xLine2.Parent = xMark
+    local c2 = Instance.new("UICorner", xLine2)
+    c2.CornerRadius = UDim.new(0, 1)
+
+    local BtnShowGlobal = Instance.new("TextButton")
+    BtnShowGlobal.Name = "BtnShowGlobal"
+    BtnShowGlobal.LayoutOrder = 2
+    BtnShowGlobal.Size = UDim2.new(0, 112, 0, 26)
+    BtnShowGlobal.BackgroundTransparency = 1
+    BtnShowGlobal.BorderSizePixel = 0
+    BtnShowGlobal.AutoButtonColor = false
+    BtnShowGlobal.Text = ""
+    BtnShowGlobal.Visible = showDisabled
+    BtnShowGlobal.Parent = StartupFooterBar
+
+    local bsgLbl = Instance.new("TextLabel")
+    bsgLbl.Name = "Label"
+    bsgLbl.Size = UDim2.new(1, -24, 1, 0)
+    bsgLbl.Position = UDim2.new(0, 2, 0, 0)
+    bsgLbl.BackgroundTransparency = 1
+    bsgLbl.Font = Enum.Font.GothamMedium
+    bsgLbl.TextSize = 11
+    bsgLbl.TextColor3 = Color3.fromRGB(160, 175, 195)
+    bsgLbl.Text = "show global"
+    bsgLbl.TextXAlignment = Enum.TextXAlignment.Left
+    bsgLbl.Parent = BtnShowGlobal
+
+    local bsgBox = Instance.new("Frame")
+    bsgBox.Name = "Box"
+    bsgBox.Size = UDim2.new(0, 16, 0, 16)
+    bsgBox.Position = UDim2.new(1, -26, 0.5, -8)
+    bsgBox.BackgroundColor3 = showGlobal and Color3.fromRGB(28, 45, 70) or Color3.fromRGB(14, 18, 26)
+    bsgBox.BorderSizePixel = 0
+    bsgBox.Parent = BtnShowGlobal
+    local gBoxCorner = Instance.new("UICorner")
+    gBoxCorner.CornerRadius = UDim.new(0, 3)
+    gBoxCorner.Parent = bsgBox
+    local gBoxStroke = Instance.new("UIStroke")
+    gBoxStroke.Color = showGlobal and Color3.fromRGB(70, 125, 190) or Color3.fromRGB(48, 62, 85)
+    gBoxStroke.Thickness = 1
+    gBoxStroke.Parent = bsgBox
+
+    local gxMark = Instance.new("Frame")
+    gxMark.Name = "XMark"
+    gxMark.Size = UDim2.new(1, 0, 1, 0)
+    gxMark.BackgroundTransparency = 1
+    gxMark.Visible = showGlobal
+    gxMark.Parent = bsgBox
+
+    local gxLine1 = Instance.new("Frame")
+    gxLine1.Name = "Line1"
+    gxLine1.Size = UDim2.new(0, 10, 0, 2)
+    gxLine1.AnchorPoint = Vector2.new(0.5, 0.5)
+    gxLine1.Position = UDim2.new(0.5, 0, 0.5, 0)
+    gxLine1.Rotation = 45
+    gxLine1.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+    gxLine1.BorderSizePixel = 0
+    gxLine1.Parent = gxMark
+    local gc1 = Instance.new("UICorner", gxLine1)
+    gc1.CornerRadius = UDim.new(0, 1)
+
+    local gxLine2 = Instance.new("Frame")
+    gxLine2.Name = "Line2"
+    gxLine2.Size = UDim2.new(0, 10, 0, 2)
+    gxLine2.AnchorPoint = Vector2.new(0.5, 0.5)
+    gxLine2.Position = UDim2.new(0.5, 0, 0.5, 0)
+    gxLine2.Rotation = -45
+    gxLine2.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+    gxLine2.BorderSizePixel = 0
+    gxLine2.Parent = gxMark
+    local gc2 = Instance.new("UICorner", gxLine2)
+    gc2.CornerRadius = UDim.new(0, 1)
+
+    BtnShowGlobal.MouseButton1Click:Connect(function()
+        showGlobal = not showGlobal
+        gxMark.Visible = showGlobal
+        bsgBox.BackgroundColor3 = showGlobal and Color3.fromRGB(28, 45, 70) or Color3.fromRGB(14, 18, 26)
+        gBoxStroke.Color = showGlobal and Color3.fromRGB(70, 125, 190) or Color3.fromRGB(48, 62, 85)
+        if refreshStartupTab then
+            refreshStartupTab()
+        end
+    end)
+
+    BtnShowGlobal.MouseEnter:Connect(function()
+        bsgLbl.TextColor3 = Color3.fromRGB(210, 225, 245)
+        if not showGlobal then
+            gBoxStroke.Color = Color3.fromRGB(70, 90, 120)
+        end
+    end)
+    BtnShowGlobal.MouseLeave:Connect(function()
+        bsgLbl.TextColor3 = Color3.fromRGB(160, 175, 195)
+        if not showGlobal then
+            gBoxStroke.Color = Color3.fromRGB(48, 62, 85)
+        end
+    end)
+
+    local BtnAddNewStartup = Instance.new("TextButton")
+    BtnAddNewStartup.Name = "BtnAddNewStartup"
+    BtnAddNewStartup.LayoutOrder = 3
+    BtnAddNewStartup.Size = UDim2.new(0, 112, 0, 26)
     BtnAddNewStartup.BackgroundColor3 = Color3.fromRGB(28, 45, 70)
+    BtnAddNewStartup.BorderSizePixel = 0
+    BtnAddNewStartup.AutoButtonColor = false
+    BtnAddNewStartup.Font = Enum.Font.GothamBold
+    BtnAddNewStartup.TextSize = 11
     BtnAddNewStartup.TextColor3 = Color3.fromRGB(100, 180, 255)
-end)
+    BtnAddNewStartup.Text = "+ Add new"
+    BtnAddNewStartup.Visible = true
+    BtnAddNewStartup.Parent = StartupFooterBar
+    local addCorner = Instance.new("UICorner")
+    addCorner.CornerRadius = UDim.new(0, 4)
+    addCorner.Parent = BtnAddNewStartup
+    local addStroke = Instance.new("UIStroke")
+    addStroke.Color = Color3.fromRGB(45, 70, 105)
+    addStroke.Thickness = 1
+    addStroke.Parent = BtnAddNewStartup
 
-BtnAddNewStartup.MouseButton1Click:Connect(function()
-    if openNewScriptModal then
-        openNewScriptModal()
-    end
-end)
+    BtnShowDisabled.MouseButton1Click:Connect(function()
+        showDisabled = not showDisabled
+        xMark.Visible = showDisabled
+        bsdBox.BackgroundColor3 = showDisabled and Color3.fromRGB(28, 45, 70) or Color3.fromRGB(14, 18, 26)
+        boxStroke.Color = showDisabled and Color3.fromRGB(70, 125, 190) or Color3.fromRGB(48, 62, 85)
+        BtnShowGlobal.Visible = showDisabled
+        if refreshStartupTab then
+            refreshStartupTab()
+        end
+    end)
+
+    BtnShowDisabled.MouseEnter:Connect(function()
+        bsdLbl.TextColor3 = Color3.fromRGB(210, 225, 245)
+        if not showDisabled then
+            boxStroke.Color = Color3.fromRGB(70, 90, 120)
+        end
+    end)
+    BtnShowDisabled.MouseLeave:Connect(function()
+        bsdLbl.TextColor3 = Color3.fromRGB(160, 175, 195)
+        if not showDisabled then
+            boxStroke.Color = Color3.fromRGB(48, 62, 85)
+        end
+    end)
+
+    BtnAddNewStartup.MouseEnter:Connect(function()
+        BtnAddNewStartup.BackgroundColor3 = Color3.fromRGB(38, 62, 95)
+        BtnAddNewStartup.TextColor3 = Color3.fromRGB(130, 205, 255)
+    end)
+    BtnAddNewStartup.MouseLeave:Connect(function()
+        BtnAddNewStartup.BackgroundColor3 = Color3.fromRGB(28, 45, 70)
+        BtnAddNewStartup.TextColor3 = Color3.fromRGB(100, 180, 255)
+    end)
+
+    BtnAddNewStartup.MouseButton1Click:Connect(function()
+        if openNewScriptModal then
+            openNewScriptModal()
+        end
+    end)
+end
 
 -- Tasks Sub-View Toggle (Active Tasks vs Native Game Tasks Ingestion)
 local function updateTasksSubView()
@@ -6722,8 +6924,7 @@ local function setTab(tabName)
 
     BtnResetGraphs.Visible = (tabName == "Performance")
     BtnRescanStartup.Visible = (tabName == "Startup")
-    BtnShowDisabled.Visible = (tabName == "Startup")
-    BtnAddNewStartup.Visible = (tabName == "Startup")
+    StartupFooterBar.Visible = (tabName == "Startup")
 
     if tabName == "Tasks" then
         updateTasksSubView()
@@ -10393,9 +10594,13 @@ refreshStartupTab = function(force)
             or (scriptObj.file and scriptObj.file:lower():find(filterText, 1, true))
             or (scriptObj.stage and scriptObj.stage:lower():find(filterText, 1, true))
 
-        if not showDisabled and scriptObj.enabled == false then
-            matches = false
-            if activeExpandedRowKey == scriptObj.file then
+        if scriptObj.enabled == false then
+            if not showDisabled then
+                matches = false
+            elseif not showGlobal and (isGlobalStartupScript(scriptObj.file) or not isScriptGameSpecific(scriptObj.file)) then
+                matches = false
+            end
+            if not matches and activeExpandedRowKey == scriptObj.file then
                 activeExpandedRowKey = nil
             end
         end
@@ -11009,6 +11214,11 @@ task.spawn(function()
     local waitFn = rawTaskWait or origTaskWait or (task and task.wait)
     while running do
         waitFn(0.1)
+
+        if not ScreenGui.Enabled and tick() - lastGameScanTime >= 3.0 then
+            lastGameScanTime = tick()
+            pcall(ScanGameTasks)
+        end
 
         if ScreenGui.Enabled then
             pcall(function()
