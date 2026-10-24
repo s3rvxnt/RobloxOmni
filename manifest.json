@@ -19,7 +19,15 @@
       "stage": "Kernel",
       "name": "KernelTaskManager",
       "desc": "Kernel Task Manager & Runtime Micro-Kernel (Shift + F8)",
-      "sha256": "8fb33bc0d89bb7ea463f2ef21e017e7430840ffd8d95d91a5410d920cdd98b42"
+      "sha256": "ec4116d9efb93928dba1866981a67815b2993f7eb16b01a1352072b4bdd8c297"
+    },
+    {
+      "repoPath": "kernel/KernelPacketLogger.lua",
+      "localPath": "autoexec/kernel/KernelPacketLogger.lua",
+      "stage": "Kernel",
+      "name": "KernelPacketLogger",
+      "desc": "Omni Kernel Packet Logger & 0x83 Replication Dissector (Shift + F5)",
+      "sha256": "837e6ac9161788282a33891a0a593d97c2d0fdc5093aed3caf118f86b6333e53"
     },
     {
       "repoPath": "gameloaded/OmniEnhancementSuite.lua",

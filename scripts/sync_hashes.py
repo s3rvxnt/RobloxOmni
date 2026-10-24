@@ -14,10 +14,12 @@ def compute_hash(rel_path):
 
 
 ktm_hash = compute_hash('kernel/KernelTaskManager.lua')
+kpl_hash = compute_hash('kernel/KernelPacketLogger.lua')
 oes_hash = compute_hash('gameloaded/OmniEnhancementSuite.lua')
 lsm_hash = compute_hash('gameloaded/OmniLoadstringManager.lua')
 
 print(f"KernelTaskManager SHA256:     {ktm_hash}")
+print(f"KernelPacketLogger SHA256:    {kpl_hash}")
 print(f"OmniEnhancementSuite SHA256:  {oes_hash}")
 print(f"OmniLoadstringManager SHA256: {lsm_hash}")
 
@@ -29,6 +31,8 @@ with open(manifest_path, 'r', encoding='utf-8') as f:
 for stage in manifest.get('stages', []):
     if stage.get('name') == 'KernelTaskManager':
         stage['sha256'] = ktm_hash
+    elif stage.get('name') == 'KernelPacketLogger':
+        stage['sha256'] = kpl_hash
     elif stage.get('name') == 'OmniEnhancementSuite':
         stage['sha256'] = oes_hash
     elif stage.get('name') == 'OmniLoadstringManager':
@@ -44,23 +48,17 @@ bootloader_path = os.path.join(repo_root, 'Bootloader.lua')
 with open(bootloader_path, 'r', encoding='utf-8') as f:
     bootloader_src = f.read()
 
-bootloader_src = re.sub(
-    r'(name\s*=\s*"KernelTaskManager",\s*sha256\s*=\s*")[a-f0-9]{64}(")',
-    rf'\g<1>{ktm_hash}\2',
-    bootloader_src
-)
-
-bootloader_src = re.sub(
-    r'(name\s*=\s*"OmniEnhancementSuite",\s*sha256\s*=\s*")[a-f0-9]{64}(")',
-    rf'\g<1>{oes_hash}\2',
-    bootloader_src
-)
-
-bootloader_src = re.sub(
-    r'(name\s*=\s*"OmniLoadstringManager",\s*sha256\s*=\s*")[a-f0-9]{64}(")',
-    rf'\g<1>{lsm_hash}\2',
-    bootloader_src
-)
+for name, digest in [
+    ("KernelTaskManager", ktm_hash),
+    ("KernelPacketLogger", kpl_hash),
+    ("OmniEnhancementSuite", oes_hash),
+    ("OmniLoadstringManager", lsm_hash),
+]:
+    bootloader_src = re.sub(
+        rf'(name\s*=\s*"{name}",\s*sha256\s*=\s*")[a-f0-9]{{64}}(")',
+        rf'\g<1>{digest}\2',
+        bootloader_src
+    )
 
 with open(bootloader_path, 'w', encoding='utf-8', newline='\n') as f:
     f.write(bootloader_src)

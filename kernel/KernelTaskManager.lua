@@ -11253,7 +11253,16 @@ task.spawn(function()
 
                 local heapMb = (profile.memory and profile.memory.heapMb) or (math.floor(((gcinfo() or 0) / 1024) * 10) / 10)
                 LblMem.Text = string.format("%.1f MB", heapMb)
-                LblGc.Text = "Luau Heap Memory"
+                if type(getgenv().GetOmniPacketMetrics) == "function" then
+                    local okPkt, pktM = pcall(getgenv().GetOmniPacketMetrics)
+                    if okPkt and type(pktM) == "table" and pktM.available then
+                        LblGc.Text = string.format("↓%.1f ↑%.1f KB/s (Shift+F5)", pktM.inKBps or 0, pktM.outKBps or 0)
+                    else
+                        LblGc.Text = "Luau Heap Memory"
+                    end
+                else
+                    LblGc.Text = "Luau Heap Memory"
+                end
 
                 local activeTasks = profile.totalActiveTasks or 0
                 local totalTasks = profile.totalTasks or 0

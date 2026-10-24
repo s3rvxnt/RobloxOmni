@@ -1913,7 +1913,13 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "8fb33bc0d89bb7ea463f2ef21e017e7430840ffd8d95d91a5410d920cdd98b42"
+        sha256 = "ec4116d9efb93928dba1866981a67815b2993f7eb16b01a1352072b4bdd8c297"
+    },
+    {
+        repoPath = "kernel/KernelPacketLogger.lua",
+        localPath = "autoexec/kernel/KernelPacketLogger.lua",
+        name = "KernelPacketLogger",
+        sha256 = "837e6ac9161788282a33891a0a593d97c2d0fdc5093aed3caf118f86b6333e53"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
@@ -2233,6 +2239,8 @@ local function isComponentPresent(stageName, localPath)
     elseif (cleanName == "omnienhancementsuite" or cleanName == "oes") and (getgenv()._OmniEnhancementSuiteLoaded or getgenv()._OESLoaded) then
         return true
     elseif cleanName == "omniloadstringmanager" and getgenv()._OmniLoadstringManagerLoaded then
+        return true
+    elseif cleanName == "kernelpacketlogger" and (getgenv()._KernelPacketLoggerLoaded or getgenv()._KernelPacketLoggerRunning) then
         return true
     end
 
@@ -3986,7 +3994,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "8fb33bc0d89bb7ea463f2ef21e017e7430840ffd8d95d91a5410d920cdd98b42"
+                    sha256 = "ec4116d9efb93928dba1866981a67815b2993f7eb16b01a1352072b4bdd8c297"
                 }
             }
         end
@@ -4072,6 +4080,11 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     elseif localPath:find("OmniLoadstringManager") then
                         task.spawn(function()
                             local fn, errComp = _clonedLoadstring(remoteContent, "@OmniLoadstringManager")
+                            if fn then pcall(fn) else warn("[OmniUpdater]: Compilation error: " .. tostring(errComp)) end
+                        end)
+                    elseif localPath:find("KernelPacketLogger") then
+                        task.spawn(function()
+                            local fn, errComp = _clonedLoadstring(remoteContent, "@KernelPacketLogger")
                             if fn then pcall(fn) else warn("[OmniUpdater]: Compilation error: " .. tostring(errComp)) end
                         end)
                     end

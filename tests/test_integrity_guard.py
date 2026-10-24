@@ -169,5 +169,20 @@ class TestIntegrityGuard(unittest.TestCase):
         self.assertIn("MotionBlur = MotionBlur,", oes_src)
 
 
+    def test_kernel_packet_logger_invariants(self):
+        kpl_path = os.path.join(self.repo_root, "kernel", "KernelPacketLogger.lua")
+        self.assertTrue(os.path.exists(kpl_path), "kernel/KernelPacketLogger.lua does not exist")
+        with open(kpl_path, "r", encoding="utf-8") as f:
+            kpl_src = f.read()
+
+        self.assertIn("--!stage Kernel", kpl_src)
+        self.assertIn("add_receive_hook", kpl_src)
+        self.assertIn("add_send_hook", kpl_src)
+        self.assertIn("GetOmniPacketMetrics", kpl_src)
+        self.assertIn("ToggleOmniPacketLogger", kpl_src)
+        self.assertIn("_KernelPacketLoggerCleanUp", kpl_src)
+        self.assertIn("SUBPACKET_0X83_NAMES", kpl_src)
+
+
 if __name__ == "__main__":
     unittest.main()
