@@ -1991,13 +1991,13 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "1e4dad45fae9731cc4ae0898276db9f5fed3cd3935282eb385feb97ac060b56f"
+        sha256 = "197fe7078ce14f2941ad7fbee74902b449d70cea7d6e5de4011cdc0ab5082b2b"
     },
     {
         repoPath = "kernel/KernelPacketLogger.lua",
         localPath = "autoexec/kernel/KernelPacketLogger.lua",
         name = "KernelPacketLogger",
-        sha256 = "3b944e977dcad2566b1d2df20fe0be086df07956611c09adf3fcc39755f3d159"
+        sha256 = "de1646856695eb2637354ed3f7f425164d86731ad106e4182ee473a8d76c5179"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
@@ -3018,7 +3018,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
     KeybindBadge.Font = Enum.Font.GothamBold
     KeybindBadge.TextSize = 10
     KeybindBadge.TextColor3 = Theme.KeybindText
-    KeybindBadge.Text = "Shift + F7"
+    KeybindBadge.Text = "Shift + F5"
     KeybindBadge.Parent = ModalHeader
 
     local KeybindBadgeCorner = Instance.new("UICorner")
@@ -4072,7 +4072,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "1e4dad45fae9731cc4ae0898276db9f5fed3cd3935282eb385feb97ac060b56f"
+                    sha256 = "197fe7078ce14f2941ad7fbee74902b449d70cea7d6e5de4011cdc0ab5082b2b"
                 }
             }
         end
@@ -4271,7 +4271,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                 changelog = {
                     "Adaptive 6.0ms frame-budgeted bootloader with automated crash recovery and Safe Mode",
                     "Kernel Task Manager HUD and adaptive loop governor with per-task CPU telemetry (Shift + F8)",
-                    "Zero-trust update transparency gate with line-by-line diff inspection and security scanner (Shift + F7)",
+                    "Zero-trust update transparency gate with line-by-line diff inspection and security scanner (Shift + F5)",
                     "Real-time game connection ingestion, priority bands, and instant hot-reloading",
                     "Omni Enhancement Suite: Streamer mode, Personal Space Bubble, Player ESP, Anti-AFK, and native ESC settings"
                 },
@@ -4607,13 +4607,14 @@ initUpdateGate = function(guiParent, UpdateBadge)
     end
 
     -- Keybinds:
-    -- Shift + F7 toggles Update Gate
+    -- Shift + F5 toggles Update Gate
+    -- Shift + F7 toggles Kernel Packet Logger (handled in KernelPacketLogger.lua)
     -- Shift + F8 toggles Task Manager HUD
     -- Shift + F6 / F6 toggles Loadstring Manager (handled in OmniLoadstringManager.lua)
     local inputConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if UserInputService:GetFocusedTextBox() then return end
         local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-        if input.KeyCode == Enum.KeyCode.F7 and isShift then
+        if input.KeyCode == Enum.KeyCode.F5 and isShift then
             if isModalOpen or ModalBackdrop.Visible then
                 closeUpdateModal()
             else

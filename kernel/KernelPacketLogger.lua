@@ -4,7 +4,7 @@
 
 --[[
     ==============================================================================
-    OMNI KERNEL PACKET LOGGER & 0x83 REPLICATION DISSECTOR (Shift + F5)
+    OMNI KERNEL PACKET LOGGER & 0x83 REPLICATION DISSECTOR (Shift + F7)
     ==============================================================================
     - Dual-Engine Ring-0 Inbound & Outbound Replication Packet Logger:
       1. Native C++ RakNet Hooks (raknet.add_receive_hook / raknet.add_send_hook)
@@ -1638,7 +1638,7 @@ task.spawn(function()
     KeyBadge.Font = Enum.Font.GothamBold
     KeyBadge.TextSize = 10
     KeyBadge.TextColor3 = Color3.fromRGB(160, 175, 200)
-    KeyBadge.Text = "Shift + F5"
+    KeyBadge.Text = "Shift + F7"
     KeyBadge.Parent = Header
     Instance.new("UICorner", KeyBadge).CornerRadius = UDim.new(0, 4)
 
@@ -2575,7 +2575,7 @@ task.spawn(function()
     end)
 
     table.insert(uiConnections, UserInputService.InputBegan:Connect(function(input, gp)
-        if input.KeyCode == Enum.KeyCode.F5 and (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)) then
+        if input.KeyCode == Enum.KeyCode.F7 and (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)) then
             toggleWindow()
         end
     end))
@@ -2585,7 +2585,7 @@ task.spawn(function()
     end
     updateFilterChipsUI()
 
-    -- 5Hz UI Refresh Loop (only active while Shift + F5 is open)
+    -- 5Hz UI Refresh Loop (only active while Shift + F7 is open)
     while genv._OmniPacketLoggerGeneration == currentGen and genv._KernelPacketLoggerRunning do
         task.wait(0.2)
         if isWindowOpen and hudScreenGui and hudScreenGui.Enabled then
