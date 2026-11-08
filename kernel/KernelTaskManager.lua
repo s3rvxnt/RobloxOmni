@@ -9140,7 +9140,7 @@ do
 
     local function adjustBy(delta)
         local val = (tonumber(PM.PriBox.Text) or currentPriorityVal) + delta
-        local maxLimit = (currentTargetType == "Startup") and 1000 or 100
+        local maxLimit = (currentTargetType == "Startup") and ((currentItemObj and currentItemObj.file and currentItemObj.file:lower():find("kerneltaskmanager")) and 1000 or 999) or 100
         currentPriorityVal = math.clamp(math.round(val), 1, maxLimit)
         PM.PriBox.Text = tostring(currentPriorityVal)
     end
@@ -9158,7 +9158,7 @@ do
         end
 
         local rawVal = tonumber(PM.PriBox.Text) or currentPriorityVal or 50
-        local maxLimit = (currentTargetType == "Startup") and 1000 or 100
+        local maxLimit = (currentTargetType == "Startup") and ((currentItemObj and currentItemObj.file and currentItemObj.file:lower():find("kerneltaskmanager")) and 1000 or 999) or 100
         local finalVal = math.clamp(math.round(rawVal), 1, maxLimit)
 
         if currentTargetType == "Task" then
@@ -9252,13 +9252,23 @@ do
 
         local presets = {}
         if targetType == "Startup" then
-            presets = {
-                { name = "1000 Max", val = 1000 },
-                { name = "500 High", val = 500 },
-                { name = "100 Med", val = 100 },
-                { name = "50 Low", val = 50 },
-                { name = "10 Min", val = 10 },
-            }
+            if itemObj and itemObj.stage == "Kernel" then
+                presets = {
+                    { name = "990 Top", val = 990 },
+                    { name = "970 High", val = 970 },
+                    { name = "950 Med", val = 950 },
+                    { name = "930 Low", val = 930 },
+                    { name = "900 Min", val = 900 },
+                }
+            else
+                presets = {
+                    { name = "500 Max", val = 500 },
+                    { name = "250 Pre", val = 250 },
+                    { name = "100 Med", val = 100 },
+                    { name = "50 Low", val = 50 },
+                    { name = "10 Min", val = 10 },
+                }
+            end
         else
             presets = {
                 { name = "100 Max", val = 100 },
@@ -9479,20 +9489,20 @@ table.insert(hudWindowConnections, UserInputService.InputChanged:Connect(functio
 
             local allScripts = scanStartupScripts()
             local filtered = {}
-            local numKernel = 0
+            local hasPinnedKernelRoot = false
             for _, s in ipairs(allScripts) do
                 if s.file:lower() ~= activeStartupDrag.script.file:lower() then
                     table.insert(filtered, s)
-                    if s.stage == "Kernel" then
-                        numKernel = numKernel + 1
+                    if s.file:lower():find("kerneltaskmanager") then
+                        hasPinnedKernelRoot = true
                     end
                 end
             end
 
             local totalFiltered = #filtered
-            local minSlot = numKernel + 1
+            local minSlot = hasPinnedKernelRoot and 2 or 1
             local chosenSlot = minSlot
-            local chosenStage = "PreInit"
+            local chosenStage = activeStartupDrag.script.stage or "PreInit"
             local mouseY = input.Position.Y
 
             if totalFiltered > 0 and totalFiltered >= minSlot then
@@ -9525,28 +9535,28 @@ table.insert(hudWindowConnections, UserInputService.InputChanged:Connect(functio
 
             if pred and succ then
                 if pred.stage == succ.stage then
-                    chosenStage = (pred.stage == "Kernel") and "PreInit" or pred.stage
+                    chosenStage = pred.stage
                 else
-                    -- Stage Boundary (e.g. pred is PreInit, succ is GameLoaded)
+                    -- Stage Boundary (e.g. pred is Kernel, succ is PreInit; or pred is PreInit, succ is GameLoaded)
                     local rPred = cachedStartupRows[pred.file]
                     local rSucc = cachedStartupRows[succ.file]
                     local predBottom = (rPred and rPred.Visible) and (rPred.AbsolutePosition.Y + rPred.AbsoluteSize.Y) or mouseY
                     local succTop = (rSucc and rSucc.Visible) and rSucc.AbsolutePosition.Y or mouseY
                     local midY = (predBottom + succTop) / 2
                     if mouseY <= midY then
-                        -- Top half of boundary: bottom of PreInit
-                        chosenStage = (pred.stage == "Kernel") and "PreInit" or pred.stage
+                        -- Top half of boundary: bottom of pred.stage
+                        chosenStage = pred.stage
                     else
-                        -- Bottom half of boundary: top of GameLoaded
+                        -- Bottom half of boundary: top of succ.stage
                         chosenStage = succ.stage
                     end
                 end
             elseif pred and not succ then
-                chosenStage = (pred.stage == "Kernel") and "PreInit" or pred.stage
+                chosenStage = pred.stage
             elseif succ and not pred then
-                chosenStage = (succ.stage == "Kernel") and "PreInit" or succ.stage
+                chosenStage = succ.stage
             else
-                chosenStage = "PreInit"
+                chosenStage = activeStartupDrag.script.stage or "PreInit"
             end
 
             targetDropStage = chosenStage
@@ -9748,7 +9758,11 @@ table.insert(hudWindowConnections, UserInputService.InputEnded:Connect(function(
             end
         end
 
-        if newStage == "PreInit" then
+        if newStage == "Kernel" then
+            local minKernelSlot = (#kernelList >= 1 and kernelList[1].file:lower():find("kerneltaskmanager")) and 2 or 1
+            local slotInKernel = math.clamp(targetDropIndex or (#kernelList + 1), minKernelSlot, #kernelList + 1)
+            table.insert(kernelList, slotInKernel, draggedScript)
+        elseif newStage == "PreInit" then
             local slotInPre = (targetDropIndex or (#kernelList + 1)) - #kernelList
             slotInPre = math.clamp(slotInPre, 1, #preinitList + 1)
             table.insert(preinitList, slotInPre, draggedScript)
@@ -9759,6 +9773,21 @@ table.insert(hudWindowConnections, UserInputService.InputEnded:Connect(function(
             table.insert(gameloadedList, slotInGame, draggedScript)
         else
             table.insert(otherList, draggedScript)
+        end
+
+        -- Recalculate descending priorities for Kernel (1000 for KernelTaskManager, 990, 980, 970... for others)
+        local kernelPri = 1000
+        for i, s in ipairs(kernelList) do
+            if s.file:lower():find("kerneltaskmanager") then
+                s.priority = 1000
+                s.stage = "Kernel"
+                updateScriptPragmas(s.file, "Kernel", 1000)
+            else
+                kernelPri = kernelPri - 10
+                s.priority = kernelPri
+                s.stage = "Kernel"
+                updateScriptPragmas(s.file, "Kernel", kernelPri)
+            end
         end
 
         -- Recalculate descending priorities for PreInit (200-300 range)
@@ -9991,6 +10020,9 @@ local function renderStartupRow(scriptObj, idx)
             priStroke.Color = Color3.fromRGB(45, 60, 85)
         end)
         priLbl.MouseButton1Click:Connect(function()
+            if scriptObj.file and scriptObj.file:lower():find("kerneltaskmanager") then
+                return
+            end
             if openPriorityEditModal then
                 openPriorityEditModal("Startup", scriptObj, scriptObj.priority or 100)
             end
@@ -10469,7 +10501,7 @@ local function renderStartupRow(scriptObj, idx)
                 if accordion.Visible and isInsideGui(accordion, input.Position) then
                     return
                 end
-                if scriptObj.stage == "Kernel" then
+                if scriptObj.file and scriptObj.file:lower():find("kerneltaskmanager") then
                     return
                 end
                 pendingStartupDrag = {

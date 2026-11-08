@@ -1999,7 +1999,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "197fe7078ce14f2941ad7fbee74902b449d70cea7d6e5de4011cdc0ab5082b2b"
+        sha256 = "62ae4581f4102ea6930db7684f740cc855650605f76df96790b64969875623f9"
     },
     {
         repoPath = "kernel/KernelPacketLogger.lua",
@@ -4083,7 +4083,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "197fe7078ce14f2941ad7fbee74902b449d70cea7d6e5de4011cdc0ab5082b2b"
+                    sha256 = "62ae4581f4102ea6930db7684f740cc855650605f76df96790b64969875623f9"
                 }
             }
         end
