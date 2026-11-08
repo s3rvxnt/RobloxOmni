@@ -1,6 +1,6 @@
---!stage GameLoaded
+--!stage PreInit
 --!name OmniEnhancementSuite
---!priority 120
+--!priority 230
 -- ============================================================================
 -- OmniEnhancementSuite.lua
 -- Comprehensive In-Game Enhancement Suite for Roblox (Omni Ecosystem)
@@ -54,14 +54,16 @@ end
 -- Section 2: Unified Lifecycle & Cleanup (Hot-Reload Safety)
 -- ============================================================================
 local genv = (typeof(getgenv) == "function" and getgenv()) or nil
+local currentDM = game
 
 if genv then
-    local currentDM = game
-    if genv._OmniCurrentDataModel and genv._OmniCurrentDataModel ~= currentDM then
+    if (genv._OmniEnhancementDataModel and genv._OmniEnhancementDataModel ~= currentDM)
+        or (genv._OmniCurrentDataModel and genv._OmniCurrentDataModel ~= currentDM) then
         -- Teleport / Rejoin: Old DataModel already destroyed by Roblox. Zero cleanup.
         genv.__OmniEnhancementCleanup = nil
         genv.__EnhancementCleanup = nil
     end
+    genv._OmniEnhancementDataModel = currentDM
     genv._OmniCurrentDataModel = currentDM
 
     if genv.__OmniEnhancementCleanup then
@@ -367,7 +369,12 @@ local function HookTextObject(obj)
     if HookedObjects[obj] or IsEnhancementGui(obj) then return end
     HookedObjects[obj] = true
 
+    local conn
     local function Check()
+        if genv and genv._OmniEnhancementDataModel ~= currentDM then
+            if conn then pcall(function() conn:Disconnect() end) end
+            return
+        end
         if not isStreamerActive or isRedacting then return end
         local raw = GetRawText(obj)
         if raw and #raw >= 2 then
@@ -391,7 +398,7 @@ local function HookTextObject(obj)
     end
 
     Check()
-    local conn = obj:GetPropertyChangedSignal("Text"):Connect(Check)
+    conn = obj:GetPropertyChangedSignal("Text"):Connect(Check)
     table.insert(StreamerConns, conn)
 end
 
@@ -400,7 +407,12 @@ local function HookHumanoid(hum)
     if HookedObjects[hum] then return end
     HookedObjects[hum] = true
 
+    local conn
     local function Check()
+        if genv and genv._OmniEnhancementDataModel ~= currentDM then
+            if conn then pcall(function() conn:Disconnect() end) end
+            return
+        end
         if not isStreamerActive or isRedacting then return end
         local raw = GetRawDisplayName(hum)
         if raw and #raw >= 2 then
@@ -424,7 +436,7 @@ local function HookHumanoid(hum)
     end
 
     Check()
-    local conn = hum:GetPropertyChangedSignal("DisplayName"):Connect(Check)
+    conn = hum:GetPropertyChangedSignal("DisplayName"):Connect(Check)
     table.insert(StreamerConns, conn)
 end
 
@@ -435,7 +447,12 @@ local function HookGuiContainer(container)
             HookTextObject(d)
         end
     end
-    local c = container.DescendantAdded:Connect(function(desc)
+    local c
+    c = container.DescendantAdded:Connect(function(desc)
+        if genv and genv._OmniEnhancementDataModel ~= currentDM then
+            if c then pcall(function() c:Disconnect() end) end
+            return
+        end
         if desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox") then
             HookTextObject(desc)
         end
@@ -3107,6 +3124,7 @@ else
 end
 
 Own(CoreGui.ChildAdded:Connect(function(child)
+    if genv and genv._OmniEnhancementDataModel ~= currentDM then return end
     if child.Name == "PlayerList" then
         HookPlayerList(child)
     elseif child.Name == "PlayerDropDown" then
@@ -3115,6 +3133,7 @@ Own(CoreGui.ChildAdded:Connect(function(child)
 end))
 
 Own(CoreGui.DescendantAdded:Connect(function(desc)
+    if genv and genv._OmniEnhancementDataModel ~= currentDM then return end
     CheckAndHookDropDown(desc)
 end))
 
@@ -3123,9 +3142,9 @@ for _, d in ipairs(CoreGui:GetDescendants()) do
 end
 
 Own(task.spawn(function()
-    while isSuiteActive do
+    while isSuiteActive and (not genv or genv._OmniEnhancementDataModel == currentDM) do
         task.wait(0.5)
-        if not isSuiteActive then break end
+        if not isSuiteActive or (genv and genv._OmniEnhancementDataModel ~= currentDM) then break end
         if not PlayerList or not PlayerList.Parent then
             local pl = CoreGui:FindFirstChild("PlayerList")
             if pl then
@@ -3878,6 +3897,7 @@ local function SetupWatcher()
     end
 
     Own(robloxGui.DescendantAdded:Connect(function(desc)
+        if genv and genv._OmniEnhancementDataModel ~= currentDM then return end
         if desc.Name == "VolumeFrame" then
             local p = desc.Parent
             if p and p.Name == "Page" and ShouldRebuild(p) then
@@ -3887,13 +3907,14 @@ local function SetupWatcher()
     end))
 
     Own(GuiService.MenuOpened:Connect(function()
+        if genv and genv._OmniEnhancementDataModel ~= currentDM then return end
         TriggerFastInject()
     end))
 
     Own(task.spawn(function()
-        while isSuiteActive do
+        while isSuiteActive and (not genv or genv._OmniEnhancementDataModel == currentDM) do
             task.wait(1.0)
-            if not isSuiteActive then break end
+            if not isSuiteActive or (genv and genv._OmniEnhancementDataModel ~= currentDM) then break end
             local p = FindTargetPage()
             if ShouldRebuild(p) then
                 InjectEnhancementSettings(p)

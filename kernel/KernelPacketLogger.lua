@@ -1,5 +1,5 @@
 --!stage Kernel
---!priority 90
+--!priority 960
 --!name KernelPacketLogger
 
 --[[
@@ -890,11 +890,33 @@ end
 local receiveHookInstalled = false
 local sendHookInstalled = false
 
-if hasRakNetHooks then
-    local okR = pcall(raknetAddReceiveHook, receiveCallback)
-    receiveHookInstalled = okR
-    local okS = pcall(raknetAddSendHook, sendCallback)
-    sendHookInstalled = okS
+local function installRakNetHooks()
+    if not hasRakNetHooks then return end
+    if not receiveHookInstalled then
+        local okR = pcall(raknetAddReceiveHook, receiveCallback)
+        receiveHookInstalled = okR
+    end
+    if not sendHookInstalled then
+        local okS = pcall(raknetAddSendHook, sendCallback)
+        sendHookInstalled = okS
+    end
+end
+
+local function removeRakNetHooks()
+    if receiveHookInstalled and type(raknetRemoveReceiveHook) == "function" then
+        pcall(raknetRemoveReceiveHook, receiveCallback)
+        receiveHookInstalled = false
+    end
+    if sendHookInstalled and type(raknetRemoveSendHook) == "function" then
+        pcall(raknetRemoveSendHook, sendCallback)
+        sendHookInstalled = false
+    end
+end
+
+-- Do NOT install C++ RakNet hooks on boot while window is closed;
+-- dangling C++ RakNet callbacks across TeleportService (;rj) freeze the client during DataModel teardown.
+if preserveOpenState then
+    installRakNetHooks()
 end
 
 -- ==============================================================================
@@ -1065,11 +1087,45 @@ end
 local uiConnections = {}
 local hudScreenGui = nil
 
+local cachedMouseLockController = nil
+local function disableShiftLockIfActive()
+    if type(genv.DisableOmniShiftLock) == "function" then
+        pcall(genv.DisableOmniShiftLock)
+        return
+    end
+    pcall(function()
+        if not cachedMouseLockController or type(cachedMouseLockController) ~= "table" or rawget(cachedMouseLockController, "isMouseLocked") == nil then
+            cachedMouseLockController = nil
+            if type(getgc) == "function" then
+                for _, v in ipairs(getgc(true)) do
+                    if type(v) == "table" and rawget(v, "isMouseLocked") ~= nil and rawget(v, "mouseLockToggledEvent") ~= nil then
+                        cachedMouseLockController = v
+                        break
+                    end
+                end
+            end
+        end
+        if cachedMouseLockController and (cachedMouseLockController.isMouseLocked == true or (type(cachedMouseLockController.GetIsMouseLocked) == "function" and cachedMouseLockController:GetIsMouseLocked() == true)) then
+            if type(cachedMouseLockController.OnMouseLockToggled) == "function" then
+                cachedMouseLockController:OnMouseLockToggled()
+            end
+        end
+    end)
+    pcall(function()
+        local ugs = UserSettings():GetService("UserGameSettings")
+        if ugs and ugs.RotationType == Enum.RotationType.CameraRelative then
+            ugs.RotationType = Enum.RotationType.MovementRelative
+        end
+    end)
+end
+
 local function setCursorUnlock(active)
     local RunService = game:GetService("RunService")
     local UserInputService = game:GetService("UserInputService")
     pcall(function() RunService:UnbindFromRenderStep("OmniPacketLoggerCursor") end)
     if active then
+        disableShiftLockIfActive()
+        task.defer(disableShiftLockIfActive)
         pcall(function()
             RunService:BindToRenderStep("OmniPacketLoggerCursor", Enum.RenderPriority.Camera.Value + 1, function()
                 if not hudScreenGui or not hudScreenGui.Parent or not isWindowOpen then
@@ -1142,9 +1198,10 @@ task.spawn(function()
     end
 
     -- ==========================================================================
-    -- HOOK INBOUND & OUTBOUND REPLICATION STREAMS (ENGINE B)
+    -- HOOK INBOUND & OUTBOUND REPLICATION STREAMS (ENGINE B — LAZY ON-DEMAND)
     -- ==========================================================================
     local hookedRemotes = setmetatable({}, { __mode = "k" })
+    local remotesScanned = false
 
     local function attachInboundRemote(rem)
         if hookedRemotes[rem] then return end
@@ -1173,17 +1230,25 @@ task.spawn(function()
         end
     end
 
-    for _, desc in ipairs(game:GetDescendants()) do
-        if desc:IsA("RemoteEvent") or desc:IsA("UnreliableRemoteEvent") then
-            attachInboundRemote(desc)
+    local function ensureReplicationStreamHooks()
+        installRakNetHooks()
+        if remotesScanned then return end
+        remotesScanned = true
+        for _, desc in ipairs(game:GetDescendants()) do
+            if desc:IsA("RemoteEvent") or desc:IsA("UnreliableRemoteEvent") then
+                attachInboundRemote(desc)
+            end
         end
+        table.insert(uiConnections, game.DescendantAdded:Connect(function(desc)
+            if desc:IsA("RemoteEvent") or desc:IsA("UnreliableRemoteEvent") then
+                attachInboundRemote(desc)
+            end
+        end))
     end
 
-    table.insert(uiConnections, game.DescendantAdded:Connect(function(desc)
-        if desc:IsA("RemoteEvent") or desc:IsA("UnreliableRemoteEvent") then
-            attachInboundRemote(desc)
-        end
-    end))
+    if preserveOpenState then
+        ensureReplicationStreamHooks()
+    end
 
     -- Replicated Instance Creation / Deletion / Attribute Stream Watchers
     local instanceEventsThisSec = 0
@@ -2493,10 +2558,13 @@ task.spawn(function()
         end
         setCursorUnlock(isWindowOpen)
         if isWindowOpen then
+            ensureReplicationStreamHooks()
             updateFilterChipsUI()
             rebuildFilteredListAndRender()
             refreshInspector()
             refreshRulesTab()
+        elseif not isPinnedRecording then
+            removeRakNetHooks()
         end
     end
 

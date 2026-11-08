@@ -433,9 +433,19 @@ if getgenv()._OmniCurrentDataModel and getgenv()._OmniCurrentDataModel ~= curren
     getgenv()._KernelTaskManagerUnifiedCleanUp = nil
     getgenv()._KernelTaskManagerCleanUp = nil
     getgenv()._VirtualSchedulerCleanUp = nil
+    getgenv()._KernelPacketLoggerCleanUp = nil
+    getgenv()._KernelPacketLoggerLoaded = nil
+    getgenv()._KernelPacketLoggerRunning = nil
+    getgenv()._KernelPacketLoggerGui = nil
+    getgenv()._OmniTraceCleanUp = nil
+    getgenv()._OmniRemoteExecuteCleanUp = nil
+    getgenv()._OmniRemoteExecuteRunning = nil
     getgenv().__OmniEnhancementCleanup = nil
     getgenv().__EnhancementCleanup = nil
     getgenv()._OmniLoadstringManagerCleanUp = nil
+    getgenv()._BartenderGuiCleanup = nil
+    getgenv()._OmniClosetPeekUnload = nil
+    getgenv()._OmniDoorsProtocolUnload = nil
     getgenv()._KernelTaskManagerGui = nil
     getgenv()._OmniWaitTrampolineInstalled = nil
     getgenv()._KernelOrigTaskWait = nil
@@ -445,6 +455,11 @@ if getgenv()._OmniCurrentDataModel and getgenv()._OmniCurrentDataModel ~= curren
     getgenv()._VirtualSchedulerProxiedRunService = nil
     getgenv()._VirtualSchedulerPersistedIngestedKeys = nil
     getgenv()._VirtualSchedulerRawSignals = nil
+    getgenv()._VirtualSchedulerRawBind = nil
+    getgenv()._VirtualSchedulerRawUnbind = nil
+    getgenv()._AdaptiveExecutionGatewayInstalled = nil
+    getgenv()._KernelLoadstringShimInstalled = nil
+    getgenv()._KernelOrigLoadstring = nil
     getgenv()._exemptObfuscatedThreads = nil
     getgenv()._KernelExemptScripts = nil
 end
@@ -1976,25 +1991,25 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "405143c671bdff13266611eea205279a7a57dd862e852c6e17170a9af29f5e2f"
+        sha256 = "1e4dad45fae9731cc4ae0898276db9f5fed3cd3935282eb385feb97ac060b56f"
     },
     {
         repoPath = "kernel/KernelPacketLogger.lua",
         localPath = "autoexec/kernel/KernelPacketLogger.lua",
         name = "KernelPacketLogger",
-        sha256 = "b22bcf424e1f07c39e8bdfdc27b68b21d23ab733ece90d632a0e8ad1ce535c3e"
+        sha256 = "3b944e977dcad2566b1d2df20fe0be086df07956611c09adf3fcc39755f3d159"
     },
     {
         repoPath = "gameloaded/OmniEnhancementSuite.lua",
         localPath = "autoexec/gameloaded/OmniEnhancementSuite.lua",
         name = "OmniEnhancementSuite",
-        sha256 = "6312b46480d9d63f16e26f672b632e113e6e0a2f652538dd6b1ec30f69127e8a"
+        sha256 = "0bd123beda0633b4ab6ae9fb163b10aeeeed7ccf0f5dcf8ee9cbd1709a3b7712"
     },
     {
         repoPath = "gameloaded/OmniLoadstringManager.lua",
         localPath = "autoexec/gameloaded/OmniLoadstringManager.lua",
         name = "OmniLoadstringManager",
-        sha256 = "b421e238825e7d920ac123cfd02e838f084201a44dfbe23b8eca2f5b33044f16"
+        sha256 = "d8c967661cd480104ce2535bf543efe3674537d1016c0deff9cd009066a13a51"
     }
 }
 
@@ -4057,7 +4072,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "405143c671bdff13266611eea205279a7a57dd862e852c6e17170a9af29f5e2f"
+                    sha256 = "1e4dad45fae9731cc4ae0898276db9f5fed3cd3935282eb385feb97ac060b56f"
                 }
             }
         end
@@ -5120,29 +5135,27 @@ end
 -- ==============================================================================
 -- ROOT OF TRUST: UPDATE GATE INSTANTIATION & REMOTE SAFETY ADVISORY
 -- ==============================================================================
-if not updateGateController and ensureUpdateGateController then
-    updateGateController = ensureUpdateGateController()
-end
+-- Lazy-initialize updateGateController only when needed (never block Frame 0 on teleport/rejoin)
 
 -- ==============================================================================
 -- STEP 1: REMOTE SAFETY ADVISORY & COMPONENT FAIL-SAFE
 -- ==============================================================================
 local function checkRemoteSafetyAdvisory()
-    -- Register local verified manifest.json stages first as local source of truth
+    -- Register local verified manifest.json stages first as local source of truth (0ms, zero network blocking on Frame 0)
+    local rawManifest = nil
     if type(isfile) == "function" and type(readfile) == "function" then
-        local localRaw = nil
         if isfile("manifest.json") then
             local ok, raw = pcall(readfile, "manifest.json")
-            if ok and raw then localRaw = raw end
+            if ok and raw then rawManifest = raw end
         elseif isfile("autoexec/manifest.json") then
             local ok, raw = pcall(readfile, "autoexec/manifest.json")
-            if ok and raw then localRaw = raw end
+            if ok and raw then rawManifest = raw end
         elseif isfile("workspace/manifest.json") then
             local ok, raw = pcall(readfile, "workspace/manifest.json")
-            if ok and raw then localRaw = raw end
+            if ok and raw then rawManifest = raw end
         end
-        if localRaw then
-            local okDec, localParsed = pcall(function() return HttpService:JSONDecode(localRaw) end)
+        if rawManifest then
+            local okDec, localParsed = pcall(function() return HttpService:JSONDecode(rawManifest) end)
             if okDec and type(localParsed) == "table" and type(localParsed.stages) == "table" then
                 for _, st in ipairs(localParsed.stages) do
                     local existing = lookupManifestStage(st.name, st.localPath)
@@ -5154,24 +5167,10 @@ local function checkRemoteSafetyAdvisory()
         end
     end
 
-    -- Check manifest.json (GitHub raw or local check) for lockdown (bool) & lockdown_message (string)
-    local sha = (type(getLatestCommitSha) == "function" and getLatestCommitSha()) or "main"
-    local commitManifestUrl = "https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/" .. sha .. "/manifest.json"
-    local rawManifest = fetchGithubScript(commitManifestUrl)
+    -- Never make synchronous HTTP calls on Frame 0 if local manifest is already present on disk!
+    -- Synchronous request()/HttpGet() to api.github.com during teleport attach blocks the main thread for 20-35s when rate-limited.
     if not rawManifest then
-        rawManifest = fetchGithubScript(MANIFEST_URL .. "?v=" .. tostring(os.time()))
-    end
-    if not rawManifest and isfile then
-        if isfile("manifest.json") then
-            local ok, raw = pcall(readfile, "manifest.json")
-            if ok and raw then rawManifest = raw end
-        elseif isfile("autoexec/manifest.json") then
-            local ok, raw = pcall(readfile, "autoexec/manifest.json")
-            if ok and raw then rawManifest = raw end
-        elseif isfile("workspace/manifest.json") then
-            local ok, raw = pcall(readfile, "workspace/manifest.json")
-            if ok and raw then rawManifest = raw end
-        end
+        rawManifest = fetchGithubScript(MANIFEST_URL)
     end
 
     if not rawManifest then
@@ -5826,45 +5825,6 @@ task.spawn(function()
 
         print(string.format("[Bootloader]: Boot completed in %.1fms | Discovered: %d | Executed: %d | Success: %d | Errors: %d",
             totalBootMs, Telemetry.discovered, Telemetry.executed, Telemetry.success, Telemetry.errors))
-
-        -- Keep Omni alive across teleports only if not already installed in autoexec
-        local hasLocal = (type(isfile) == "function") and (
-            isfile("Omni_Autoexec.marker")
-            or isfile("autoexec/Bootloader.lua")
-            or isfile("autoexec/CustomAutoExec.lua")
-            or isfile("autoexe/Bootloader.lua")
-            or isfile("autoexe/CustomAutoExec.lua")
-        )
-        if not hasLocal then
-            local queueOnTeleport = (syn and syn.queue_on_teleport) or queue_on_teleport or queueonteleport or (fluxus and fluxus.queue_on_teleport)
-            if type(queueOnTeleport) == "function" then
-                pcall(function()
-                    queueOnTeleport([[
-                        task.spawn(function()
-                            local waited = 0
-                            while waited < 5.0 and not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning do
-                                task.wait(0.2)
-                                waited = waited + 0.2
-                            end
-                            if not getgenv()._OmniBootloaderLoaded and not getgenv()._OmniBootloaderRunning then
-                                local isLocal = (type(isfile) == "function") and (
-                                    isfile("Omni_Autoexec.marker")
-                                    or isfile("autoexec/Bootloader.lua")
-                                    or isfile("autoexec/CustomAutoExec.lua")
-                                    or isfile("autoexe/Bootloader.lua")
-                                    or isfile("autoexe/CustomAutoExec.lua")
-                                )
-                                if not isLocal then
-                                    pcall(function()
-                                        loadstring(game:HttpGet("https://raw.githubusercontent.com/s3rvxnt/RobloxOmni/main/Bootloader.lua"))()
-                                    end)
-                                end
-                            end
-                        end)
-                    ]])
-                end)
-            end
-        end
     end)
 
     -- In all outcomes, ensure lock is gone and running flag is cleared

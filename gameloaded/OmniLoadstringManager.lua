@@ -1,5 +1,5 @@
---!stage: GameLoaded
---!priority: 80
+--!stage Kernel
+--!priority 970
 --!name: OmniLoadstringManager
 -- ==============================================================================
 -- OMNI LOADSTRING & TRUST MANAGER (Shift + F6)
@@ -174,19 +174,27 @@ local function loadLedger()
                         end
                     end
                 end
+                local securityGateEnabled = true
+                if type(data.security_gate_enabled) == "boolean" then
+                    securityGateEnabled = data.security_gate_enabled
+                end
                 return {
                     version = tonumber(data.version) or 1,
+                    security_gate_enabled = securityGateEnabled,
                     urls = sanitizedUrls,
                     hashes = sanitizedHashes
                 }
             end
         end
     end
-    return { version = 1, urls = {}, hashes = {} }
+    return { version = 1, security_gate_enabled = true, urls = {}, hashes = {} }
 end
 
 local function saveLedger(ledger)
     if not ledger or type(ledger) ~= "table" then return false end
+    if type(ledger.security_gate_enabled) ~= "boolean" then
+        ledger.security_gate_enabled = (getgenv()._OmniSecurityGateEnabled ~= false)
+    end
     if isfolder and not isfolder(TRUSTED_SCRIPTS_DIR) then
         pcall(makefolder, TRUSTED_SCRIPTS_DIR)
     end
@@ -257,9 +265,11 @@ end
 -- If entering a new DataModel, Roblox has already completely torn down and destroyed the old DataModel.
 -- Strictly DO NOT execute any cleanup callbacks across DataModel boundaries.
 local currentDM = game
-if getgenv()._OmniCurrentDataModel and getgenv()._OmniCurrentDataModel ~= currentDM then
+if (getgenv()._OmniLoadstringManagerDataModel and getgenv()._OmniLoadstringManagerDataModel ~= currentDM)
+    or (getgenv()._OmniCurrentDataModel and getgenv()._OmniCurrentDataModel ~= currentDM) then
     getgenv()._OmniLoadstringManagerCleanUp = nil
 end
+getgenv()._OmniLoadstringManagerDataModel = currentDM
 getgenv()._OmniCurrentDataModel = currentDM
 
 if type(getgenv()._OmniLoadstringManagerCleanUp) == "function" then
@@ -402,6 +412,59 @@ KeybindBadge.Parent = Header
 local KeybindBadgeCorner = Instance.new("UICorner")
 KeybindBadgeCorner.CornerRadius = UDim.new(0, 4)
 KeybindBadgeCorner.Parent = KeybindBadge
+
+-- Bootloader Security Gate Master Toggle Button in Header
+local GateToggleBtn = Instance.new("TextButton")
+GateToggleBtn.Name = "GateToggleBtn"
+GateToggleBtn.Size = UDim2.new(0, 128, 0, 24)
+GateToggleBtn.Position = UDim2.new(1, -200, 0.5, -12)
+GateToggleBtn.BorderSizePixel = 0
+GateToggleBtn.Font = Enum.Font.GothamBold
+GateToggleBtn.TextSize = 10
+GateToggleBtn.Parent = Header
+
+local GateToggleCorner = Instance.new("UICorner")
+GateToggleCorner.CornerRadius = UDim.new(0, 4)
+GateToggleCorner.Parent = GateToggleBtn
+
+local GateToggleStroke = Instance.new("UIStroke")
+GateToggleStroke.Thickness = 1
+GateToggleStroke.Parent = GateToggleBtn
+
+local function refreshGateToggleAppearance()
+    local enabled = (getgenv()._OmniSecurityGateEnabled ~= false)
+    if enabled then
+        GateToggleBtn.Text = "🛡️ GATE: ON"
+        GateToggleBtn.BackgroundColor3 = Color3.fromRGB(22, 52, 38)
+        GateToggleBtn.TextColor3 = Theme.StatusSuccess
+        GateToggleStroke.Color = Color3.fromRGB(45, 110, 75)
+    else
+        GateToggleBtn.Text = "🔓 GATE: OFF"
+        GateToggleBtn.BackgroundColor3 = Color3.fromRGB(58, 42, 20)
+        GateToggleBtn.TextColor3 = Theme.StatusWarning
+        GateToggleStroke.Color = Color3.fromRGB(130, 90, 35)
+    end
+end
+
+if getgenv()._OmniSecurityGateEnabled == nil then
+    local initL = loadLedger()
+    getgenv()._OmniSecurityGateEnabled = (initL.security_gate_enabled ~= false)
+end
+refreshGateToggleAppearance()
+getgenv()._OnOmniSecurityGateToggled = refreshGateToggleAppearance
+
+GateToggleBtn.MouseButton1Click:Connect(function()
+    local newState = not (getgenv()._OmniSecurityGateEnabled ~= false)
+    if type(getgenv().SetOmniSecurityGateEnabled) == "function" then
+        getgenv().SetOmniSecurityGateEnabled(newState, true)
+    else
+        getgenv()._OmniSecurityGateEnabled = newState
+        local l = loadLedger()
+        l.security_gate_enabled = newState
+        saveLedger(l)
+    end
+    refreshGateToggleAppearance()
+end)
 
 -- Refresh Button (Positioned next to Close Button)
 local RefreshBtn = Instance.new("TextButton")
@@ -2144,6 +2207,29 @@ getgenv().OpenOmniLoadstringManager = openManager
 getgenv().CloseOmniLoadstringManager = closeManager
 getgenv().ToggleOmniLoadstringManager = toggleManager
 getgenv().GetOmniTrustedUrls = function() return loadLedger() end
+if type(getgenv().GetOmniSecurityGateEnabled) ~= "function" then
+    getgenv().GetOmniSecurityGateEnabled = function()
+        return getgenv()._OmniSecurityGateEnabled ~= false
+    end
+end
+if type(getgenv().SetOmniSecurityGateEnabled) ~= "function" then
+    getgenv().SetOmniSecurityGateEnabled = function(enabled, persist)
+        local state = (enabled == true)
+        getgenv()._OmniSecurityGateEnabled = state
+        if persist ~= false then
+            local l = loadLedger()
+            l.security_gate_enabled = state
+            saveLedger(l)
+        end
+        refreshGateToggleAppearance()
+        return state
+    end
+end
+if type(getgenv().ToggleOmniSecurityGate) ~= "function" then
+    getgenv().ToggleOmniSecurityGate = function(persist)
+        return getgenv().SetOmniSecurityGateEnabled(not getgenv().GetOmniSecurityGateEnabled(), persist)
+    end
+end
 getgenv().SetOmniUrlAutoUpdate = function(targetUrl, enabled)
     local l = loadLedger()
     if l.urls and l.urls[targetUrl] then

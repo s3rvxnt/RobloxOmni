@@ -33,18 +33,8 @@
 
 if not game or not game.GetService then return end
 
--- Watchdog: Set engine script timeout to abort infinite/unyielding loops (e.g., anti-tamper traps)
-pcall(function()
-    local s = (setfflag or setfastflag)
-    if s then
-        s("DFIntScriptTimeoutSeconds", "2")
-    end
-end)
-
 local rawGame = (workspace and workspace.Parent) or game
-if not getgenv()._KernelOrigGame then
-    getgenv()._KernelOrigGame = rawGame
-end
+getgenv()._KernelOrigGame = rawGame
 
 -- Common Engine Services & Pointers
 local RunService = game:GetService("RunService")
@@ -70,11 +60,20 @@ local RequestIngestedLivenessCheck
 -- If entering a new DataModel, Roblox has already completely torn down and destroyed the old DataModel.
 -- Strictly DO NOT execute any cleanup callbacks across DataModel boundaries.
 local currentDM = rawGame
-if getgenv()._OmniCurrentDataModel and getgenv()._OmniCurrentDataModel ~= currentDM then
+local isSameDataModelReload = (getgenv()._KernelTaskManagerDataModel == currentDM)
+if not isSameDataModelReload then
+    if getgenv()._KernelOrigLoadstring then
+        getgenv().loadstring = getgenv()._KernelOrigLoadstring
+        getgenv()._KernelOrigLoadstring = nil
+    end
+    getgenv().task = nil
+    getgenv().wait = nil
     getgenv()._KernelTaskManagerUnifiedCleanUp = nil
     getgenv()._VirtualSchedulerCleanUp = nil
     getgenv()._KernelTaskManagerCleanUp = nil
     getgenv()._KernelTaskManagerGui = nil
+    getgenv()._KernelTaskManagerLoaded = nil
+    getgenv()._VirtualSchedulerLoaded = nil
     getgenv()._OmniWaitTrampolineInstalled = nil
     getgenv()._KernelOrigTaskWait = nil
     getgenv()._KernelOrigWait = nil
@@ -83,8 +82,19 @@ if getgenv()._OmniCurrentDataModel and getgenv()._OmniCurrentDataModel ~= curren
     getgenv()._VirtualSchedulerProxiedRunService = nil
     getgenv()._VirtualSchedulerPersistedIngestedKeys = nil
     getgenv()._VirtualSchedulerRawSignals = nil
+    getgenv()._VirtualSchedulerRawBind = nil
+    getgenv()._VirtualSchedulerRawUnbind = nil
+    getgenv()._AdaptiveExecutionGatewayInstalled = nil
+    getgenv()._KernelLoadstringShimInstalled = nil
     getgenv()._exemptObfuscatedThreads = nil
+    getgenv()._OmniLoopRegistry = nil
+    getgenv()._OmniLoopOrder = nil
+    getgenv()._OmniIgnoredThreads = nil
+    getgenv()._OmniKilledThreads = nil
+    getgenv()._VirtualSchedulerIngestedConnections = nil
+    getgenv()._OmniTransparentOldNamecall = nil
 end
+getgenv()._KernelTaskManagerDataModel = currentDM
 getgenv()._OmniCurrentDataModel = currentDM
 
 -- Unified Idempotent Reload: Clean up any prior instances (same DataModel hot-reload only)
@@ -947,8 +957,8 @@ local function processFrame(eventState, ...)
     frameSpentSec = frameSpentSec + (os.clock() - phaseStart)
 end
 
--- Clean up any orphaned KernelTaskManager frame connections on rawSignals before connecting
-if getconnections then
+-- Clean up any orphaned KernelTaskManager frame connections on rawSignals before connecting (same-DataModel hot-reload only)
+if isSameDataModelReload and getconnections then
     for _, sig in pairs(rawSignals) do
         if sig then
             local ok, conns = pcall(getconnections, sig)
@@ -3661,63 +3671,37 @@ local function ClearLoopRegistry()
     return true
 end
 
--- Install task.wait and wait hooks safely with dynamic delegation trampoline
+-- Install task.wait and wait hooks safely at environment level (ZERO C++ hookfunction on native engine task.wait)
+-- Hooking native C task.wait via hookfunction traps sleeping game coroutines inside a newcclosure trampoline,
+-- which deadlocks Potassium's C++ ScriptContext teardown across multiple teleports (;rj).
 getgenv()._OmniActiveHookedTaskWait = hookedTaskWait
 getgenv()._OmniActiveHookedWait = hookedWait
+origTaskWait = getgenv()._KernelOrigTaskWait or rawTaskWait or (task and task.wait) or wait
+origWait = getgenv()._KernelOrigWait or rawWait or wait or (task and task.wait)
+getgenv()._KernelOrigTaskWait = origTaskWait
+getgenv()._KernelOrigWait = origWait
 
-if hookfunction and getgenv()._OmniEnableWaitHooks ~= false then
-    if not getgenv()._OmniWaitTrampolineInstalled then
-        if task and task.wait then
-            pcall(function()
-                local function taskWaitTrampoline(...)
-                    local activeHook = getgenv()._OmniActiveHookedTaskWait
-                    if activeHook then
-                        return activeHook(...)
-                    end
-                    local orig = getgenv()._KernelOrigTaskWait or origTaskWait
-                    if orig then return orig(...) end
-                    return ...
+if getgenv()._OmniEnableWaitHooks ~= false then
+    local rawTaskTable = task
+    if type(rawTaskTable) == "table" then
+        getgenv().task = setmetatable({
+            wait = function(...)
+                local activeHook = getgenv()._OmniActiveHookedTaskWait
+                if activeHook then
+                    return activeHook(...)
                 end
-                local hook = (newcclosure and newcclosure(taskWaitTrampoline)) or taskWaitTrampoline
-                local hookedOrig = hookfunction(task.wait, hook)
-                if not getgenv()._KernelOrigTaskWait then
-                    getgenv()._KernelOrigTaskWait = hookedOrig
-                end
-                origTaskWait = getgenv()._KernelOrigTaskWait
-            end)
-        else
-            origTaskWait = getgenv()._KernelOrigTaskWait or (task and task.wait)
-        end
-
-        if wait then
-            pcall(function()
-                local function waitTrampoline(...)
-                    local activeHook = getgenv()._OmniActiveHookedWait
-                    if activeHook then
-                        return activeHook(...)
-                    end
-                    local orig = getgenv()._KernelOrigWait or origWait
-                    if orig then return orig(...) end
-                    return ...
-                end
-                local hook = (newcclosure and newcclosure(waitTrampoline)) or waitTrampoline
-                local hookedOrig = hookfunction(wait, hook)
-                if not getgenv()._KernelOrigWait then
-                    getgenv()._KernelOrigWait = hookedOrig
-                end
-                origWait = getgenv()._KernelOrigWait
-            end)
-        else
-            origWait = getgenv()._KernelOrigWait or wait
-        end
-        getgenv()._OmniWaitTrampolineInstalled = true
-    else
-        origTaskWait = getgenv()._KernelOrigTaskWait or (task and task.wait)
-        origWait = getgenv()._KernelOrigWait or wait
+                return origTaskWait(...)
+            end
+        }, { __index = rawTaskTable })
     end
-else
-    origTaskWait = getgenv()._KernelOrigTaskWait or (task and task.wait) or wait
-    origWait = getgenv()._KernelOrigWait or wait or (task and task.wait)
+    getgenv().wait = function(...)
+        local activeHook = getgenv()._OmniActiveHookedWait
+        if activeHook then
+            return activeHook(...)
+        end
+        return origWait(...)
+    end
+    getgenv()._OmniWaitTrampolineInstalled = true
 end
 
 
@@ -4296,22 +4280,19 @@ local function GetGlobalPriorityOverride()
     return "Off"
 end
 
--- Background 2-second profiling loop
+-- Background 2-second profiling loop (only scans game connections when HUD is visible or persisted tasks exist)
 profilingActive = true
-task.defer(function()
-    if profilingActive then
-        pcall(ScanGameTasks)
-        pcall(emitProfile)
-    end
-end)
 task.spawn(function()
     local myThread = coroutine.running()
     if ignoredThreads then ignoredThreads[myThread] = true end
     local waitFn = rawTaskWait or origTaskWait or (task and task.wait)
-    while profilingActive do
+    while profilingActive and getgenv()._KernelTaskManagerDataModel == currentDM do
         waitFn(2.0)
-        if profilingActive then
-            pcall(ScanGameTasks)
+        if profilingActive and getgenv()._KernelTaskManagerDataModel == currentDM then
+            local hudOpen = getgenv()._KernelTaskManagerGui and getgenv()._KernelTaskManagerGui.Enabled
+            if hudOpen or (persistedIngestedKeys and next(persistedIngestedKeys) ~= nil) then
+                pcall(ScanGameTasks)
+            end
             pcall(emitProfile)
         end
     end
@@ -5684,12 +5665,14 @@ if not guiParent then
     return
 end
 
-if type(getgenv()._KernelTaskManagerCleanUp) == "function" then
-    pcall(getgenv()._KernelTaskManagerCleanUp)
-end
-for _, child in ipairs(guiParent:GetChildren()) do
-    if child.Name == "KernelTaskManager_Protected" then
-        pcall(function() child:Destroy() end)
+if isSameDataModelReload then
+    if type(getgenv()._KernelTaskManagerCleanUp) == "function" then
+        pcall(getgenv()._KernelTaskManagerCleanUp)
+    end
+    for _, child in ipairs(guiParent:GetChildren()) do
+        if child.Name == "KernelTaskManager_Protected" then
+            pcall(function() child:Destroy() end)
+        end
     end
 end
 
@@ -12238,15 +12221,6 @@ local function initOmniParallelEngine()
         local holder = pgui and pgui:FindFirstChild("OmniWorkerHolder")
         if holder then
             holder:Destroy()
-        end
-        if lp and lp.OnTeleport then
-            lp.OnTeleport:Connect(function()
-                pcall(function()
-                    local pg = lp:FindFirstChild("PlayerGui")
-                    local h = pg and pg:FindFirstChild("OmniWorkerHolder")
-                    if h then h:Destroy() end
-                end)
-            end)
         end
     end)
 
