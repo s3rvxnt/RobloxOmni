@@ -462,6 +462,8 @@ if getgenv()._OmniCurrentDataModel and getgenv()._OmniCurrentDataModel ~= curren
     getgenv()._KernelOrigLoadstring = nil
     getgenv()._exemptObfuscatedThreads = nil
     getgenv()._KernelExemptScripts = nil
+    getgenv()._OmniUpdateGateCleanup = nil
+    getgenv()._OmniLazyUpdateGateCleanup = nil
 end
 getgenv()._OmniCurrentDataModel = currentDM
 
@@ -2804,6 +2806,9 @@ initUpdateGate = function(guiParent, UpdateBadge)
         return diff, #newLines, adds, removes
     end
 
+    if type(getgenv()._OmniUpdateGateCleanup) == "function" then
+        pcall(getgenv()._OmniUpdateGateCleanup)
+    end
     local existingUpdateGui = guiParent:FindFirstChild("OmniUpdateGate_Protected")
     if existingUpdateGui then
         pcall(function() existingUpdateGui:Destroy() end)
@@ -3017,14 +3022,14 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
     local KeybindBadge = Instance.new("TextLabel")
     KeybindBadge.Name = "KeybindBadge"
-    KeybindBadge.Size = UDim2.new(0, 74, 0, 20)
+    KeybindBadge.Size = UDim2.new(0, 78, 0, 20)
     KeybindBadge.Position = UDim2.new(0, 326, 0.5, -10)
     KeybindBadge.BackgroundColor3 = Theme.KeybindBg
     KeybindBadge.Active = false
     KeybindBadge.Font = Enum.Font.GothamBold
     KeybindBadge.TextSize = 10
     KeybindBadge.TextColor3 = Theme.KeybindText
-    KeybindBadge.Text = "Shift + F5"
+    KeybindBadge.Text = "Shift + F12"
     KeybindBadge.Parent = ModalHeader
 
     local KeybindBadgeCorner = Instance.new("UICorner")
@@ -4277,7 +4282,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                 changelog = {
                     "Adaptive 6.0ms frame-budgeted bootloader with automated crash recovery and Safe Mode",
                     "Kernel Task Manager HUD and adaptive loop governor with per-task CPU telemetry (Shift + F8)",
-                    "Zero-trust update transparency gate with line-by-line diff inspection and security scanner (Shift + F5)",
+                    "Zero-trust update transparency gate with line-by-line diff inspection and security scanner (Shift + F12)",
                     "Real-time game connection ingestion, priority bands, and instant hot-reloading",
                     "Omni Enhancement Suite: Streamer mode, Personal Space Bubble, Player ESP, Anti-AFK, and native ESC settings"
                 },
@@ -4611,14 +4616,14 @@ initUpdateGate = function(guiParent, UpdateBadge)
     end
 
     -- Keybinds:
-    -- Shift + F5 toggles Update Gate
+    -- Shift + F12 toggles Update Gate
     -- Shift + F7 toggles Kernel Packet Logger (handled in KernelPacketLogger.lua)
     -- Shift + F8 toggles Task Manager HUD
     -- Shift + F6 / F6 toggles Loadstring Manager (handled in OmniLoadstringManager.lua)
     local inputConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if UserInputService:GetFocusedTextBox() then return end
         local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-        if input.KeyCode == Enum.KeyCode.F5 and isShift then
+        if input.KeyCode == Enum.KeyCode.F12 and isShift then
             if isModalOpen or ModalBackdrop.Visible then
                 closeUpdateModal()
             else
@@ -5131,8 +5136,10 @@ initUpdateGate = function(guiParent, UpdateBadge)
             if UpdateScreenGui then pcall(function() UpdateScreenGui:Destroy() end); UpdateScreenGui = nil end
             getgenv().OpenOmniUpdateGate = nil
             getgenv().TestOmniUpdateGate = nil
+            getgenv()._OmniUpdateGateCleanup = nil
         end
     }
+    getgenv()._OmniUpdateGateCleanup = controller.cleanup
     if table.freeze then pcall(table.freeze, controller) end
     return controller
 end
@@ -5141,6 +5148,9 @@ end
 -- ROOT OF TRUST: UPDATE GATE INSTANTIATION & REMOTE SAFETY ADVISORY
 -- ==============================================================================
 -- Lazy-initialize updateGateController only when needed (never block Frame 0 on teleport/rejoin)
+if type(getgenv()._OmniLazyUpdateGateCleanup) == "function" then
+    pcall(getgenv()._OmniLazyUpdateGateCleanup)
+end
 getgenv().OpenOmniUpdateGate = function()
     local gate = ensureUpdateGateController()
     if gate and gate.open then
@@ -5150,10 +5160,19 @@ end
 getgenv().TestOmniUpdateGate = getgenv().OpenOmniUpdateGate
 
 local _lazyUpdateGateHotkeyConn = nil
+getgenv()._OmniLazyUpdateGateCleanup = function()
+    if _lazyUpdateGateHotkeyConn then
+        pcall(function() _lazyUpdateGateHotkeyConn:Disconnect() end)
+        _lazyUpdateGateHotkeyConn = nil
+    end
+    if type(getgenv()._OmniUpdateGateCleanup) == "function" then
+        pcall(getgenv()._OmniUpdateGateCleanup)
+    end
+end
 _lazyUpdateGateHotkeyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if UserInputService:GetFocusedTextBox() then return end
     local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-    if input.KeyCode == Enum.KeyCode.F5 and isShift then
+    if input.KeyCode == Enum.KeyCode.F12 and isShift then
         if _lazyUpdateGateHotkeyConn then
             pcall(function() _lazyUpdateGateHotkeyConn:Disconnect() end)
             _lazyUpdateGateHotkeyConn = nil
@@ -5263,7 +5282,7 @@ end
 local isSafetyAdvisoryActive = checkRemoteSafetyAdvisory()
 if getgenv()._OmniBootloaderRefreshGateOnly then
     getgenv()._OmniBootloaderRefreshGateOnly = nil
-    print("[Bootloader]: Hot-registered Shift + F5 Update & Security Gate listener in active session.")
+    print("[Bootloader]: Hot-registered Shift + F12 Update & Security Gate listener in active session.")
     return
 end
 if isSafetyAdvisoryActive then
@@ -5721,6 +5740,15 @@ local syncOk, syncErr = pcall(function()
                 end
             else
                 registerScript(item, "GameLoaded")
+            end
+        end
+
+        if #Queues.Kernel > 0 then
+            sortQueue(Queues.Kernel)
+            for _, meta in ipairs(Queues.Kernel) do
+                if not executedFiles[meta.file] then
+                    executeScript(meta)
+                end
             end
         end
 
