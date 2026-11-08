@@ -69,7 +69,7 @@ local RequestIngestedLivenessCheck
 -- Teleport / Rejoin Boundary Detection:
 -- If entering a new DataModel, Roblox has already completely torn down and destroyed the old DataModel.
 -- Strictly DO NOT execute any cleanup callbacks across DataModel boundaries.
-local currentDM = game
+local currentDM = rawGame
 if getgenv()._OmniCurrentDataModel and getgenv()._OmniCurrentDataModel ~= currentDM then
     getgenv()._KernelTaskManagerUnifiedCleanUp = nil
     getgenv()._VirtualSchedulerCleanUp = nil
@@ -704,7 +704,7 @@ local function runTask(taskObj, ...)
         end
 
         -- Continuous Fluid Auto-Throttler:
-        if not taskObj.locked and taskObj.event ~= "SuperStep" and (taskObj.basePriority == "High" or taskObj.priorityBand == "High" or (taskObj.targetHz and taskObj.targetHz >= 25)) then
+        if not taskObj.locked and taskObj.event ~= "SuperStep" and (taskObj.isMax or (taskObj.targetHz and taskObj.targetHz >= 25)) then
         local isHeavy = durationMs > heavyThresholdMs or ((taskObj.recentAvgMs or 0) > heavyThresholdMs)
         if isHeavy then
             taskObj.heavyStreak = (taskObj.heavyStreak or 0) + 1
@@ -718,24 +718,6 @@ local function runTask(taskObj, ...)
                 taskObj.interval = math.max(1, math.round(measuredFps / math.max(0.1, taskObj.effectiveHz)))
                 taskObj.autoThrottled = (taskObj.effectiveHz < (targetHz * 0.95))
                 taskObj.demotions = (taskObj.demotions or 0) + 1
-
-                -- Map semantic priority string based on effectiveHz
-                if taskObj.effectiveHz >= 45 then
-                    taskObj.priorityBand = "High"
-                    taskObj.priority = 80
-                elseif taskObj.effectiveHz >= 25 then
-                    taskObj.priorityBand = "Medium"
-                    taskObj.priority = 50
-                elseif taskObj.effectiveHz >= 10 then
-                    taskObj.priorityBand = "Low"
-                    taskObj.priority = 25
-                elseif taskObj.effectiveHz >= 3 then
-                    taskObj.priorityBand = "Eco"
-                    taskObj.priority = 10
-                else
-                    taskObj.priorityBand = "Idle"
-                    taskObj.priority = 5
-                end
                 local ev = Events[taskObj.event]
                 if ev then ev.needsSort = true end
             end
@@ -749,23 +731,6 @@ local function runTask(taskObj, ...)
                 taskObj.interval = math.max(1, math.round(measuredFps / math.max(0.1, taskObj.effectiveHz)))
                 taskObj.autoThrottled = (taskObj.effectiveHz < (targetHz * 0.95))
                 taskObj.lightStreak = 0
-
-                if taskObj.effectiveHz >= 45 then
-                    taskObj.priorityBand = "High"
-                    taskObj.priority = 80
-                elseif taskObj.effectiveHz >= 25 then
-                    taskObj.priorityBand = "Medium"
-                    taskObj.priority = 50
-                elseif taskObj.effectiveHz >= 10 then
-                    taskObj.priorityBand = "Low"
-                    taskObj.priority = 25
-                elseif taskObj.effectiveHz >= 3 then
-                    taskObj.priorityBand = "Eco"
-                    taskObj.priority = 10
-                else
-                    taskObj.priorityBand = "Idle"
-                    taskObj.priority = 5
-                end
                 local ev = Events[taskObj.event]
                 if ev then ev.needsSort = true end
             end
@@ -805,7 +770,7 @@ local function processFrame(eventState, ...)
                     if evState.tasks then
                         for _, tObj in pairs(evState.tasks) do
                             if tObj.connected and not tObj.paused then
-                                if tObj.isMax or tObj.basePriority == "High" or tObj.priorityBand == "High" or (tObj.targetRatio and tObj.targetRatio >= 0.95) then
+                                if tObj.isMax or (tObj.targetRatio and tObj.targetRatio >= 0.95) then
                                     tObj.targetHz = maxHz
                                     if not tObj.autoThrottled then
                                         tObj.effectiveHz = maxHz
@@ -817,22 +782,16 @@ local function processFrame(eventState, ...)
                                         tObj.connection.TargetHz = maxHz
                                         tObj.connection.EffectiveHz = tObj.effectiveHz
                                     end
-                                elseif tObj.targetRatio and tObj.targetRatio > 0 then
-                                    local newTargetHz = math.clamp(math.round(tObj.targetRatio * maxHz), 1, maxHz)
-                                    tObj.targetHz = newTargetHz
-                                    if not tObj.autoThrottled then
-                                        tObj.effectiveHz = newTargetHz
-                                        tObj.interval = math.max(1, math.round(maxHz / math.max(0.1, tObj.effectiveHz)))
-                                    else
-                                        tObj.interval = math.max(1, math.round(maxHz / math.max(0.1, tObj.effectiveHz)))
-                                    end
-                                    if tObj.connection then
-                                        tObj.connection.TargetHz = newTargetHz
-                                        tObj.connection.EffectiveHz = tObj.effectiveHz
-                                    end
                                 elseif tObj.targetHz then
+                                    if not tObj.autoThrottled then
+                                        tObj.effectiveHz = tObj.targetHz
+                                    end
                                     local eff = tObj.effectiveHz or tObj.targetHz
                                     tObj.interval = math.max(1, math.round(maxHz / math.max(0.1, eff)))
+                                    if tObj.connection then
+                                        tObj.connection.TargetHz = tObj.targetHz
+                                        tObj.connection.EffectiveHz = eff
+                                    end
                                 end
                             end
                         end
@@ -988,6 +947,25 @@ local function processFrame(eventState, ...)
     frameSpentSec = frameSpentSec + (os.clock() - phaseStart)
 end
 
+-- Clean up any orphaned KernelTaskManager frame connections on rawSignals before connecting
+if getconnections then
+    for _, sig in pairs(rawSignals) do
+        if sig then
+            local ok, conns = pcall(getconnections, sig)
+            if ok and type(conns) == "table" then
+                for _, c in ipairs(conns) do
+                    if c and c.Connected ~= false and type(c.Function) == "function" then
+                        local src = debug.info(c.Function, "s")
+                        if src and (tostring(src):lower():find("kerneltaskmanager", 1, true) or (SELF_SRC and tostring(src) == SELF_SRC)) then
+                            pcall(function() c:Disconnect() end)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
 -- Connect engine frame hooks to raw signals forwarding all arguments (...)
 Events.Heartbeat.connection = rawSignals.Heartbeat:Connect(function(...)
     processFrame(Events.Heartbeat, ...)
@@ -1086,13 +1064,13 @@ local function normalizeSchedulerTargetHz(hzArg, customRatio)
     end
 
     if type(hzArg) == "number" then
-        if hzArg <= 0 or hzArg >= (maxHz - 0.5) then
+        if hzArg <= 0 or (not customRatio and hzArg >= (maxHz - 0.5)) then
             targetHz, interval, isMax, targetRatio = maxHz, 1, true, 1.0
         else
             targetHz = math.clamp(math.round(hzArg), 1, maxHz)
             interval = math.max(1, math.round(maxHz / targetHz))
             isMax = false
-            targetRatio = customRatio or (targetHz / maxHz)
+            targetRatio = customRatio or math.clamp(targetHz / maxHz, 0.01, 0.94)
         end
     elseif type(hzArg) == "string" then
         local lower = hzArg:lower():gsub("[%s_]+", "")
@@ -1247,7 +1225,14 @@ local function ThrottledConnect(arg1, arg2, arg3, arg4, arg5)
             numPri, normPri = normalizeSchedulerPriority(savedOverride.priority)
         end
         if savedOverride.targetHz ~= nil then
-            targetHz, interval, isMax, targetRatio = normalizeSchedulerTargetHz(savedOverride.targetHz)
+            local savedRatio = savedOverride.targetRatio
+            if savedOverride.isMax == false and (not savedRatio or savedRatio >= 0.95) then
+                savedRatio = math.clamp(savedOverride.targetHz / math.max(60, measuredFps or 60, savedOverride.targetHz + 1), 0.01, 0.94)
+            end
+            targetHz, interval, isMax, targetRatio = normalizeSchedulerTargetHz(savedOverride.targetHz, savedRatio)
+            if savedOverride.isMax == false then
+                isMax = false
+            end
         end
         if savedOverride.locked ~= nil then
             savedLocked = (savedOverride.locked == true)
@@ -2642,28 +2627,8 @@ local function ScanGameTasks()
         end
     end
 
-    -- Auto-prune runaway :Wait() coroutine leaks (e.g. >24 concurrent :Wait() threads from the exact same game script:line)
-    for _, sg in pairs(scanGroups) do
-        if sg.isWaitYield and #sg.conns > WAIT_LEAK_THRESHOLD then
-            for idx = #sg.conns, 2, -1 do
-                local leakedConn = sg.conns[idx]
-                pcall(function()
-                    if leakedConn.Disable then
-                        leakedConn:Disable()
-                    elseif leakedConn.Enabled ~= nil then
-                        leakedConn.Enabled = false
-                    end
-                end)
-                pcall(function()
-                    local lth = leakedConn.Thread
-                    if type(lth) == "thread" then
-                        task.cancel(lth)
-                    end
-                end)
-                table.remove(sg.conns, idx)
-            end
-        end
-    end
+    -- NOTE: Never disable or task.cancel() native game :Wait() threads on RunService signals,
+    -- as canceling C++ signal-waiting coroutines during respawn/deploy waves can deadlock Luau or break game state machines.
 
     -- Sync scanGroups into DiscoveredGameTaskGroups and DiscoveredGameTaskOrder
     for groupKey, sg in pairs(scanGroups) do
@@ -3283,14 +3248,14 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
 
         -- Autonomous Auto-Throttler with Memory Foam Rebound:
         -- Downshift rapid tight loops (frequencyHz >= 15) that burn > 2.5ms per frame
-        if loop.isExecutor and not loop.locked and loop.avgTimeMs > 2.5 and (loop.frequencyHz or 0) >= 15 and not loop.autoThrottled then
+        if loop.isExecutor and not loop.locked and not loop.userSetHz and loop.avgTimeMs > 2.5 and (loop.frequencyHz or 0) >= 15 and not loop.autoThrottled then
             loop.autoThrottled = true
             loop.targetHz = 15
             loop.targetRatio = 15 / math.max(60, measuredFps or 60)
             loop.minDelay = 1 / 15
             loop.reboundStart = nil
             loop.reboundFromHz = nil
-        elseif loop.autoThrottled and loop.avgTimeMs < 0.8 and not loop.locked then
+        elseif loop.autoThrottled and loop.avgTimeMs < 0.8 and not loop.locked and not loop.userSetHz then
             -- Memory Foam Rebound: Graceful, smooth cubic S-curve expansion instead of stiff snap
             if not loop.reboundStart then
                 loop.reboundStart = now
@@ -3314,7 +3279,7 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
                 loop.targetHz = currentReboundHz
                 loop.minDelay = 1 / currentReboundHz
             end
-        elseif loop.autoThrottled and loop.avgTimeMs >= 1.5 and loop.reboundStart then
+        elseif loop.autoThrottled and loop.avgTimeMs >= 1.5 and loop.reboundStart and not loop.userSetHz then
             -- Re-compression: If a new burst hits during recovery, damp back down
             loop.reboundStart = nil
             loop.reboundFromHz = nil
@@ -3357,6 +3322,12 @@ local function hookedTaskWait(duration)
     end
 
     if ignoredThreads[curThread] then
+        return waitFn(duration)
+    end
+
+    -- Fast-bypass native game script coroutines (e.g., OperatorAnimator) so they never incur debug.info or loopRegistry overhead
+    if checkcaller and not checkcaller() and not loopRegistry[curThread] then
+        ignoredThreads[curThread] = true
         return waitFn(duration)
     end
 
@@ -3447,6 +3418,13 @@ local function hookedWait(duration)
         return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
     end
 
+    -- Fast-bypass native game script coroutines so they never incur debug.info or loopRegistry overhead
+    if checkcaller and not checkcaller() and not loopRegistry[curThread] then
+        ignoredThreads[curThread] = true
+        local d, t = waitFn(duration)
+        return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
+    end
+
     -- Fast exemption for approved obfuscated threads
     local exemptThreads = getgenv()._exemptObfuscatedThreads
     if exemptThreads and exemptThreads[curThread] and (os.clock() < exemptThreads[curThread]) then
@@ -3533,8 +3511,11 @@ local function SetLoopFrequency(loopIdOrThread, targetHz, targetRatio)
     for thread, loop in pairs(loopRegistry) do
         if loop.id == loopIdOrThread or thread == loopIdOrThread or loop.name == loopIdOrThread or loop.caller == loopIdOrThread then
             if not loop.isExecutor and not loop.allowGameOverride then
-                return false, "Cannot throttle in-game script without explicit override"
+                loop.allowGameOverride = true
             end
+            loop.autoThrottled = false
+            loop.reboundStart = nil
+            loop.reboundFromHz = nil
             if (targetRatio and targetRatio < 0.95) or (targetHz and targetHz > 0) then
                 local maxHz = math.max(60, measuredFps or 60)
                 local ratio = targetRatio or math.clamp((targetHz or maxHz) / maxHz, 0.01, 1.0)
@@ -3542,10 +3523,12 @@ local function SetLoopFrequency(loopIdOrThread, targetHz, targetRatio)
                 loop.targetHz = hz
                 loop.targetRatio = ratio
                 loop.minDelay = 1 / hz
+                loop.userSetHz = true
             else
                 loop.targetHz = nil
                 loop.targetRatio = nil
                 loop.minDelay = nil
+                loop.userSetHz = false
             end
             emitProfile()
             saveSchedulerOverrides()
@@ -3915,6 +3898,7 @@ SchedulerPersistence.save = function(immediate)
                         priority = taskObj.basePriority or taskObj.userPriority or taskObj.priority,
                         sortOrder = taskObj.sortOrder,
                         targetHz = taskObj.targetHz,
+                        targetRatio = taskObj.targetRatio,
                         interval = taskObj.interval,
                         isMax = taskObj.isMax,
                         locked = taskObj.locked,
@@ -4232,7 +4216,7 @@ local function SetSchedulerTaskLocked(identifier, isLocked)
         if taskObj.locked then
             taskObj.autoThrottled = false
             local maxHz = math.max(60, measuredFps or 60)
-            if taskObj.isMax or taskObj.basePriority == "High" or taskObj.priorityBand == "High" or (taskObj.targetRatio and taskObj.targetRatio >= 0.95) then
+            if taskObj.isMax or (taskObj.targetRatio and taskObj.targetRatio >= 0.95) then
                 taskObj.targetHz = maxHz
                 taskObj.effectiveHz = maxHz
                 taskObj.interval = 1
@@ -4261,6 +4245,12 @@ end
 
 -- Background 2-second profiling loop
 profilingActive = true
+task.defer(function()
+    if profilingActive then
+        pcall(ScanGameTasks)
+        pcall(emitProfile)
+    end
+end)
 task.spawn(function()
     local myThread = coroutine.running()
     if ignoredThreads then ignoredThreads[myThread] = true end
@@ -4314,7 +4304,9 @@ local function cleanUpScheduler(isTeardown)
         getgenv()._VirtualSchedulerIngestedConnections = setmetatable({}, { __mode = "k" })
         ingestedConnections = getgenv()._VirtualSchedulerIngestedConnections
     end
-    getgenv()._VirtualSchedulerPersistedIngestedKeys = nil
+    if isTeardown then
+        getgenv()._VirtualSchedulerPersistedIngestedKeys = nil
+    end
 
     -- Clear global environment proxies pointing to this DataModel
     if rawget(getgenv(), "game") ~= nil then
@@ -5642,9 +5634,10 @@ end
 if type(getgenv()._KernelTaskManagerCleanUp) == "function" then
     pcall(getgenv()._KernelTaskManagerCleanUp)
 end
-local existingGui = guiParent:FindFirstChild("KernelTaskManager_Protected")
-if existingGui then
-    pcall(function() existingGui:Destroy() end)
+for _, child in ipairs(guiParent:GetChildren()) do
+    if child.Name == "KernelTaskManager_Protected" then
+        pcall(function() child:Destroy() end)
+    end
 end
 
 -- ==============================================================================
@@ -7413,8 +7406,16 @@ local function renderTaskRow(taskObj, idx)
         local sliderFill = priBtn:FindFirstChild("SliderFill")
         local sliderLbl = priBtn:FindFirstChild("SliderLbl")
         local maxHz = math.max(60, measuredFps or 60)
-        local effHz = taskObj.effectiveHz or taskObj.targetHz or maxHz
-        local fillRatio = math.clamp(effHz / maxHz, 0.08, 1.0)
+        local isUncapped = taskObj.isMax or (taskObj.targetRatio and taskObj.targetRatio >= 0.95)
+        local effHz = isUncapped and (taskObj.autoThrottled and taskObj.effectiveHz or maxHz) or (taskObj.effectiveHz or taskObj.targetHz or maxHz)
+        local fillRatio
+        if isUncapped and not taskObj.autoThrottled then
+            fillRatio = 1.0
+        elseif taskObj.autoThrottled then
+            fillRatio = math.clamp(effHz / maxHz, 0.08, 0.94)
+        else
+            fillRatio = math.clamp(taskObj.targetRatio or (effHz / maxHz), 0.08, 0.94)
+        end
         local barColor = getHzColor(effHz, maxHz)
 
         if sliderFill then
@@ -7423,7 +7424,7 @@ local function renderTaskRow(taskObj, idx)
         end
         if sliderLbl then
             local text
-            if effHz >= (maxHz - 0.5) then
+            if isUncapped and not taskObj.autoThrottled then
                 text = string.format("%dHz", maxHz)
             elseif effHz >= 1 then
                 text = string.format("%dHz%s", math.round(effHz), taskObj.autoThrottled and "*" or "")
@@ -11596,7 +11597,59 @@ local lastHudToggleTime = 0
 local HUD_DEBOUNCE_DELAY = 0.35
 local HUD_CURSOR_STEP_NAME = "OmniTaskManagerCursorUnlock"
 
+local function ensureElevatedIdentity()
+    if type(setthreadidentity) == "function" then
+        pcall(setthreadidentity, 8)
+    elseif type(setidentity) == "function" then
+        pcall(setidentity, 8)
+    elseif type(syn) == "table" and type(syn.set_thread_identity) == "function" then
+        pcall(syn.set_thread_identity, 8)
+    end
+end
+
+local cachedMouseLockController = nil
+local function disableShiftLockIfActive()
+    if type(getgenv().DisableOmniShiftLock) == "function" then
+        task.spawn(function()
+            pcall(getgenv().DisableOmniShiftLock)
+        end)
+        ensureElevatedIdentity()
+        return
+    end
+    task.spawn(function()
+        pcall(function()
+            if not cachedMouseLockController or type(cachedMouseLockController) ~= "table" or rawget(cachedMouseLockController, "isMouseLocked") == nil then
+                cachedMouseLockController = nil
+                if type(getgc) == "function" then
+                    for _, v in ipairs(getgc(true)) do
+                        if type(v) == "table" and rawget(v, "isMouseLocked") ~= nil and rawget(v, "mouseLockToggledEvent") ~= nil then
+                            cachedMouseLockController = v
+                            break
+                        end
+                    end
+                end
+            end
+            if cachedMouseLockController and (cachedMouseLockController.isMouseLocked == true or (type(cachedMouseLockController.GetIsMouseLocked) == "function" and cachedMouseLockController:GetIsMouseLocked() == true)) then
+                if type(cachedMouseLockController.OnMouseLockToggled) == "function" then
+                    cachedMouseLockController:OnMouseLockToggled()
+                end
+            end
+        end)
+        ensureElevatedIdentity()
+        pcall(function()
+            local ugs = UserSettings():GetService("UserGameSettings")
+            if ugs and ugs.RotationType == Enum.RotationType.CameraRelative then
+                ugs.RotationType = Enum.RotationType.MovementRelative
+            end
+        end)
+    end)
+    ensureElevatedIdentity()
+end
+
 local function bindHudCursorUnlock()
+    disableShiftLockIfActive()
+    task.defer(disableShiftLockIfActive)
+    ensureElevatedIdentity()
     pcall(function()
         rawRunService:UnbindFromRenderStep(HUD_CURSOR_STEP_NAME)
     end)
@@ -11621,6 +11674,7 @@ local function unbindHudCursorUnlock()
 end
 
 local function openHUD()
+    ensureElevatedIdentity()
     if isHudOpen or isHudAnimating then return end
     local now = os.clock()
     if now - lastHudToggleTime < HUD_DEBOUNCE_DELAY then return end
@@ -11632,6 +11686,7 @@ local function openHUD()
     UserInputService.MouseBehavior = Enum.MouseBehavior.Default
     UserInputService.MouseIconEnabled = true
     bindHudCursorUnlock()
+    ensureElevatedIdentity()
 
     local base = restingPos or MainFrame.Position
     MainFrame.Position = UDim2.new(base.X.Scale, base.X.Offset, base.Y.Scale - 0.05, base.Y.Offset)
@@ -11643,11 +11698,13 @@ local function openHUD()
     })
     tween:Play()
     tween.Completed:Connect(function()
+        ensureElevatedIdentity()
         isHudAnimating = false
     end)
 end
 
 local function closeHUD()
+    ensureElevatedIdentity()
     if not isHudOpen or isHudAnimating then return end
     local now = os.clock()
     if now - lastHudToggleTime < HUD_DEBOUNCE_DELAY then return end
@@ -11655,6 +11712,7 @@ local function closeHUD()
     isHudAnimating = true
     isHudOpen = false
     unbindHudCursorUnlock()
+    ensureElevatedIdentity()
 
     local base = restingPos or MainFrame.Position
     local tween = TweenService:Create(MainFrame, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
@@ -11663,6 +11721,7 @@ local function closeHUD()
     })
     tween:Play()
     tween.Completed:Connect(function()
+        ensureElevatedIdentity()
         isHudAnimating = false
         if not isHudOpen then
             ScreenGui.Enabled = false
@@ -11673,12 +11732,14 @@ local function closeHUD()
 end
 
 CloseBtn.MouseButton1Click:Connect(function()
+    ensureElevatedIdentity()
     closeHUD()
 end)
 
 -- UpdateBadge wired to Bootloader's Root-of-Trust Update Gate
 if UpdateBadge then
     UpdateBadge.MouseButton1Click:Connect(function()
+        ensureElevatedIdentity()
         if type(getgenv().OpenOmniUpdateGate) == "function" then
             getgenv().OpenOmniUpdateGate()
         end
@@ -11690,6 +11751,7 @@ end
 -- ==============================================================================
 
 toggleHUD = function(forcedState)
+    ensureElevatedIdentity()
     local now = os.clock()
     if isHudAnimating or (now - lastHudToggleTime < HUD_DEBOUNCE_DELAY) then return end
     if forcedState ~= nil then
@@ -11710,6 +11772,7 @@ end
 local keybindConnection
 keybindConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if input.KeyCode == Enum.KeyCode.F8 then
+        ensureElevatedIdentity()
         local isShiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
         if isShiftHeld then
             toggleHUD()
@@ -12086,8 +12149,29 @@ local function initOmniParallelEngine()
         }
     end
 
-    if hasActors then
-        purgeLegacyPlayerScriptsWorkers()
+    -- Do NOT spawn Actor VMs (run_on_actor / create_comm_channel) on default boot!
+    -- Active Potassium Actor VMs inside PlayerGui deadlock C++ DataModel teardown during TeleportService (;rj / rejoin).
+    purgeLegacyPlayerScriptsWorkers()
+    pcall(function()
+        local Players = game:GetService("Players")
+        local lp = Players and Players.LocalPlayer
+        local pgui = lp and lp:FindFirstChild("PlayerGui")
+        local holder = pgui and pgui:FindFirstChild("OmniWorkerHolder")
+        if holder then
+            holder:Destroy()
+        end
+        if lp and lp.OnTeleport then
+            lp.OnTeleport:Connect(function()
+                pcall(function()
+                    local pg = lp:FindFirstChild("PlayerGui")
+                    local h = pg and pg:FindFirstChild("OmniWorkerHolder")
+                    if h then h:Destroy() end
+                end)
+            end)
+        end
+    end)
+
+    if hasActors and getgenv()._OmniEnableParallelActors == true then
         local pcallOk = pcall(function()
             for i = 1, 2 do
                 local worker = getOrSpawnWorker(i)
@@ -12099,6 +12183,8 @@ local function initOmniParallelEngine()
         if not pcallOk or #pool == 0 then
             hasActors = false
         end
+    else
+        hasActors = false
     end
 
     local function dispatch(target, method, ...)

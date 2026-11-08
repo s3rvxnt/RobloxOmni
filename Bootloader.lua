@@ -14,11 +14,11 @@
     - Telemetry: Emits Bootloader_Status.json with per-script timing and status
 ]]
 
--- Watchdog: Set engine script timeout to abort infinite/unyielding loops (e.g., anti-tamper traps)
+-- Watchdog: Set engine script timeout to abort infinite/unyielding loops while allowing 500KB-1MB VM compilation
 pcall(function()
     local s = (setfflag or setfastflag)
     if s then
-        s("DFIntScriptTimeoutSeconds", "2")
+        s("DFIntScriptTimeoutSeconds", "15")
     end
 end)
 
@@ -784,19 +784,27 @@ local function loadTrustedUrlLedger()
                         end
                     end
                 end
+                local securityGateEnabled = true
+                if type(data.security_gate_enabled) == "boolean" then
+                    securityGateEnabled = data.security_gate_enabled
+                end
                 return {
                     version = tonumber(data.version) or 1,
+                    security_gate_enabled = securityGateEnabled,
                     urls = sanitizedUrls,
                     hashes = sanitizedHashes
                 }
             end
         end
     end
-    return { version = 1, urls = {}, hashes = {} }
+    return { version = 1, security_gate_enabled = true, urls = {}, hashes = {} }
 end
 
 local function saveTrustedUrlLedger(ledger)
     if not ledger or type(ledger) ~= "table" then return false end
+    if type(ledger.security_gate_enabled) ~= "boolean" then
+        ledger.security_gate_enabled = (getgenv()._OmniSecurityGateEnabled ~= false)
+    end
     if not isfolder(TRUSTED_SCRIPTS_DIR) then
         pcall(makefolder, TRUSTED_SCRIPTS_DIR)
     end
@@ -806,6 +814,35 @@ local function saveTrustedUrlLedger(ledger)
         return okW
     end
     return false
+end
+
+-- Bootloader-Level Security Gate Toggle Switch (Persisted in Omni_TrustedUrls.json)
+if getgenv()._OmniSecurityGateEnabled == nil then
+    local initLedger = loadTrustedUrlLedger()
+    getgenv()._OmniSecurityGateEnabled = (initLedger.security_gate_enabled ~= false)
+end
+
+getgenv().GetOmniSecurityGateEnabled = function()
+    return getgenv()._OmniSecurityGateEnabled ~= false
+end
+
+getgenv().SetOmniSecurityGateEnabled = function(enabled, persist)
+    local state = (enabled == true)
+    getgenv()._OmniSecurityGateEnabled = state
+    if persist ~= false then
+        local l = loadTrustedUrlLedger()
+        l.security_gate_enabled = state
+        saveTrustedUrlLedger(l)
+    end
+    if type(getgenv()._OnOmniSecurityGateToggled) == "function" then
+        pcall(getgenv()._OnOmniSecurityGateToggled, state)
+    end
+    print(string.format("[Omni Security Gate]: Protection %s", state and "ENABLED (Zero-Trust Gate Active)" or "DISABLED (Pass-Through Mode)"))
+    return state
+end
+
+getgenv().ToggleOmniSecurityGate = function(persist)
+    return getgenv().SetOmniSecurityGateEnabled(not getgenv().GetOmniSecurityGateEnabled(), persist)
 end
 
 -- Security Heuristics Audit
@@ -1209,12 +1246,10 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
     getgenv()._KernelOrigLoadstring = nil
     if type(origLoadstring) == "function" then
         local _exemptObfuscatedClosures = setmetatable({}, { __mode = "k" })
-        if not getgenv()._OmniExemptClosures then
-            getgenv()._OmniExemptClosures = setmetatable({}, { __mode = "k" })
-        end
+        getgenv()._OmniExemptClosures = nil
         local _exemptObfuscatedCallers = {}
-        local _exemptObfuscatedThreads = getgenv()._exemptObfuscatedThreads or setmetatable({}, { __mode = "k" })
-        getgenv()._exemptObfuscatedThreads = _exemptObfuscatedThreads
+        local _exemptObfuscatedThreads = setmetatable({}, { __mode = "k" })
+        getgenv()._exemptObfuscatedThreads = nil
         local _trustedUrlByClosure = setmetatable({}, { __mode = "k" })
         local _trustedUrlBySource = {}
 
@@ -1282,8 +1317,13 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             return true
         end
 
-        local function compileExecutableChunk(code, chunk, isObf, associatedUrl)
-            local compiledFn, compileErr = origLoadstring(code, chunk)
+        local function compileExecutableChunk(code, chunk, isObf, associatedUrl, preCompiledFn)
+            local compiledFn, compileErr
+            if type(preCompiledFn) == "function" then
+                compiledFn = preCompiledFn
+            else
+                compiledFn, compileErr = origLoadstring(code, chunk)
+            end
             if not compiledFn then
                 return nil, compileErr
             end
@@ -1341,14 +1381,45 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
             end
 
             if type(src) ~= "string" or #src == 0 then
+                if src == nil and getgenv()._OmniTraceOnLuraphIntegrityDone then
+                    pcall(getgenv()._OmniTraceOnLuraphIntegrityDone)
+                end
                 return origLoadstring(src, chunkname)
+            end
+
+            if #src > 2000 and getgenv()._OmniTraceOnLuraphChunkCompiled and (
+                src:find("Luraph", 1, true) ~= nil
+                or src:find("Luarmor", 1, true) ~= nil
+                or src:find("superflow_bytecode", 1, true) ~= nil
+                or src:find("return%s+setmetatable%s*%({") ~= nil
+                or (type(chunkname) == "string" and chunkname:find("Luraph", 1, true) ~= nil)
+            ) then
+                pcall(getgenv()._OmniTraceOnLuraphChunkCompiled)
+            end
+
+            -- Fast Syntax Pre-Flight: If src is not valid compilable Luau code (e.g. Luraph's "\27LuaP" or "function: 0x..." canary checks),
+            -- return the native compile error immediately. Invalid syntax cannot execute anyway, and this preserves 100% native
+            -- loadstring error semantics without bypassing the security gate for executable code.
+            local preCheckFn, preCheckErr = origLoadstring(src, chunkname)
+            if not preCheckFn then
+                return nil, preCheckErr
             end
 
             local curThread = coroutine.running()
 
+            -- 0. Bootloader-Level Security Gate Toggle Switch & Local IPC Bridge Exemption
+            if getgenv()._OmniSecurityGateEnabled == false or (type(chunkname) == "string" and chunkname:match("^=[%w_]+_External$")) then
+                _exemptObfuscatedThreads[curThread] = os.clock() + 30.0
+                if type(preCheckFn) == "function" then
+                    _exemptObfuscatedClosures[preCheckFn] = true
+                end
+                local isObf = isObfuscatedCode(src, chunkname)
+                return compileExecutableChunk(src, chunkname, isObf, nil, preCheckFn)
+            end
+
             -- 1. Thread-Level Exemption Check (Instantaneous 0ms lookup for active unpacker thread)
             if _exemptObfuscatedThreads[curThread] and (os.clock() < _exemptObfuscatedThreads[curThread]) then
-                local compiled = origLoadstring(src, chunkname)
+                local compiled = preCheckFn
                 if type(compiled) == "function" then
                     _exemptObfuscatedClosures[compiled] = true
                 end
@@ -1361,9 +1432,6 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
             local function isTrustedCallerChunk(clean)
                 if not clean or clean == "" then return false end
-                if clean:find("autoexec", 1, true) or clean:match("^@?autoexec") then
-                    return true
-                end
                 local exempt = getgenv()._KernelExemptScripts
                 if type(exempt) == "table" then
                     if rawget(exempt, clean) == true or rawget(exempt, clean:gsub("^[@%[]", "")) == true then
@@ -1388,7 +1456,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 if not isCallerExempt then
                     for lvl = 2, 25 do
                         local okF, cFunc = pcall(debug.info, lvl, "f")
-                        if okF and cFunc and (_exemptObfuscatedClosures[cFunc] or (getgenv()._OmniExemptClosures and getgenv()._OmniExemptClosures[cFunc])) then
+                        if okF and cFunc and _exemptObfuscatedClosures[cFunc] then
                             isCallerExempt = true
                             isCallerObfuscatedExempt = true
                             break
@@ -1411,23 +1479,18 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                 end
             end
 
-            if not isCallerExempt and chunkname and type(chunkname) == "string" then
-                if chunkname:match("^[=@]?[%w_-]+_External$") or chunkname:find("autoexec", 1, true) then
-                    isCallerExempt = true
-                end
-            end
-
             -- If internal Omni caller, IPC bridge, or approved obfuscated script, bypass security gate directly with authentic loadstring
             if isCallerExempt then
                 if isCallerObfuscatedExempt then
                     _exemptObfuscatedThreads[curThread] = os.clock() + 30.0
-                    local compiled = origLoadstring(src, chunkname)
+                    local compiled = preCheckFn
                     if type(compiled) == "function" then
                         _exemptObfuscatedClosures[compiled] = true
                     end
                     return compiled
                 end
-                return origLoadstring(src, chunkname)
+                local isObf = isObfuscatedCode(src, chunkname)
+                return compileExecutableChunk(src, chunkname, isObf, nil, preCheckFn)
             end
 
             local srcHash = computeSha256(src)
@@ -1913,7 +1976,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "kernel/KernelTaskManager.lua",
         localPath = "autoexec/kernel/KernelTaskManager.lua",
         name = "KernelTaskManager",
-        sha256 = "ec4116d9efb93928dba1866981a67815b2993f7eb16b01a1352072b4bdd8c297"
+        sha256 = "2cbec2f26b57ddfadc71914be260276881c7bc077a05c67eb8ac56c03e0e018a"
     },
     {
         repoPath = "kernel/KernelPacketLogger.lua",
@@ -3994,7 +4057,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                     repoPath = "kernel/KernelTaskManager.lua",
                     localPath = "autoexec/kernel/KernelTaskManager.lua",
                     name = "KernelTaskManager",
-                    sha256 = "ec4116d9efb93928dba1866981a67815b2993f7eb16b01a1352072b4bdd8c297"
+                    sha256 = "2cbec2f26b57ddfadc71914be260276881c7bc077a05c67eb8ac56c03e0e018a"
                 }
             }
         end
