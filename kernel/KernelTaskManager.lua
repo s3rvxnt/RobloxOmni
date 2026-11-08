@@ -2954,6 +2954,8 @@ local loopOrder = getgenv()._OmniLoopOrder or {}
 getgenv()._OmniLoopOrder = loopOrder
 local ignoredThreads = getgenv()._OmniIgnoredThreads or setmetatable({}, { __mode = "k" })
 getgenv()._OmniIgnoredThreads = ignoredThreads
+local killedThreads = getgenv()._OmniKilledThreads or setmetatable({}, { __mode = "k" })
+getgenv()._OmniKilledThreads = killedThreads
 local activeWaitThreads = setmetatable({}, { __mode = "k" })
 local loopIdCounter = getgenv()._OmniLoopIdCounter or 0
 local loopsPausedAll = false
@@ -3321,6 +3323,11 @@ local function hookedTaskWait(duration)
         return waitFn(duration)
     end
 
+    if killedThreads[curThread] then
+        coroutine.yield()
+        return
+    end
+
     if ignoredThreads[curThread] then
         return waitFn(duration)
     end
@@ -3392,6 +3399,10 @@ local function hookedTaskWait(duration)
     end
 
     local res = waitFn(effectiveDelay)
+    if not loop.alive or killedThreads[curThread] then
+        coroutine.yield()
+        return
+    end
     loop.iterationStart = os.clock()
     return res
 end
@@ -3411,6 +3422,11 @@ local function hookedWait(duration)
     if activeWaitThreads[curThread] then
         local d, t = waitFn(duration)
         return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
+    end
+
+    if killedThreads[curThread] then
+        coroutine.yield()
+        return
     end
 
     if ignoredThreads[curThread] then
@@ -3488,6 +3504,10 @@ local function hookedWait(duration)
     end
 
     local d, t = waitFn(effectiveDelay)
+    if not loop.alive or killedThreads[curThread] then
+        coroutine.yield()
+        return
+    end
     loop.iterationStart = os.clock()
     return d, t or (workspace and workspace.DistributedGameTime) or os.clock()
 end
@@ -3573,6 +3593,7 @@ local function KillLoop(loopIdOrThread)
             end
             loop.alive = false
             loop.paused = false
+            killedThreads[thread] = true
             pcall(function()
                 if coroutine.close then
                     coroutine.close(thread)
@@ -3595,7 +3616,7 @@ end
 local function PauseAllLoops(isPaused)
     loopsPausedAll = (isPaused ~= false)
     for _, loop in pairs(loopRegistry) do
-        if loop.isExecutor then
+        if loop.isExecutor or loop.allowGameOverride then
             loop.paused = loopsPausedAll
         end
     end
@@ -3608,9 +3629,10 @@ local function KillAllLoops()
     local survivingLoops = setmetatable({}, { __mode = "k" })
     local survivingOrder = {}
     for thread, loop in pairs(loopRegistry) do
-        if loop.isExecutor then
+        if loop.isExecutor or loop.allowGameOverride then
             loop.alive = false
             loop.paused = false
+            killedThreads[thread] = true
             pcall(function()
                 if coroutine.close then
                     coroutine.close(thread)
@@ -3961,7 +3983,7 @@ SchedulerPersistence.save = function(immediate)
 end
 
 -- Unload all tasks across all events (Panic switch / clean teardown)
-local function UnloadAllTasks(isTeardown)
+local function UnloadAllTasks(isTeardown, isHotReload)
     local unloadedCount = 0
     local unloadedNames = {}
 
@@ -3993,6 +4015,37 @@ local function UnloadAllTasks(isTeardown)
     end
     boundRenderSteps = {}
 
+    if not isTeardown and not isHotReload then
+        if persistedIngestedKeys then
+            for k in pairs(persistedIngestedKeys) do
+                persistedIngestedKeys[k] = nil
+            end
+            getgenv()._VirtualSchedulerPersistedIngestedKeys = persistedIngestedKeys
+        end
+        if DiscoveredGameTaskOrder then
+            for _, group in ipairs(DiscoveredGameTaskOrder) do
+                if group then
+                    if group.connList then
+                        for _, c in ipairs(group.connList) do
+                            if c and c.Connected ~= false then
+                                pcall(function()
+                                    if c.Enable then
+                                        c:Enable()
+                                    elseif c.Enabled ~= nil then
+                                        c.Enabled = true
+                                    end
+                                end)
+                            end
+                        end
+                    end
+                    group.isIngested = false
+                    group.taskId = nil
+                    group.schedulerConn = nil
+                end
+            end
+        end
+    end
+
     if ingestedConnections then
         -- During game teardown, do NOT re-enable engine connections as the DataModel is dying
         if not isTeardown then
@@ -4019,7 +4072,7 @@ local function UnloadAllTasks(isTeardown)
 
     if not isTeardown then
         print(string.format("[VirtualScheduler]: Unloaded %d active tasks.", unloadedCount))
-        emitProfile()
+        emitProfile(true)
     end
 
     return {
@@ -4269,7 +4322,7 @@ local function cleanUpScheduler(isTeardown)
     profilingActive = false
     emitProfileScheduled = false
 
-    UnloadAllTasks(isTeardown)
+    UnloadAllTasks(isTeardown, true)
     for _, eventState in pairs(Events) do
         if eventState.connection then
             pcall(function() eventState.connection:Disconnect() end)
@@ -11477,7 +11530,7 @@ BtnPauseAll.MouseButton1Click:Connect(function()
     if profile and profile.tasks then
         local willPause = (BtnPauseAll.Text == "⏸ Pause All")
         for _, t in ipairs(profile.tasks) do
-            if not t.isKernelInternal and not t.isIngested and getgenv().SetSchedulerTaskPaused then
+            if not t.isKernelInternal and getgenv().SetSchedulerTaskPaused then
                 getgenv().SetSchedulerTaskPaused(t.id, willPause)
             end
         end
@@ -11489,6 +11542,19 @@ BtnKillAll.MouseButton1Click:Connect(function()
     if getgenv().UnloadAllTasks then
         getgenv().UnloadAllTasks()
     end
+    for id, r in pairs(cachedTaskRows) do
+        r:Destroy()
+        cachedTaskRows[id] = nil
+    end
+    if EmptyTasks then
+        EmptyTasks.Visible = true
+    end
+    BtnKillAll.Text = "✓ Killed All"
+    task.delay(1.0, function()
+        if BtnKillAll then
+            BtnKillAll.Text = "💀 Kill All"
+        end
+    end)
 end)
 
 -- Game Tasks Footer Buttons
@@ -11555,6 +11621,19 @@ BtnKillAllLoops.MouseButton1Click:Connect(function()
     if getgenv().KillAllLoops then
         getgenv().KillAllLoops()
     end
+    for id, r in pairs(cachedLoopRows) do
+        r:Destroy()
+        cachedLoopRows[id] = nil
+    end
+    if EmptyLoops then
+        EmptyLoops.Visible = true
+    end
+    BtnKillAllLoops.Text = "✓ Killed All"
+    task.delay(1.0, function()
+        if BtnKillAllLoops then
+            BtnKillAllLoops.Text = "💀 Kill All Loops"
+        end
+    end)
 end)
 
 -- Performance Footer Buttons

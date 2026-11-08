@@ -19,7 +19,7 @@
       "stage": "Kernel",
       "name": "KernelTaskManager",
       "desc": "Kernel Task Manager & Runtime Micro-Kernel (Shift + F8)",
-      "sha256": "2cbec2f26b57ddfadc71914be260276881c7bc077a05c67eb8ac56c03e0e018a"
+      "sha256": "405143c671bdff13266611eea205279a7a57dd862e852c6e17170a9af29f5e2f"
     },
     {
       "repoPath": "kernel/KernelPacketLogger.lua",
