@@ -2,7 +2,7 @@
 --!priority 970
 --!name: OmniLoadstringManager
 -- ==============================================================================
--- OMNI LOADSTRING & TRUST MANAGER (Shift + F6)
+-- OMNI LOADSTRING & TRUST MANAGER (F6)
 -- Interactive management console for authorized remote script URLs & return hashes.
 -- Allows users to:
 --   - Inspect all authorized URLs from Omni_TrustedUrls.json
@@ -399,14 +399,14 @@ TitleLabel.Parent = Header
 -- Standard Keybind Badge in Header
 local KeybindBadge = Instance.new("TextLabel")
 KeybindBadge.Name = "KeybindBadge"
-KeybindBadge.Size = UDim2.new(0, 74, 0, 20)
+KeybindBadge.Size = UDim2.new(0, 38, 0, 20)
 KeybindBadge.Position = UDim2.new(0, 326, 0.5, -10)
 KeybindBadge.BackgroundColor3 = Theme.KeybindBg
 KeybindBadge.Active = false
 KeybindBadge.Font = Enum.Font.GothamBold
 KeybindBadge.TextSize = 10
 KeybindBadge.TextColor3 = Theme.KeybindText
-KeybindBadge.Text = "Shift + F6"
+KeybindBadge.Text = "F6"
 KeybindBadge.Parent = Header
 
 local KeybindBadgeCorner = Instance.new("UICorner")
@@ -2191,11 +2191,12 @@ end
 
 CloseBtn.MouseButton1Click:Connect(closeManager)
 
--- Keyboard Shortcut Listener (F6 / Shift + F6 / Escape)
+-- Keyboard Shortcut Listener (Bare F6 without Shift to toggle; Shift + F6 is reserved for OmniTrace)
 local inputConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if UserInputService:GetFocusedTextBox() then return end
 
-    if input.KeyCode == Enum.KeyCode.F6 then
+    local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+    if input.KeyCode == Enum.KeyCode.F6 and not isShift then
         toggleManager()
     elseif input.KeyCode == Enum.KeyCode.Escape and isOpen then
         closeManager()
@@ -2289,4 +2290,4 @@ getgenv()._OmniLoadstringManagerCleanUp = function()
     if ScreenGui then pcall(function() ScreenGui:Destroy() end); ScreenGui = nil end
 end
 
-print("[OmniLoadstringManager]: Initialized successfully. Press F6 (or Shift + F6) to manage authorized loadstrings.")
+print("[OmniLoadstringManager]: Initialized successfully. Press F6 to manage authorized loadstrings.")
