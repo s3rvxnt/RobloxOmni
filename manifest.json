@@ -7,10 +7,10 @@
   "changelog": [
     "Adaptive 6.0ms frame-budgeted bootloader with automated crash recovery and Safe Mode",
     "Kernel Task Manager HUD and adaptive loop governor with per-task CPU telemetry (Shift + F8)",
-    "Zero-trust update transparency gate with line-by-line diff inspection and security scanner (Shift + F7)",
+    "Zero-trust update transparency gate with line-by-line diff inspection and security scanner (F6)",
     "Real-time game connection ingestion, priority bands, and instant hot-reloading",
     "Omni Enhancement Suite: Streamer mode, Personal Space Bubble, Player ESP, Anti-AFK, and native ESC settings",
-    "Omni Loadstring & Trust Manager: Manage authorized script URLs, return hashes, and per-script auto-updates (Shift + F6)"
+    "Omni Loadstring & Trust Manager: Manage authorized script URLs, return hashes, and per-script auto-updates (F7)"
   ],
   "stages": [
     {
@@ -26,7 +26,7 @@
       "localPath": "autoexec/kernel/KernelPacketLogger.lua",
       "stage": "Kernel",
       "name": "KernelPacketLogger",
-      "desc": "Omni Kernel Packet Logger & 0x83 Replication Dissector (Shift + F5)",
+      "desc": "Omni Kernel Packet Logger & 0x83 Replication Dissector (Shift + F7)",
       "sha256": "de1646856695eb2637354ed3f7f425164d86731ad106e4182ee473a8d76c5179"
     },
     {
@@ -42,8 +42,8 @@
       "localPath": "autoexec/gameloaded/OmniLoadstringManager.lua",
       "stage": "GameLoaded",
       "name": "OmniLoadstringManager",
-      "desc": "Omni Loadstring & Trust Manager (F6 or Shift + F6)",
-      "sha256": "906b80b912f3ab07ca395460288676d481decebb92f5cb446a4cc9f79986c8df"
+      "desc": "Omni Loadstring & Trust Manager (F7)",
+      "sha256": "dc2f55eb44a31a25b1915fe53f5851339e5c2bbcf4d4e192827c0ef81fd8e69a"
     }
   ]
 }

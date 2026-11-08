@@ -2017,7 +2017,7 @@ local BOOTSTRAP_STAGES = {
         repoPath = "gameloaded/OmniLoadstringManager.lua",
         localPath = "autoexec/gameloaded/OmniLoadstringManager.lua",
         name = "OmniLoadstringManager",
-        sha256 = "906b80b912f3ab07ca395460288676d481decebb92f5cb446a4cc9f79986c8df"
+        sha256 = "dc2f55eb44a31a25b1915fe53f5851339e5c2bbcf4d4e192827c0ef81fd8e69a"
     }
 }
 
@@ -3022,14 +3022,14 @@ initUpdateGate = function(guiParent, UpdateBadge)
 
     local KeybindBadge = Instance.new("TextLabel")
     KeybindBadge.Name = "KeybindBadge"
-    KeybindBadge.Size = UDim2.new(0, 78, 0, 20)
+    KeybindBadge.Size = UDim2.new(0, 38, 0, 20)
     KeybindBadge.Position = UDim2.new(0, 326, 0.5, -10)
     KeybindBadge.BackgroundColor3 = Theme.KeybindBg
     KeybindBadge.Active = false
     KeybindBadge.Font = Enum.Font.GothamBold
     KeybindBadge.TextSize = 10
     KeybindBadge.TextColor3 = Theme.KeybindText
-    KeybindBadge.Text = "Shift + F12"
+    KeybindBadge.Text = "F6"
     KeybindBadge.Parent = ModalHeader
 
     local KeybindBadgeCorner = Instance.new("UICorner")
@@ -4282,7 +4282,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                 changelog = {
                     "Adaptive 6.0ms frame-budgeted bootloader with automated crash recovery and Safe Mode",
                     "Kernel Task Manager HUD and adaptive loop governor with per-task CPU telemetry (Shift + F8)",
-                    "Zero-trust update transparency gate with line-by-line diff inspection and security scanner (Shift + F12)",
+                    "Zero-trust update transparency gate with line-by-line diff inspection and security scanner (F6)",
                     "Real-time game connection ingestion, priority bands, and instant hot-reloading",
                     "Omni Enhancement Suite: Streamer mode, Personal Space Bubble, Player ESP, Anti-AFK, and native ESC settings"
                 },
@@ -4616,14 +4616,15 @@ initUpdateGate = function(guiParent, UpdateBadge)
     end
 
     -- Keybinds:
-    -- Shift + F12 toggles Update Gate
+    -- F6 (without Shift) toggles Update Gate
+    -- Shift + F6 toggles OmniTrace (handled in OmniTrace.lua)
+    -- F7 (without Shift) toggles Loadstring Manager (handled in OmniLoadstringManager.lua)
     -- Shift + F7 toggles Kernel Packet Logger (handled in KernelPacketLogger.lua)
     -- Shift + F8 toggles Task Manager HUD
-    -- Shift + F6 / F6 toggles Loadstring Manager (handled in OmniLoadstringManager.lua)
     local inputConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if UserInputService:GetFocusedTextBox() then return end
         local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-        if input.KeyCode == Enum.KeyCode.F12 and isShift then
+        if input.KeyCode == Enum.KeyCode.F6 and not isShift then
             if isModalOpen or ModalBackdrop.Visible then
                 closeUpdateModal()
             else
@@ -5172,7 +5173,7 @@ end
 _lazyUpdateGateHotkeyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if UserInputService:GetFocusedTextBox() then return end
     local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-    if input.KeyCode == Enum.KeyCode.F12 and isShift then
+    if input.KeyCode == Enum.KeyCode.F6 and not isShift then
         if _lazyUpdateGateHotkeyConn then
             pcall(function() _lazyUpdateGateHotkeyConn:Disconnect() end)
             _lazyUpdateGateHotkeyConn = nil
@@ -5282,7 +5283,7 @@ end
 local isSafetyAdvisoryActive = checkRemoteSafetyAdvisory()
 if getgenv()._OmniBootloaderRefreshGateOnly then
     getgenv()._OmniBootloaderRefreshGateOnly = nil
-    print("[Bootloader]: Hot-registered Shift + F12 Update & Security Gate listener in active session.")
+    print("[Bootloader]: Hot-registered F6 Update & Security Gate listener in active session.")
     return
 end
 if isSafetyAdvisoryActive then
