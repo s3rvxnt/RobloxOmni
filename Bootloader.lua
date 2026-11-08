@@ -486,6 +486,9 @@ end
 if not getgenv()._KernelExemptScripts then
     getgenv()._KernelExemptScripts = {}
 end
+if not getgenv()._OmniAutoexecScripts then
+    getgenv()._OmniAutoexecScripts = {}
+end
 
 -- Wait Hook Governor Off-Switch & Configuration
 local _disableWaitHooks = false
@@ -1263,6 +1266,9 @@ end
 if not getgenv()._KernelExemptScripts then
     getgenv()._KernelExemptScripts = {}
 end
+if not getgenv()._OmniAutoexecScripts then
+    getgenv()._OmniAutoexecScripts = {}
+end
 
 if not getgenv()._AdaptiveExecutionGatewayInstalled then
     local origLoadstring = _clonedLoadstring or getgenv().loadstring or loadstring
@@ -1342,6 +1348,29 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
         local function compileExecutableChunk(code, chunk, isObf, associatedUrl, preCompiledFn)
             local compiledFn, compileErr
+            if not isObf and (type(chunk) ~= "string" or chunk == "" or chunk:find("[^\32-\126]")) then
+                local inferred = nil
+                if debug and debug.info then
+                    for lvl = 2, 18 do
+                        local okS, cSrc = pcall(debug.info, lvl, "s")
+                        if okS and type(cSrc) == "string" and cSrc ~= "" and cSrc ~= "[C]" and cSrc ~= "=[C]" and not cSrc:find("[^\32-\126]") then
+                            local clean = cSrc:gsub("^%[string%s+\"", ""):gsub("\"%]$", ""):gsub("^[@=%[]+", ""):gsub("%]$", "")
+                            local base = clean:match("([^/\\]+)$") or clean
+                            local bl = base:lower()
+                            if base ~= "" and bl ~= "bootloader.lua" and bl ~= "customautoexec.lua" and bl ~= "kerneltaskmanager.lua" and not bl:match("^[%w_]+_external$") then
+                                inferred = "@" .. base
+                                break
+                            end
+                        end
+                    end
+                end
+                if not inferred and associatedUrl and type(associatedUrl) == "string" then
+                    local urlBase = associatedUrl:match("([^/?#]+)$") or associatedUrl
+                    inferred = "@" .. urlBase
+                end
+                chunk = inferred or "@ExecutorScript"
+                preCompiledFn = nil
+            end
             if type(preCompiledFn) == "function" then
                 compiledFn = preCompiledFn
             else
@@ -1455,6 +1484,7 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
 
             local function isTrustedCallerChunk(clean)
                 if not clean or clean == "" then return false end
+                if clean:match("^[%w_]+_external$") then return true end
                 local exempt = getgenv()._KernelExemptScripts
                 if type(exempt) == "table" then
                     if rawget(exempt, clean) == true or rawget(exempt, clean:gsub("^[@%[]", "")) == true then
@@ -1462,6 +1492,16 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled then
                     end
                     local cleanNoExt = clean:gsub("%.luau?$", "")
                     if rawget(exempt, cleanNoExt) == true then
+                        return true
+                    end
+                end
+                local autoexec = getgenv()._OmniAutoexecScripts
+                if type(autoexec) == "table" then
+                    if rawget(autoexec, clean) == true or rawget(autoexec, clean:gsub("^[@%[]", "")) == true then
+                        return true
+                    end
+                    local cleanNoExt = clean:gsub("%.luau?$", "")
+                    if rawget(autoexec, cleanNoExt) == true then
                         return true
                     end
                 end
@@ -5545,26 +5585,53 @@ local function executeScript(meta)
         if getgenv()._OmniExemptClosures then
             getgenv()._OmniExemptClosures[compiledFn] = true
         end
+        local autoexecReg = getgenv()._OmniAutoexecScripts or {}
+        getgenv()._OmniAutoexecScripts = autoexecReg
         local exempt = getgenv()._KernelExemptScripts
-        if type(exempt) == "table" then
+        local lowerName = (meta.name or ""):lower()
+        local lowerFile = (meta.file or ""):lower()
+        local isKernelOrInternal = (meta.stage == "Kernel")
+            or lowerName:find("kerneltaskmanager", 1, true) ~= nil
+            or lowerName:find("kernelpacketlogger", 1, true) ~= nil
+            or lowerName:find("omniloadstringmanager", 1, true) ~= nil
+            or lowerName:find("omnitrace", 1, true) ~= nil
+            or lowerName:find("omnienhancementsuite", 1, true) ~= nil
+            or lowerName:find("remoteexecute", 1, true) ~= nil
+            or lowerName:find("utilities", 1, true) ~= nil
+            or lowerFile:find("kerneltaskmanager", 1, true) ~= nil
+            or lowerFile:find("kernelpacketlogger", 1, true) ~= nil
+            or lowerFile:find("omniloadstringmanager", 1, true) ~= nil
+            or lowerFile:find("omnitrace", 1, true) ~= nil
+            or lowerFile:find("omnienhancementsuite", 1, true) ~= nil
+            or lowerFile:find("remoteexecute", 1, true) ~= nil
+            or lowerFile:find("utilities", 1, true) ~= nil
+
+        local function registerScriptKeys(targetTable)
+            if type(targetTable) ~= "table" then return end
             if meta.name then
-                exempt[meta.name:lower()] = true
-                exempt[meta.name:lower():gsub("%.luau?$", "")] = true
+                targetTable[meta.name:lower()] = true
+                targetTable[meta.name:lower():gsub("%.luau?$", "")] = true
             end
             if meta.file then
-                exempt[meta.file:lower()] = true
+                targetTable[meta.file:lower()] = true
                 local normFwd = meta.file:gsub("\\", "/"):lower()
-                exempt[normFwd] = true
+                targetTable[normFwd] = true
                 local base = normFwd:match("[^/]+$")
                 if base then
-                    exempt[base] = true
-                    exempt[base:gsub("%.luau?$", "")] = true
+                    targetTable[base] = true
+                    targetTable[base:gsub("%.luau?$", "")] = true
                 end
             end
         end
+
+        registerScriptKeys(autoexecReg)
+        if isKernelOrInternal then
+            registerScriptKeys(exempt)
+        end
+
         -- Attach scoped environment to un-obfuscated scripts so game:GetService("RunService") routes to Active Tasks
         local exempt = getgenv()._KernelExemptScripts or {}
-        local isExempt = (meta.name and exempt[meta.name:lower()]) or (meta.file and exempt[meta.file:lower()]) or isObfuscatedCode(content or "", meta.name or meta.file)
+        local isExempt = isKernelOrInternal or (meta.name and exempt[meta.name:lower()]) or (meta.file and exempt[meta.file:lower()]) or isObfuscatedCode(content or "", meta.name or meta.file)
         if not isExempt and getgenv()._OmniEnableGameProxy == true then
             local gameProxy = getgenv()._OmniGameProxy or (getgenv()._OmniCreateGameProxy and getgenv()._OmniCreateGameProxy())
             if gameProxy then

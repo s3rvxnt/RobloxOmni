@@ -97,6 +97,78 @@ end
 getgenv()._KernelTaskManagerDataModel = currentDM
 getgenv()._OmniCurrentDataModel = currentDM
 
+-- Rescue active tasks and loops across same-DataModel hot-reloads before cleanup wipes them
+do
+    local rTasks = {}
+    local rLoops = nil
+    local rLoopOrder = nil
+    if isSameDataModelReload then
+        pcall(function()
+            if type(getgenv()._OmniLoopRegistry) == "table" then
+                rLoops = setmetatable({}, { __mode = "k" })
+                for th, lp in pairs(getgenv()._OmniLoopRegistry) do
+                    if lp and lp.alive ~= false then
+                        rLoops[th] = lp
+                    end
+                end
+            end
+            if type(getgenv()._OmniLoopOrder) == "table" then
+                rLoopOrder = table.clone(getgenv()._OmniLoopOrder)
+            end
+            local evTable = getgenv()._VirtualSchedulerEvents
+            if not evTable then
+                local guv = getupvalues or (debug and debug.getupvalues)
+                if type(guv) == "function" and type(getgenv().findTask) == "function" then
+                    local okU, uvs = pcall(guv, getgenv().findTask)
+                    if okU and type(uvs) == "table" then
+                        for _, v in pairs(uvs) do
+                            if type(v) == "table" and v.Heartbeat and v.RenderStepped and v.Stepped then
+                                evTable = v
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+            if type(evTable) == "table" then
+                for _, evName in ipairs({ "Heartbeat", "Stepped", "RenderStepped", "SuperStep" }) do
+                    local evState = evTable[evName]
+                    if evState and type(evState.tasks) == "table" then
+                        for _, tid in ipairs(evState.taskOrder or {}) do
+                            local tObj = evState.tasks[tid]
+                            if tObj and tObj.connected ~= false and not tObj.isIngested and type(tObj.callback) == "function" then
+                                table.insert(rTasks, {
+                                    name = tObj.name,
+                                    event = tObj.event or evName,
+                                    priority = tObj.basePriority or tObj.priority or 80,
+                                    targetHz = tObj.targetHz,
+                                    targetRatio = tObj.targetRatio,
+                                    isMax = tObj.isMax,
+                                    isExecutor = tObj.isExecutor,
+                                    locked = tObj.locked,
+                                    paused = tObj.paused,
+                                    sortOrder = tObj.sortOrder,
+                                    callback = tObj.callback,
+                                    invocations = tObj.invocations or 0,
+                                    totalTimeMs = tObj.totalTimeMs or 0,
+                                    lastTimeMs = tObj.lastTimeMs or 0,
+                                    avgTimeMs = tObj.avgTimeMs or 0,
+                                    recentAvgMs = tObj.recentAvgMs or 0,
+                                    peakTimeMs = tObj.peakTimeMs or 0,
+                                    lastDurationUs = tObj.lastDurationUs or 0,
+                                })
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    end
+    ProxiedSignals._rescuedTasks = rTasks
+    ProxiedSignals._rescuedLoops = rLoops
+    ProxiedSignals._rescuedLoopOrder = rLoopOrder
+end
+
 -- Unified Idempotent Reload: Clean up any prior instances (same DataModel hot-reload only)
 if getgenv()._KernelTaskManagerUnifiedCleanUp and type(getgenv()._KernelTaskManagerUnifiedCleanUp) == "function" then
     pcall(getgenv()._KernelTaskManagerUnifiedCleanUp)
@@ -198,12 +270,147 @@ end
 -- Universal Scheduler Exemption Registry (API for external scripts/addons to opt out of loop management)
 local _KernelExemptScripts = getgenv()._KernelExemptScripts or {}
 getgenv()._KernelExemptScripts = _KernelExemptScripts
+-- Purge any non-Omni user startup scripts that may have been added to _KernelExemptScripts previously
+do
+    local function isValidExemptKey(k)
+        if type(k) ~= "string" then return false end
+        local kl = k:lower()
+        return kl:find("kerneltaskmanager", 1, true) ~= nil
+            or kl:find("kernelpacketlogger", 1, true) ~= nil
+            or kl:find("omniloadstringmanager", 1, true) ~= nil
+            or kl:find("omnitrace", 1, true) ~= nil
+            or kl:find("omnienhancementsuite", 1, true) ~= nil
+            or kl:find("remoteexecute", 1, true) ~= nil
+            or kl:find("utilities", 1, true) ~= nil
+            or kl:find("bootloader", 1, true) ~= nil
+            or kl:find("customautoexec", 1, true) ~= nil
+            or kl:find("virtualscheduler", 1, true) ~= nil
+            or kl:find("taskmanagerhud", 1, true) ~= nil
+            or kl:find("luraph", 1, true) ~= nil
+            or kl:find("moonsec", 1, true) ~= nil
+            or kl:find("ironbrew", 1, true) ~= nil
+            or kl:find("luaauth", 1, true) ~= nil
+            or kl:find("plasmii", 1, true) ~= nil
+            or kl:find("luarmor", 1, true) ~= nil
+            or kl:find("luaarmor", 1, true) ~= nil
+            or kl:find("prometheus", 1, true) ~= nil
+    end
+    for k in pairs(_KernelExemptScripts) do
+        if not isValidExemptKey(k) then
+            _KernelExemptScripts[k] = nil
+        end
+    end
+end
 getgenv().ExemptScriptFromScheduler = function(pattern)
     if pattern and type(pattern) == "string" and pattern ~= "" then
         _KernelExemptScripts[pattern:lower()] = true
         return true
     end
     return false
+end
+
+do
+    local _cachedFallbackLoaderScript = nil
+    local _lastFallbackScanClock = 0
+
+    local function getFallbackLoaderScriptName()
+        local now = os.clock()
+        if _cachedFallbackLoaderScript and (now - _lastFallbackScanClock) < 10.0 then
+            return _cachedFallbackLoaderScript
+        end
+        _lastFallbackScanClock = now
+        pcall(function()
+            if type(isfile) == "function" and type(readfile) == "function" and isfile("Bootloader_Status.json") then
+                local raw = readfile("Bootloader_Status.json")
+                local data = HttpService:JSONDecode(raw)
+                if data and type(data.scripts) == "table" then
+                    for _, s in ipairs(data.scripts) do
+                        local f = tostring(s.file or s.name or "")
+                        local fl = f:lower()
+                        if s.status == "SUCCESS"
+                            and not fl:find("kerneltaskmanager", 1, true)
+                            and not fl:find("kernelpacketlogger", 1, true)
+                            and not fl:find("omniloadstringmanager", 1, true)
+                            and not fl:find("omnitrace", 1, true)
+                            and not fl:find("omnienhancementsuite", 1, true)
+                            and not fl:find("remoteexecute", 1, true)
+                            and not fl:find("utilities", 1, true) then
+                            local target = f
+                            if not isfile(target) and isfile("workspace/" .. target) then
+                                target = "workspace/" .. target
+                            end
+                            if isfile(target) then
+                                local okR, content = pcall(readfile, target)
+                                if okR and type(content) == "string" and content:find("loadstring", 1, true) then
+                                    local base = f:gsub("\\", "/"):match("([^/]+)$") or s.name or f
+                                    _cachedFallbackLoaderScript = base
+                                    return
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+        return _cachedFallbackLoaderScript or "ExecutorScript"
+    end
+
+    local function isCorruptedOrEmptyChunk(s)
+        if not s or type(s) ~= "string" or s == "" or s == "[C]" or s == "=[C]" then
+            return true
+        end
+        -- Any byte outside printable ASCII (32..126) indicates zero-width Unicode or Potassium's uninitialized C++ chunkname buffer
+        if s:find("[^\32-\126]") then
+            return true
+        end
+        if not s:find("[%w]") then
+            return true
+        end
+        return false
+    end
+
+    local function cleanScriptSourceName(rawSrc)
+        if isCorruptedOrEmptyChunk(rawSrc) then
+            return nil
+        end
+        local clean = tostring(rawSrc)
+            :gsub("^%[string%s+\"", "")
+            :gsub("\"%]$", "")
+            :gsub("^string%s+\"", "")
+            :gsub("^[@=%[]+", "")
+            :gsub("%]$", "")
+        local fileName = clean:match("([^/\\]+)$") or clean
+        if isCorruptedOrEmptyChunk(fileName) then
+            return nil
+        end
+        return fileName, clean
+    end
+
+    local function sanitizeDisplayCaller(rawStr, fallbackLine)
+        if type(rawStr) ~= "string" or rawStr == "" then
+            local fb = getFallbackLoaderScriptName()
+            if fallbackLine and tonumber(fallbackLine) and tonumber(fallbackLine) > 0 then
+                return string.format("%s:%d", fb, tonumber(fallbackLine)), fb, tonumber(fallbackLine)
+            end
+            return fb, fb, 0
+        end
+        local prefix, lineStr = rawStr:match("^(.*):(%d+)$")
+        local lineNum = tonumber(lineStr) or tonumber(fallbackLine) or 0
+        local candidate = prefix or rawStr
+        local cleanFile = cleanScriptSourceName(candidate)
+        if not cleanFile or cleanFile == "ExecutorScript" or cleanFile == "UnknownScript" or cleanFile == "UnknownLoop" then
+            cleanFile = getFallbackLoaderScriptName()
+        end
+        if lineNum and lineNum > 0 then
+            return string.format("%s:%d", cleanFile, lineNum), cleanFile, lineNum
+        end
+        return cleanFile, cleanFile, 0
+    end
+
+    ProxiedSignals._getFallbackLoader = getFallbackLoaderScriptName
+    ProxiedSignals._isCorruptedChunk = isCorruptedOrEmptyChunk
+    ProxiedSignals._cleanSource = cleanScriptSourceName
+    ProxiedSignals._sanitizeCaller = sanitizeDisplayCaller
 end
 
 -- Safe loadstring shim with Adaptive Execution Gateway
@@ -285,6 +492,29 @@ if not getgenv()._AdaptiveExecutionGatewayInstalled or getgenv()._OmniEnableGame
                 -- NEVER call setfenv on obfuscated code: it breaks Luau VM fastpaths, traps loader variables
                 -- (like LuaAuth la_script_id), and trips Luraph integrity checks.
                 return origLoadstring(src, chunkname)
+            end
+
+            if ProxiedSignals._isCorruptedChunk(chunkname) then
+                local inferred = nil
+                if debug and debug.info then
+                    for lvl = 2, 18 do
+                        local okS, cSrc = pcall(debug.info, lvl, "s")
+                        if okS and cSrc then
+                            local fileName = ProxiedSignals._cleanSource(cSrc)
+                            if fileName then
+                                local fl = fileName:lower()
+                                if not fl:find("kerneltaskmanager", 1, true)
+                                    and not fl:find("bootloader", 1, true)
+                                    and not fl:find("customautoexec", 1, true)
+                                    and not fl:match("^[%w_]+_external$") then
+                                    inferred = "@" .. fileName
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+                chunkname = inferred or ("@" .. ProxiedSignals._getFallbackLoader())
             end
 
             local fn, compileErr = origLoadstring(src, chunkname)
@@ -491,6 +721,7 @@ local Events = {
         needsSort = false,
     },
 }
+getgenv()._VirtualSchedulerEvents = Events
 
 local EVENT_NAMES = { "Heartbeat", "Stepped", "RenderStepped", "SuperStep" }
 
@@ -1221,6 +1452,8 @@ local function ThrottledConnect(arg1, arg2, arg3, arg4, arg5)
     local taskId = "task_" .. tostring(nextTaskId)
     if not name or name == "" then
         name = taskId
+    elseif not name:match("^task_%d+$") then
+        name = ProxiedSignals._sanitizeCaller(name)
     end
 
     local isExec = isExecutorOrigin(name, name, isExecFlag)
@@ -1358,7 +1591,7 @@ local function ThrottledConnect(arg1, arg2, arg3, arg4, arg5)
         if ev and ev.taskOrder then
             sortEventTasks(ev)
         end
-        emitProfile()
+        if emitProfile then emitProfile() end
     end
     connection.setPriority = connection.SetPriority
 
@@ -1371,7 +1604,7 @@ local function ThrottledConnect(arg1, arg2, arg3, arg4, arg5)
         taskObj.targetRatio = tRatio
         self.TargetHz = tHz
         self.EffectiveHz = tHz
-        emitProfile()
+        if emitProfile then emitProfile() end
     end
     connection.setTargetHz = connection.SetTargetHz
     connection.SetFrequency = connection.SetTargetHz
@@ -1405,29 +1638,55 @@ local function ThrottledConnect(arg1, arg2, arg3, arg4, arg5)
     return connection
 end
 
+-- Restore rescued tasks across same-DataModel hot-reload
+if ProxiedSignals._rescuedTasks and #ProxiedSignals._rescuedTasks > 0 then
+    for _, rt in ipairs(ProxiedSignals._rescuedTasks) do
+        local cleanName = ProxiedSignals._sanitizeCaller(rt.name)
+        local conn = ThrottledConnect(cleanName, rt.event or "Heartbeat", rt.priority or 80, rt.callback, rt.isExecutor)
+        local tObj = conn and conn.Task
+        if tObj then
+            tObj.invocations = rt.invocations or 0
+            tObj.totalTimeMs = rt.totalTimeMs or 0
+            tObj.lastTimeMs = rt.lastTimeMs or 0
+            tObj.avgTimeMs = rt.avgTimeMs or 0
+            tObj.recentAvgMs = rt.recentAvgMs or 0
+            tObj.peakTimeMs = rt.peakTimeMs or 0
+            tObj.lastDurationUs = rt.lastDurationUs or 0
+            if rt.sortOrder ~= nil then tObj.sortOrder = rt.sortOrder end
+            if rt.locked ~= nil then tObj.locked = rt.locked end
+            if rt.paused ~= nil then tObj.paused = rt.paused end
+            if rt.targetHz ~= nil and conn.SetTargetHz then
+                conn:SetTargetHz(rt.targetHz, rt.targetRatio)
+                if rt.isMax ~= nil then tObj.isMax = rt.isMax end
+            end
+        end
+    end
+    ProxiedSignals._rescuedTasks = nil
+end
+
 -- ==============================================================================
 -- Transparent Global Interception & Proxy Signals
 -- ==============================================================================
 
 local function getCallingContext(minLvl)
     local startLvl = minLvl or 3
-    local anonymousCaller = nil
+    local firstAnonLine = nil
     if debug and debug.info then
-        for lvl = startLvl, 15 do
+        for lvl = startLvl, 20 do
             local src, line, fn = debug.info(lvl, "slf")
-            if src and src ~= "[C]" then
+            if src and src ~= "[C]" and src ~= "=[C]" then
                 if rawSelf and rawSelf ~= "" and rawSelf ~= "[C]" and src == rawSelf then
                     -- Kernel internal frame, skip
-                elseif src == "" then
-                    if not anonymousCaller and line and line > 0 then
-                        anonymousCaller = string.format("ExecutorScript:%d", line)
-                    end
                 else
-                    local cleanSrc = tostring(src):gsub("^[@%[]", ""):gsub("^string \"", ""):gsub("\"%%]$", "")
-                    local fileName = cleanSrc:match("([^/\\]+)$") or cleanSrc
-                    if not isSelfOrKernel(fileName) and not isSelfOrKernel(cleanSrc) then
-                        if line and line > 0 then
-                            return string.format("%s:%d", fileName, line)
+                    local fileName, cleanSrc = ProxiedSignals._cleanSource(src)
+                    if not fileName then
+                        if not firstAnonLine and line and line > 0 then
+                            firstAnonLine = line
+                        end
+                    elseif not isSelfOrKernel(fileName) and not isSelfOrKernel(cleanSrc) then
+                        local targetLine = firstAnonLine or line
+                        if targetLine and targetLine > 0 then
+                            return string.format("%s:%d", fileName, targetLine)
                         else
                             return fileName
                         end
@@ -1436,8 +1695,8 @@ local function getCallingContext(minLvl)
             end
         end
     end
-    if anonymousCaller then
-        return anonymousCaller
+    if firstAnonLine then
+        return (ProxiedSignals._sanitizeCaller("", firstAnonLine))
     end
     if getcallingscript then
         local s = getcallingscript()
@@ -2958,10 +3217,24 @@ end
 -- Loop Governor & Preemptive Thread Manager Subsystem
 -- ==============================================================================
 
-local loopRegistry = getgenv()._OmniLoopRegistry or setmetatable({}, { __mode = "k" })
+local loopRegistry = ProxiedSignals._rescuedLoops or getgenv()._OmniLoopRegistry or setmetatable({}, { __mode = "k" })
 getgenv()._OmniLoopRegistry = loopRegistry
-local loopOrder = getgenv()._OmniLoopOrder or {}
+local loopOrder = ProxiedSignals._rescuedLoopOrder or getgenv()._OmniLoopOrder or {}
 getgenv()._OmniLoopOrder = loopOrder
+ProxiedSignals._rescuedLoops = nil
+ProxiedSignals._rescuedLoopOrder = nil
+-- Sanitize any pre-existing loop entries in loopRegistry
+for _, lp in pairs(loopRegistry) do
+    if lp and type(lp) == "table" then
+        local cleanCaller, cleanFile, cleanLine = ProxiedSignals._sanitizeCaller(lp.caller or lp.name, lp.line)
+        lp.caller = cleanCaller
+        lp.name = cleanCaller
+        lp.file = cleanFile
+        if cleanLine and cleanLine > 0 then
+            lp.line = cleanLine
+        end
+    end
+end
 local ignoredThreads = getgenv()._OmniIgnoredThreads or setmetatable({}, { __mode = "k" })
 getgenv()._OmniIgnoredThreads = ignoredThreads
 local killedThreads = getgenv()._OmniKilledThreads or setmetatable({}, { __mode = "k" })
@@ -3109,7 +3382,7 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
     local numDelay = sanitizeWaitDelay(requestedDelay)
 
     if not loop then
-        local callerStr = caller or "UnknownScript:0"
+        local callerStr = ProxiedSignals._sanitizeCaller(caller or "UnknownScript:0")
         if isSelfOrKernel(callerStr) then
             ignoredThreads[thread] = true
             return nil
@@ -3203,9 +3476,9 @@ local function registerOrUpdateLoop(thread, caller, requestedDelay, isExecFlag)
         loopRegistry[thread] = loop
         table.insert(loopOrder, loop.id)
     else
-        if loop.caller and loop.caller:find("^ExecutorScript:") then
-            local resolvedCaller = getCallingContext(2)
-            if resolvedCaller and not resolvedCaller:find("^ExecutorScript:") and not isSelfOrKernel(resolvedCaller) then
+        if loop.caller and (loop.caller:find("^ExecutorScript:") or loop.caller:find("[^\32-\126]") or loop.caller:find("^:")) then
+            local resolvedCaller = ProxiedSignals._sanitizeCaller(getCallingContext(2), loop.line)
+            if resolvedCaller and not isSelfOrKernel(resolvedCaller) then
                 loop.caller = resolvedCaller
                 loop.name = resolvedCaller
                 loop.file = resolvedCaller:match("^([^:]+)") or resolvedCaller
@@ -7411,7 +7684,8 @@ local function renderTaskRow(taskObj, idx)
     end
 
     if nameLbl then
-        local displayName = tostring(taskObj.name or taskObj.id)
+        local rawName = tostring(taskObj.name or taskObj.id)
+        local displayName = rawName:match("^task_%d+$") and rawName or ProxiedSignals._sanitizeCaller(rawName)
         if taskObj.errorCount and taskObj.errorCount > 0 then
             displayName = string.format("%s (ERR: %d)", displayName, taskObj.errorCount)
         end
@@ -11039,7 +11313,7 @@ local function renderLoopRow(loopObj, idx)
 
     local nameLbl = row:FindFirstChild("NameLbl")
     if nameLbl then
-        local displayName = loopObj.caller or loopObj.name or "UnknownLoop"
+        local displayName = ProxiedSignals._sanitizeCaller(loopObj.caller or loopObj.name or "UnknownLoop", loopObj.line)
         local badge = (loopObj.isExecutor ~= false) and (ICONS.BOLT .. " ") or (ICONS.GAME .. " ")
         nameLbl.Text = badge .. displayName
     end

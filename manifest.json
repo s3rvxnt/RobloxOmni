@@ -1,49 +1,49 @@
 {
-  "version": "1.0.0",
-  "releaseDate": "2026-10-06",
-  "title": "Omni v1.0 - Runtime Micro-Kernel & Enhancement Suite",
-  "lockdown": false,
-  "lockdown_message": "Omni remote safety advisory: Core components are paused to protect against detected game/engine changes. Please review the latest update.",
-  "changelog": [
-    "Adaptive 6.0ms frame-budgeted bootloader with automated crash recovery and Safe Mode",
-    "Kernel Task Manager HUD and adaptive loop governor with per-task CPU telemetry (Shift + F8)",
-    "Zero-trust update transparency gate with line-by-line diff inspection and security scanner (F6)",
-    "Real-time game connection ingestion, priority bands, and instant hot-reloading",
-    "Omni Enhancement Suite: Streamer mode, Personal Space Bubble, Player ESP, Anti-AFK, and native ESC settings",
-    "Omni Loadstring & Trust Manager: Manage authorized script URLs, return hashes, and per-script auto-updates (F7)"
-  ],
-  "stages": [
-    {
-      "repoPath": "kernel/KernelTaskManager.lua",
-      "localPath": "autoexec/kernel/KernelTaskManager.lua",
-      "stage": "Kernel",
-      "name": "KernelTaskManager",
-      "desc": "Kernel Task Manager & Runtime Micro-Kernel (Shift + F8)",
-      "sha256": "62ae4581f4102ea6930db7684f740cc855650605f76df96790b64969875623f9"
-    },
-    {
-      "repoPath": "kernel/KernelPacketLogger.lua",
-      "localPath": "autoexec/kernel/KernelPacketLogger.lua",
-      "stage": "Kernel",
-      "name": "KernelPacketLogger",
-      "desc": "Omni Kernel Packet Logger & 0x83 Replication Dissector (Shift + F7)",
-      "sha256": "de1646856695eb2637354ed3f7f425164d86731ad106e4182ee473a8d76c5179"
-    },
-    {
-      "repoPath": "gameloaded/OmniEnhancementSuite.lua",
-      "localPath": "autoexec/gameloaded/OmniEnhancementSuite.lua",
-      "stage": "GameLoaded",
-      "name": "OmniEnhancementSuite",
-      "desc": "Omni Enhancement Suite (Streamer Mode, Space Bubble, Player ESP, Anti-AFK)",
-      "sha256": "0bd123beda0633b4ab6ae9fb163b10aeeeed7ccf0f5dcf8ee9cbd1709a3b7712"
-    },
-    {
-      "repoPath": "gameloaded/OmniLoadstringManager.lua",
-      "localPath": "autoexec/gameloaded/OmniLoadstringManager.lua",
-      "stage": "GameLoaded",
-      "name": "OmniLoadstringManager",
-      "desc": "Omni Loadstring & Trust Manager (F7)",
-      "sha256": "dc2f55eb44a31a25b1915fe53f5851339e5c2bbcf4d4e192827c0ef81fd8e69a"
-    }
-  ]
+    "version":  "1.0.0",
+    "releaseDate":  "2026-10-06",
+    "title":  "Omni v1.0 - Runtime Micro-Kernel \u0026 Enhancement Suite",
+    "lockdown":  false,
+    "lockdown_message":  "Omni remote safety advisory: Core components are paused to protect against detected game/engine changes. Please review the latest update.",
+    "changelog":  [
+                      "Adaptive 6.0ms frame-budgeted bootloader with automated crash recovery and Safe Mode",
+                      "Kernel Task Manager HUD and adaptive loop governor with per-task CPU telemetry (Shift + F8)",
+                      "Zero-trust update transparency gate with line-by-line diff inspection and security scanner (F6)",
+                      "Real-time game connection ingestion, priority bands, and instant hot-reloading",
+                      "Omni Enhancement Suite: Streamer mode, Personal Space Bubble, Player ESP, Anti-AFK, and native ESC settings",
+                      "Omni Loadstring \u0026 Trust Manager: Manage authorized script URLs, return hashes, and per-script auto-updates (F7)"
+                  ],
+    "stages":  [
+                   {
+                       "repoPath":  "kernel/KernelTaskManager.lua",
+                       "localPath":  "autoexec/kernel/KernelTaskManager.lua",
+                       "stage":  "Kernel",
+                       "name":  "KernelTaskManager",
+                       "desc":  "Kernel Task Manager \u0026 Runtime Micro-Kernel (Shift + F8)",
+                       "sha256":  "62ae4581f4102ea6930db7684f740cc855650605f76df96790b64969875623f9"
+                   },
+                   {
+                       "repoPath":  "kernel/KernelPacketLogger.lua",
+                       "localPath":  "autoexec/kernel/KernelPacketLogger.lua",
+                       "stage":  "Kernel",
+                       "name":  "KernelPacketLogger",
+                       "desc":  "Omni Kernel Packet Logger \u0026 0x83 Replication Dissector (Shift + F7)",
+                       "sha256":  "de1646856695eb2637354ed3f7f425164d86731ad106e4182ee473a8d76c5179"
+                   },
+                   {
+                       "repoPath":  "gameloaded/OmniEnhancementSuite.lua",
+                       "localPath":  "autoexec/gameloaded/OmniEnhancementSuite.lua",
+                       "stage":  "GameLoaded",
+                       "name":  "OmniEnhancementSuite",
+                       "desc":  "Omni Enhancement Suite (Streamer Mode, Space Bubble, Player ESP, Anti-AFK)",
+                       "sha256":  "0bd123beda0633b4ab6ae9fb163b10aeeeed7ccf0f5dcf8ee9cbd1709a3b7712"
+                   },
+                   {
+                       "repoPath":  "gameloaded/OmniLoadstringManager.lua",
+                       "localPath":  "autoexec/gameloaded/OmniLoadstringManager.lua",
+                       "stage":  "GameLoaded",
+                       "name":  "OmniLoadstringManager",
+                       "desc":  "Omni Loadstring \u0026 Trust Manager (F7)",
+                       "sha256":  "dc2f55eb44a31a25b1915fe53f5851339e5c2bbcf4d4e192827c0ef81fd8e69a"
+                   }
+               ]
 }
