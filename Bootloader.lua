@@ -466,11 +466,13 @@ end
 getgenv()._OmniCurrentDataModel = currentDM
 
 -- Session duplicate run guard (prevents overlapping concurrent boots)
-if (getgenv()._OmniBootloaderRunning or getgenv()._OmniBootloaderLoaded) and not getgenv()._OmniBootloaderHandoffActive then
+if (getgenv()._OmniBootloaderRunning or getgenv()._OmniBootloaderLoaded) and not getgenv()._OmniBootloaderHandoffActive and not getgenv()._OmniBootloaderRefreshGateOnly then
     print("[Bootloader]: Omni Bootloader is already running/loaded in this session.")
     return
 end
-getgenv()._OmniBootloaderRunning = true
+if not getgenv()._OmniBootloaderRefreshGateOnly then
+    getgenv()._OmniBootloaderRunning = true
+end
 
 if type(isfolder) ~= "function" or type(listfiles) ~= "function" or type(isfile) ~= "function" then
     print("[Bootloader]: Incompatible exploit environment.")
@@ -663,6 +665,7 @@ local promptRemoteScriptSecurity = nil
 local ensureUpdateGateController = nil
 local updateGateController = nil
 local initUpdateGate = nil
+local cachedManifestData = nil
 local isScriptReviewActive = false
 local isScriptReviewPending = false
 local scriptReviewCallback = nil
@@ -1237,6 +1240,9 @@ ensureUpdateGateController = function()
         local ok, gate = pcall(initUpdateGate, gp)
         if ok and type(gate) == "table" then
             updateGateController = gate
+            if cachedManifestData and gate.setManifestData then
+                pcall(gate.setManifestData, cachedManifestData)
+            end
             return gate
         else
             warn("[Omni Security Gate]: initUpdateGate failed: " .. tostring(gate))
@@ -2193,7 +2199,7 @@ if not getgenv()._OmniBootloaderHandoffActive and not SafeMode then
     end
 end
 
-if not SafeMode then
+if not SafeMode and not getgenv()._OmniBootloaderRefreshGateOnly then
     -- Write running lockfile for crash detection during critical init phase
     pcall(writefile, RUNNING_LOCK, tostring(os.time()))
     task.spawn(function()
@@ -4265,7 +4271,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
             currentUpdateData = {
                 isUpdate = false,
                 version = CURRENT_OMNI_VERSION,
-                sha = (type(getLatestCommitSha) == "function" and getLatestCommitSha()) or "main",
+                sha = cachedLatestSha or "main",
                 releaseDate = "2026-10-06",
                 title = "Omni v1.0 - Runtime Micro-Kernel & Enhancement Suite",
                 changelog = {
@@ -4280,19 +4286,17 @@ initUpdateGate = function(guiParent, UpdateBadge)
         end
 
         if currentUpdateData and (not currentUpdateData.sha or currentUpdateData.sha == "main") then
-            local latestSha = (type(getLatestCommitSha) == "function" and getLatestCommitSha())
-            if latestSha and latestSha ~= "main" then
-                local isFrozen = (type(table.isfrozen) == "function" and table.isfrozen(currentUpdateData))
-                if isFrozen then
-                    local cloned = {}
-                    for k, v in pairs(currentUpdateData) do
-                        cloned[k] = v
-                    end
-                    cloned.sha = latestSha
-                    currentUpdateData = cloned
-                else
-                    local ok = pcall(function() currentUpdateData.sha = latestSha end)
-                    if not ok then
+            if cachedLatestSha and cachedLatestSha ~= "main" then
+                local cloned = {}
+                for k, v in pairs(currentUpdateData) do
+                    cloned[k] = v
+                end
+                cloned.sha = cachedLatestSha
+                currentUpdateData = cloned
+            elseif type(getLatestCommitSha) == "function" then
+                task.spawn(function()
+                    local latestSha = getLatestCommitSha()
+                    if latestSha and latestSha ~= "main" and currentUpdateData then
                         local cloned = {}
                         for k, v in pairs(currentUpdateData) do
                             cloned[k] = v
@@ -4300,7 +4304,7 @@ initUpdateGate = function(guiParent, UpdateBadge)
                         cloned.sha = latestSha
                         currentUpdateData = cloned
                     end
-                end
+                end)
             end
         end
 
@@ -5137,6 +5141,31 @@ end
 -- ROOT OF TRUST: UPDATE GATE INSTANTIATION & REMOTE SAFETY ADVISORY
 -- ==============================================================================
 -- Lazy-initialize updateGateController only when needed (never block Frame 0 on teleport/rejoin)
+getgenv().OpenOmniUpdateGate = function()
+    local gate = ensureUpdateGateController()
+    if gate and gate.open then
+        gate.open(false)
+    end
+end
+getgenv().TestOmniUpdateGate = getgenv().OpenOmniUpdateGate
+
+local _lazyUpdateGateHotkeyConn = nil
+_lazyUpdateGateHotkeyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if UserInputService:GetFocusedTextBox() then return end
+    local isShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+    if input.KeyCode == Enum.KeyCode.F5 and isShift then
+        if _lazyUpdateGateHotkeyConn then
+            pcall(function() _lazyUpdateGateHotkeyConn:Disconnect() end)
+            _lazyUpdateGateHotkeyConn = nil
+        end
+        if not updateGateController then
+            local gate = ensureUpdateGateController()
+            if gate and gate.open then
+                gate.open(false)
+            end
+        end
+    end
+end)
 
 -- ==============================================================================
 -- STEP 1: REMOTE SAFETY ADVISORY & COMPONENT FAIL-SAFE
@@ -5193,6 +5222,7 @@ local function checkRemoteSafetyAdvisory()
         end
     end
 
+    cachedManifestData = parsed
     if updateGateController and updateGateController.setManifestData then
         updateGateController.setManifestData(parsed)
     end
@@ -5231,6 +5261,11 @@ local function checkRemoteSafetyAdvisory()
 end
 
 local isSafetyAdvisoryActive = checkRemoteSafetyAdvisory()
+if getgenv()._OmniBootloaderRefreshGateOnly then
+    getgenv()._OmniBootloaderRefreshGateOnly = nil
+    print("[Bootloader]: Hot-registered Shift + F5 Update & Security Gate listener in active session.")
+    return
+end
 if isSafetyAdvisoryActive then
     print("[Bootloader]: Bootloader halted under Remote Safety Advisory. Omni components are paused.")
     return
